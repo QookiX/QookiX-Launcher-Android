@@ -104,6 +104,7 @@ pub async fn save_raw_settings(map: &HashMap<String, Value>) -> Result<()> {
     // 写盘必须是**唯一**的失效入口：缓存与文件不一致的话，用户改完设置不生效才是最难查的 bug
     invalidate_settings_cache();
     // 代理/镜像等设置改变后让缓存的 HTTP 客户端立即重建
+    invalidate_settings_cache();
     crate::util::reset_http_client();
     Ok(())
 }
@@ -306,6 +307,11 @@ pub async fn update_settings(settings: Settings) -> Result<()> {
     let content = serde_json::to_string_pretty(&map)?;
     fs::write(&settings_path, content).await
         .with_context(|| format!("Failed to write settings file: {}", settings_path.display()))?;
+    // ⚠️ 缓存失效必须挂到**每一个**写盘路径：设置有三条写入口
+    // （`save_raw_settings` / `update_settings` / `update_settings_patch`），
+    // 只挂其中一条的后果不是"稍微晚一点生效"，而是「文件写进去了、界面读回旧值」——
+    // 用户看到的就是「设置里怎么调都调不动」。真机踩过（2026-10-11）。
+    invalidate_settings_cache();
     crate::util::reset_http_client();
 
     Ok(())
@@ -335,6 +341,11 @@ pub async fn update_settings_patch(patch: Value) -> Result<()> {
     let content = serde_json::to_string_pretty(&map)?;
     fs::write(&settings_path, content).await
         .with_context(|| format!("Failed to write settings file: {}", settings_path.display()))?;
+    // ⚠️ 缓存失效必须挂到**每一个**写盘路径：设置有三条写入口
+    // （`save_raw_settings` / `update_settings` / `update_settings_patch`），
+    // 只挂其中一条的后果不是"稍微晚一点生效"，而是「文件写进去了、界面读回旧值」——
+    // 用户看到的就是「设置里怎么调都调不动」。真机踩过（2026-10-11）。
+    invalidate_settings_cache();
     crate::util::reset_http_client();
 
     Ok(())

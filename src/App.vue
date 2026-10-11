@@ -16,7 +16,7 @@ import LaunchProgress from "./components/LaunchProgress.vue";
 import CrashDialog from "./components/CrashDialog.vue";
 import RendererHintDialog from "./components/RendererHintDialog.vue";
 import FirstRunSetup from "./components/FirstRunSetup.vue";
-import { IconHome, IconGrid, IconCompass, IconDownload, IconMoreVertical } from "./components/icons";
+import { IconHome, IconGrid, IconCompass, IconDownload, IconMoreVertical, IconUsers } from "./components/icons";
 
 const route = useRoute();
 const router = useRouter();
@@ -73,10 +73,15 @@ const PRIMARY_TABS = computed(() => [
   { name: "home", label: $t("nav.home"), icon: IconHome, to: "/" },
   { name: "instances", label: $t("nav.instances"), icon: IconGrid, to: "/instances" },
   { name: "browse", label: $t("nav.browse"), icon: IconCompass, to: "/browse" },
+  // 「多人」从「更多」提到栏里（用户要求：默认 6 格）。
+  // 它是联机类功能的总入口：本地服务器 / 陶瓦联机 / MohuaFrp / 联机房间都在里面。
+  { name: "multiplayer", label: $t("nav.multiplayer"), icon: IconUsers, to: "/multiplayer" },
 ]);
 
 /** 「更多」页收纳的那些路由（用于判断「更多」这格何时点亮） */
-const MORE_ROUTES = ["/more", "/multiplayer", "/skins", "/news", "/settings"];
+// `/multiplayer` 已经提到栏里；`/frp`（MohuaFrp）与 `/frp-rooms`（联机房间）
+// 统一从多人页进入，不再挂在「更多」下面。
+const MORE_ROUTES = ["/more", "/skins", "/news", "/settings"];
 
 /** 当前页对应的入口名（Vant Tabbar 的选中态来源） */
 const activeTab = computed(() => {

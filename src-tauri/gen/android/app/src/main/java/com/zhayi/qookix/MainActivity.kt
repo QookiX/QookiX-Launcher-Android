@@ -853,6 +853,47 @@ class MainActivity : TauriActivity() {
       }
     }
 
+    /** 看门狗用的日志标签（不用类里那个 TAG：它在别的作用域里） */
+    private val UI_WATCH_TAG = "QookiX-UI"
+
+    // ── WebView 看门狗 ─────────────────────────────────────────────────────
+    //
+    // 真机反复遇到「界面帧不动、点什么都没反应，但进程活着、系统也不报 ANR」：
+    // `ps` 里 WebView 的渲染进程已经没了（主线程没卡所以没有 ANR），用户只能强杀重开。
+    // 这里每 15 秒问 WebView 一句；5 秒都没回调就判定它挂了 → 记日志 + 自动重建界面
+    // （等价于用户手动强杀重开，只是自动的，而且会留下日志供排查）。
+    private var uiWatchdog: android.os.Handler? = null
+    private var uiQuestioned = true
+
+    override fun onWebViewCreate(webView: android.webkit.WebView) {
+      super.onWebViewCreate(webView)
+      installUiWatchdog(webView)
+    }
+
+    private fun installUiWatchdog(webView: android.webkit.WebView) {
+      if (uiWatchdog != null) return
+      val handler = android.os.Handler(android.os.Looper.getMainLooper())
+      uiWatchdog = handler
+      val tick = object : Runnable {
+        override fun run() {
+          uiQuestioned = false
+          runCatching { webView.evaluateJavascript("1") { uiQuestioned = true } }
+            .onFailure { uiQuestioned = false }
+          handler.postDelayed({
+            if (uiQuestioned || isFinishing || isDestroyed) {
+              handler.postDelayed(this, 15_000L)
+            } else {
+              Log.w(UI_WATCH_TAG, "WebView 无响应（渲染进程可能已退出），自动重建界面")
+              runCatching { recreate() }.onFailure {
+                Log.e(UI_WATCH_TAG, "重建界面失败：${it.message}")
+              }
+            }
+          }, 5_000L)
+        }
+      }
+      handler.postDelayed(tick, 15_000L)
+    }
+
     /** 与 [readPickedControlLayout] 共用的校验 + 落盘；返回统计 JSON。 */
     private fun acceptLayoutText(text: String): String {
       return runCatching {

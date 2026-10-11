@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { t as $t } from "../i18n";
 import { computed, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useMessage } from "../composables/message";
 import { Button as VanButton, Progress as VanProgress } from "vant";
 import { api } from "../api";
@@ -84,6 +84,24 @@ const inst = computed(() => instances.get(instanceId));
  * 「缺什么」和「补全」摆到启动按钮下面。
  */
 const fileReport = ref<InstanceFileReport | null>(null);
+
+/**
+ * 共享游戏文件的占用（版本目录 / Java 可归属到本实例；库与素材是共享池，只报总量）。
+ *
+ * 为什么要在「文件」页显示它：游戏本体**不在实例目录里**，刚建的实例目录里只有一个
+ * `instance.json` —— 用户看到会以为"什么都没下"（真机反馈过，我也被问到）。
+ * 顺带给出「存储」入口，让"占了多少 / 能不能清"有个明确的去处。
+ */
+const router = useRouter();
+const sharedUsage = ref<Awaited<ReturnType<typeof api.sharedGameUsage>> | null>(null);
+async function loadSharedUsage() {
+  try {
+    sharedUsage.value = await api.sharedGameUsage(instanceId);
+  } catch {
+    // 统计失败不该影响文件页本身（少一张卡而已），静默降级
+    sharedUsage.value = null;
+  }
+}
 const repairing = ref(false);
 
 /** 有可修的项才给按钮；全是 `fixable:false`（如加载器没有对应版本）时按钮禁用 */
@@ -121,6 +139,8 @@ async function repair() {
 }
 
 onMounted(checkFiles);
+// 共享占用与「缺文件」检查各走各的：一个失败不该让另一个也不显示
+onMounted(loadSharedUsage);
 
 /**
  * 内容页签里的分类：模组 / 资源包 / 光影。
@@ -241,7 +261,27 @@ async function launch() {
       <SavesTab v-else-if="tab === 'saves'" :instance-id="instanceId" />
       <KeysTab v-else-if="tab === 'keys'" :instance-id="instanceId" />
       <SettingsTab v-else-if="tab === 'settings'" :instance-id="instanceId" />
-      <FileManager v-else-if="tab === 'files'" :instance-id="instanceId" />
+      <div v-else-if="tab === 'files'" class="files-pane">
+        <!-- 游戏本体（版本 / 库 / 素材 / Java）是**全局共享**的，不在这个实例目录里：
+             刚建的实例里只有一个 instance.json，不说明白会让人以为"什么都没下"。 -->
+        <div v-if="sharedUsage" class="shared-card glass">
+          <div class="shared-title">{{ $t("instance-detail.shared-title") }}</div>
+          <div class="shared-line">
+            {{ $t("instance-detail.shared-version", { p1: sharedUsage.mcVersion, p2: fmtBytes(sharedUsage.versionBytes) }) }}
+          </div>
+          <div class="shared-line">
+            {{ $t("instance-detail.shared-java", { p1: `Java ${sharedUsage.javaVersion}`, p2: fmtBytes(sharedUsage.javaBytes) }) }}
+          </div>
+          <div class="shared-line">
+            {{ $t("instance-detail.shared-pool", { p1: fmtBytes(sharedUsage.librariesBytes), p2: fmtBytes(sharedUsage.assetsBytes) }) }}
+          </div>
+          <div class="shared-hint">{{ $t("instance-detail.shared-hint") }}</div>
+          <button class="shared-go" @click="router.push('/settings/storage')">
+            {{ $t("instance-detail.shared-manage") }}
+          </button>
+        </div>
+        <FileManager :instance-id="instanceId" />
+      </div>
       <LogViewer v-else-if="tab === 'logs'" :instance-id="instanceId" />
       <CrashAnalyzer v-else-if="tab === 'crash'" :instance-id="instanceId" />
     </div>
@@ -249,6 +289,46 @@ async function launch() {
 </template>
 
 <style scoped>
+/* 「文件」页顶部的共享文件占用卡 */
+.files-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+.shared-card {
+  padding: 12px 14px;
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+.shared-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.shared-line {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+.shared-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.shared-go {
+  margin-top: 8px;
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 17px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13px;
+}
 .dv {
   height: 100%;
   display: flex;

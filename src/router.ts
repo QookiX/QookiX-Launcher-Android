@@ -18,6 +18,9 @@ const router = createRouter({
     // 直接退回上一个页面（用户实测：更多→设置→常规，返回却退到了「更多」）
     { path: "/settings/:tab?", name: "settings", component: () => import("./views/SettingsView.vue"), meta: { title: $t("router.settings"), icon: "settings" } },
     { path: "/skins", name: "skins", component: () => import("./views/SkinView.vue"), meta: { title: $t("router.user"), icon: "user" } },
+    { path: "/frp", name: "frp", component: () => import("./views/FrpView.vue"), meta: { title: $t("nav.frp"), icon: "globe" } },
+    // XTCP 联机房间：和隧道页分开是因为两种模式的体验不同（房间需要双方都跑 frpc）
+    { path: "/frp-rooms", name: "frp-rooms", component: () => import("./views/FrpRoomsView.vue"), meta: { title: $t("nav.frp-rooms"), icon: "globe" } },
     // 手机底栏第 5 格：底栏放不下的入口都收在这里（见 views/MoreView.vue 的注释）
     { path: "/more", name: "more", component: () => import("./views/MoreView.vue"), meta: { title: $t("nav.more"), icon: "more" } },
   ],

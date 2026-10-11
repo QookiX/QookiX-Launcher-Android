@@ -27,6 +27,8 @@ param(
     [string]$ComponentsVersion = "3.4.1-3",
     [string]$RendererVersion = "1.0.1",
     [string]$DriverVersion = "1.0.1",
+    # frpc 的版本号就跟着上游走（方便一眼看出装的是哪个 frpc）
+    [string]$FrpcVersion = "0.71.0",
     # 只打某一类/某个 id（comma 分隔的 kind 或 id，例如 "renderer" / "qookix-renderer-mobileglues"）
     [string[]]$Only = @()
 )
@@ -51,6 +53,26 @@ $pluginLibs = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Par
 # ── 插件定义表 ───────────────────────────────────────────────────────────────
 # pack 决定「从哪凑文件」；renderers 是 v2 的匹配键（设置里选的渲染器名）。
 $defs = @(
+    # frpc（内网穿透客户端）。放进插件通道的意义：**不出启动器新版本也能更新 frpc**
+    # （上游发版比我发版快得多）。包里就是那个静态可执行文件，但从 `libs/` 走 ——
+    # 安装器的解压白名单只收 jar/so/json，没有扩展名的可执行文件会被直接丢掉。
+    # 路径查找见 src-tauri/src/frp.rs：插件优先、APK 里那份兜底。
+    [ordered]@{
+        id = "qookix-frpc"
+        name = "frpc 隧道客户端"
+        summary = "内网穿透用的 frpc。装了它才能在「FRP 隧道」页启停隧道；不装则用随包自带的那份。"
+        version = $FrpcVersion
+        kind = "tool"
+        renderers = @()
+        layout = [ordered]@{ librarypath = "libs" }
+        pack = "libs"
+        libs = @("libfrpc.so")
+        notice = @(
+            "frp（frpc 客户端）—— Apache-2.0，未作修改",
+            "  上游：https://github.com/fatedier/frp",
+            "  说明：本包把它作为独立可执行文件分发，未修改其代码。"
+        )
+    }
     [ordered]@{
         id = "qookix-components-lwjgl341"
         name = "LWJGL 3.4.1 + SDL3 组件包"

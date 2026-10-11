@@ -14,7 +14,7 @@ import { t as $t } from "../i18n";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { useSettingsStore } from "../stores/settings";
-import { IconNewspaper, IconSettings, IconUser, IconUsers } from "../components/icons";
+import { IconNewspaper, IconSettings, IconUser } from "../components/icons";
 
 const router = useRouter();
 const settings = useSettingsStore();
@@ -22,7 +22,7 @@ const settings = useSettingsStore();
 /** 入口清单：与底栏「更多」的含义一致（去掉底栏已有的首页/实例/内容/下载） */
 const entries = computed(() => {
   const list = [
-    { name: "multiplayer", label: $t("nav.multiplayer"), icon: IconUsers, to: "/multiplayer" },
+    // 「多人」已经提到侧栏；MohuaFrp 与联机房间都从多人页进 —— 这里不再重复挂入口
     { name: "skins", label: $t("nav.skins"), icon: IconUser, to: "/skins" },
   ];
   if (settings.settings?.show_news ?? true) {

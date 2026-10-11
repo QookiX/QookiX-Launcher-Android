@@ -351,6 +351,19 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="mp">
+    <!-- 联机类功能的**总入口**都在这一页：本地服务器与陶瓦联机在下面两个分区，
+         这里再加「MohuaFrp」与「联机房间」两项 —— 它们同属一个内网穿透服务，
+         联机房间只是它的另一种模式（XTCP：双方都要跑 frpc），所以并排放一起。 -->
+    <section class="sec">
+      <div class="sec-head">
+        <h2 class="sec-title">{{ $t("multiplayer.sec-online") }}</h2>
+      </div>
+      <!-- 只放一个入口：联机房间是 MohuaFrp 内部的另一种模式，已经在那一页里了 -->
+      <button class="hub-row glass" @click="router.push('/frp')">
+        <span class="hub-name">{{ $t("nav.frp") }}</span>
+        <span class="hub-desc">{{ $t("multiplayer.mohua-frp-desc") }}</span>
+      </button>
+    </section>
     <!-- 手机：这个页面只有「本地服务器」一件事，原来那个「Minecraft 新闻」tab 里
          只有两句提示、没有真实内容（新闻已经有独立的页面），属于多余入口，去掉。 -->
     <!-- 「创建服务器」按钮必须**常驻**：以前它只长在下面的 van-empty 里，
@@ -487,6 +500,33 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 联机入口卡（MohuaFrp / 联机房间）：整行可点，标题 + 一行说明 */
+.hub-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 14px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text-1);
+  font-family: inherit;
+  text-align: left;
+}
+.hub-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.hub-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+  white-space: normal;
+}
+
 .mp {
   padding: 4px 16px 16px;
   display: flex;

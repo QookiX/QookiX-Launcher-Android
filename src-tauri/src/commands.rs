@@ -7,6 +7,7 @@ use crate::download;
 use crate::launch;
 use crate::modpack;
 use crate::hangar;
+use crate::frp;
 use crate::browse;
 use crate::{pins, groups, mirror, storage, crash, skins, servers, world_backup, playtime, util, fsutil};
 use serde_json::{json, Value};
@@ -422,6 +423,139 @@ pub fn list_server_plugins(server_id: String) -> Result<Vec<Value>, String> {
 #[command]
 pub fn delete_server_plugin(server_id: String, file_name: String) -> Result<(), String> {
     hangar::delete_plugin(&server_id, &file_name).map_err(|e| e.to_string())
+}
+
+// ==================== FRP 隧道（面板登录 / 隧道进程）====================
+
+/// 面板状态：地址、是否已登录、用户名、frpc 是否随包就绪
+#[command]
+pub async fn frp_status() -> Value {
+    frp::status().await
+}
+
+#[command]
+pub async fn frp_set_api_base(api_base: String) -> Result<Value, String> {
+    frp::set_api_base(api_base).await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_login_start() -> Result<Value, String> {
+    frp::login_start().await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_login_poll(session: String) -> Result<Value, String> {
+    frp::login_poll(session).await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_logout() -> Result<(), String> {
+    frp::logout().await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_user_info() -> Result<Value, String> {
+    frp::user_info().await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_tunnels() -> Result<Vec<frp::TunnelInfo>, String> {
+    frp::tunnels().await.map_err(|e| e.to_string())
+}
+
+/// 启动一条隧道（已经把配置写好、frpc 起来了才算成功）
+#[command]
+pub async fn frp_start_tunnel(tunnel_id: i64) -> Result<Value, String> {
+    frp::start_tunnel(tunnel_id).await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn frp_stop_tunnel(tunnel_id: i64) -> Result<(), String> {
+    frp::stop_tunnel(tunnel_id).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn frp_running() -> Vec<Value> {
+    frp::running_list()
+}
+
+#[command]
+pub fn frp_tunnel_log(tunnel_id: i64) -> Result<String, String> {
+    frp::tunnel_log(tunnel_id).map_err(|e| e.to_string())
+}
+
+/// 自检：执行随包 frpc 的 `--version`。同时验证「这台设备允许不允许执行 APK 里的
+/// 原生库目录」—— 安卓 10+ 有 W^X 限制，这是整个功能的前提。
+#[command]
+pub async fn frp_probe() -> Result<String, String> {
+    frp::probe().await.map_err(|e| e.to_string())
+}
+
+// ── XTCP 联机房间（房主-访问者模式，双方都要跑 frpc）────────────────────
+
+/// 建房可选的节点
+#[command]
+pub async fn frp_room_nodes() -> Result<Vec<frp::RoomNode>, String> {
+    frp::room_nodes().await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_room_list(page: i64) -> Result<Value, String> {
+    frp::room_list(page).await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_room_detail(room_id: i64) -> Result<Value, String> {
+    frp::room_detail(room_id).await.map_err(|e| e.to_string())
+}
+
+/// 建房（面板会返回房主端 frpc 配置与审核状态）
+#[command]
+pub async fn frp_room_create(
+    name: String,
+    node_id: i64,
+    local_port: i64,
+    password: Option<String>,
+) -> Result<Value, String> {
+    frp::room_create(name, node_id, local_port, password)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_room_join(room_id: i64, password: Option<String>) -> Result<Value, String> {
+    frp::room_join(room_id, password)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_room_leave(room_id: i64) -> Result<Value, String> {
+    frp::room_leave(room_id).await.map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_room_close(room_id: i64) -> Result<Value, String> {
+    frp::room_close(room_id).await.map_err(|e| e.to_string())
+}
+
+/// 房主端：起 frpc 把本地端口经 XTCP 暴露出去
+#[command]
+pub async fn frp_room_host_start(room_id: i64) -> Result<Value, String> {
+    frp::room_host_start(room_id).await.map_err(|e| e.to_string())
+}
+
+/// 访问端：起 frpc 把房主的代理绑到本地端口（返回值里有 `connect`）
+#[command]
+pub async fn frp_room_visitor_start(room_id: i64) -> Result<Value, String> {
+    frp::room_visitor_start(room_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn frp_room_stop(room_id: i64) -> Result<Value, String> {
+    frp::room_stop(room_id).await.map_err(|e| e.to_string())
 }
 
 #[command]

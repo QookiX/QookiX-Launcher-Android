@@ -1437,7 +1437,9 @@ pub fn hosted_server_core_installed(id: String) -> bool {
 ///
 /// 26.3 实测就是 Java 25 —— 用户日志里那行 `runtimes/JRE-25` 即由此而来。
 /// 取不到版本号时按 8 走（最宽松，任何已装 JRE 都能满足它）。
-fn required_java_for_mc(mc_version: &str) -> i32 {
+/// MC 版本 → 需要的 Java 大版本。`pub(crate)`：实例补全也要用它
+/// （见 `instance_files::ensure_instance_java`），别在那边再抄一份映射。
+pub(crate) fn required_java_for_mc(mc_version: &str) -> i32 {
     let mut it = mc_version.split('.').filter_map(|p| p.parse::<i32>().ok());
     let major = it.next().unwrap_or(1);
     let minor = it.next().unwrap_or(0);

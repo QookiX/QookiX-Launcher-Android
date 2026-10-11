@@ -22,6 +22,7 @@ mod java;
 mod accounts;
 mod modpack;
 mod hangar;
+mod frp;
 mod servers;
 /// 服务器空闲休眠与唤醒（无人时停服省电，有人连接自动拉起）。
 mod sleep;
@@ -93,6 +94,10 @@ pub fn run() {
     servers::list_paper_versions,
     instance_files::check_instance_files,
     instance_files::repair_instance_files,
+    // 共享游戏文件（版本/库/素材/Java）的占用统计与清理
+    instance_files::shared_game_usage,
+    instance_files::plan_instance_cleanup,
+    instance_files::cleanup_instance_shared,
     servers::install_hosted_server_core,
     server_files::list_hosted_server_dir,
     server_files::read_hosted_server_file,
@@ -181,6 +186,32 @@ pub fn run() {
             commands::install_server_plugin,
             commands::list_server_plugins,
             commands::delete_server_plugin,
+
+            // FRP 隧道：面板登录 / 用户信息 / 隧道列表 / 启停 frpc
+            commands::frp_status,
+            commands::frp_set_api_base,
+            commands::frp_login_start,
+            commands::frp_login_poll,
+            commands::frp_logout,
+            commands::frp_user_info,
+            commands::frp_tunnels,
+            commands::frp_start_tunnel,
+            commands::frp_stop_tunnel,
+            commands::frp_running,
+            commands::frp_tunnel_log,
+            commands::frp_probe,
+
+            // FRP 联机房间（XTCP）：节点 / 房间列表 / 详情 / 建房 / 进出房 / 关房
+            commands::frp_room_nodes,
+            commands::frp_room_list,
+            commands::frp_room_detail,
+            commands::frp_room_create,
+            commands::frp_room_join,
+            commands::frp_room_leave,
+            commands::frp_room_close,
+            commands::frp_room_host_start,
+            commands::frp_room_visitor_start,
+            commands::frp_room_stop,
             commands::install_mod,
             commands::uninstall_mod,
             commands::get_installed_mods,

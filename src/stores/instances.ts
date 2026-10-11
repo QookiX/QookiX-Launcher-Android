@@ -3,6 +3,10 @@ import { defineStore } from "pinia";
 import { api } from "../api";
 import type { Instance, InstanceFileReport, InstanceGroup } from "../types";
 import { autoRendererFor, effectiveRendererKey, rendererLabel } from "../utils/renderer";
+import { fmtBytes } from "../utils/format";
+// 命令式弹窗：这个 store 要在「删实例」之后问一句共享文件要不要清，
+// 用 vant 的命令式 API 就不必给每个调用方都接一遍对话框（调用方零改动）。
+import { showConfirmDialog, showToast } from "vant";
 
 /** 启动前的渲染器确认（由全局弹窗消费），见 `rendererGuard`。 */
 export interface RendererGuard {
@@ -172,8 +176,35 @@ export const useInstancesStore = defineStore("instances", {
       if (idx >= 0) this.instances[idx] = inst;
       return inst;
     },
+    /**
+     * 删除实例。
+     *
+     * 删完顺带问一句：**这套共享文件要不要一起清掉**。
+     * 游戏本体（`versions/` `libraries/` `assets/` `runtimes/`）是全局共享的，
+     * **删实例不会回收它** —— 几百 MB 会一直留着，而用户在界面上完全看不出来
+     * （真机反馈：明明只建过一个实例，空间却被占着，还以为是启动器下错了）。
+     * 只有「没有别的实例在用同一版本 / 同一 Java 大版本」时才打扰用户。
+     */
     async remove(id: string) {
       await api.deleteInstance(id);
+      try {
+        const plan = await api.planInstanceCleanup(id);
+        if (plan.totalBytes > 0) {
+          await showConfirmDialog({
+            title: $t("instances.cleanup-title"),
+            message: $t("instances.cleanup-msg", {
+              p1: fmtBytes(plan.totalBytes),
+              p2: plan.mcVersion,
+            }),
+            confirmButtonText: $t("instances.cleanup-confirm"),
+            cancelButtonText: $t("common.cancel"),
+          });
+          const r = await api.cleanupInstanceShared(id);
+          showToast($t("instances.cleanup-done", { p1: fmtBytes(r.freedBytes) }));
+        }
+      } catch {
+        // 用户点了取消，或统计/清理失败：都不影响"实例已删除"这个事实，静默跳过
+      }
       await this.load(true);
     },
     async installGame(id: string) {

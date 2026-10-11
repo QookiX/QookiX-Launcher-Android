@@ -362,6 +362,162 @@ export const api = {
     invoke<{ fileName: string; size: number }[]>("list_server_plugins", { serverId }),
   deleteServerPlugin: (serverId: string, fileName: string) =>
     invoke<void>("delete_server_plugin", { serverId, fileName }),
+
+  // ── FRP 隧道（内网穿透）──────────────────────────────────────────────
+  // 只做三件事：设备码登录 → 用户信息 / 隧道列表 → 启停隧道进程。
+  // 建隧道与联机房间都在面板网页上做。`device_code` 留在后端，前端只会看到用户码。
+  frpStatus: () =>
+    invoke<{
+      apiBase: string;
+      loggedIn: boolean;
+      username: string;
+      expiresAt: number;
+      frpc: { ready: boolean; detail: string };
+    }>("frp_status", undefined, { silent: true }),
+  frpSetApiBase: (apiBase: string) => invoke<void>("frp_set_api_base", { apiBase }),
+  frpLoginStart: () =>
+    invoke<{ session: string; userCode: string; verificationUri: string; expiresIn: number; interval: number }>(
+      "frp_login_start",
+    ),
+  /** 一次轮询（后端会先等 interval 秒）；`status` 为 pending 时继续轮 */
+  frpLoginPoll: (session: string) =>
+    invoke<{ status: "pending" | "authorized" | "expired" | "denied"; username?: string; message?: string }>(
+      "frp_login_poll",
+      { session },
+    ),
+  frpLogout: () => invoke<void>("frp_logout"),
+  frpUserInfo: () =>
+    invoke<Record<string, unknown>>("frp_user_info", undefined, { silent: true }),
+  frpTunnels: () =>
+    invoke<
+      {
+        id: number;
+        name: string;
+        protocol: string;
+        localIp: string;
+        localPort: number;
+        remotePort: number;
+        customDomain: string;
+        status: string;
+        nodeName: string;
+        nodeHostname: string;
+        nodePort: number;
+        bandwidthLimit: number;
+        expireTime: number;
+        packageName: string;
+        address: string;
+      }[]
+    >("frp_tunnels", undefined, { silent: true }),
+  frpStartTunnel: (tunnelId: number) =>
+    invoke<{ name: string; address: string; alreadyRunning: boolean }>("frp_start_tunnel", { tunnelId }),
+  frpStopTunnel: (tunnelId: number) => invoke<void>("frp_stop_tunnel", { tunnelId }),
+  frpRunning: () =>
+    invoke<
+      {
+        tunnelId: number;
+        name: string;
+        address: string;
+        startedAt: number;
+        alive: boolean;
+        exit?: string;
+        logTail?: string;
+      }[]
+    >("frp_running", undefined, { silent: true }),
+  frpTunnelLog: (tunnelId: number) => invoke<string>("frp_tunnel_log", { tunnelId }),
+  /** 自检：跑一次随包 frpc 的 --version（同时验证设备是否允许执行 APK 里的二进制） */
+  frpProbe: () => invoke<string>("frp_probe"),
+
+  // ── XTCP 联机房间 ────────────────────────────────────────────────────
+  // 房间是「房主-访问者」模式：**双方都要跑 frpc**（和上面 TCP 直连不同 ——
+  // 那种只有房主跑，客人用任意客户端连 `节点:远端端口`）。
+  // 房主跑一条 xtcp 代理把本地端口暴露出去，访问者跑一条 xtcp 访问器绑到本地端口。
+  /** 建房可选的节点 */
+  frpRoomNodes: () =>
+    invoke<{ id: number; name: string; description: string; hostname: string; online: boolean }[]>(
+      "frp_room_nodes",
+      undefined,
+      { silent: true },
+    ),
+  frpRoomList: (page = 1) =>
+    invoke<{
+      rooms: {
+        id: number;
+        name: string;
+        gameName: string;
+        status: string;
+        maxPlayers: number;
+        hostUid: number;
+        hostName: string;
+        hasPassword: boolean;
+        description: string;
+        /** `pending` = 审核中，别人搜不到 */
+        reviewStatus: string;
+        reviewReason?: string | null;
+        createdAt: string;
+        playerCount: number;
+        isHost: boolean;
+      }[];
+      total: number;
+      page: number;
+      pageSize: number;
+    }>("frp_room_list", { page }, { silent: true }),
+  frpRoomDetail: (roomId: number) =>
+    invoke<Record<string, unknown>>("frp_room_detail", { roomId }, { silent: true }),
+  /** 建房；面板会返回房主端 frpc 配置与审核状态 */
+  frpRoomCreate: (name: string, nodeId: number, localPort: number, password?: string) =>
+    invoke<{ room_id?: number; tunnel_id?: number; review_status?: string; host_config?: string }>(
+      "frp_room_create",
+      { name, nodeId, localPort, password: password ?? null },
+    ),
+  frpRoomJoin: (roomId: number, password?: string) =>
+    invoke<Record<string, unknown>>("frp_room_join", { roomId, password: password ?? null }),
+  frpRoomLeave: (roomId: number) => invoke<Record<string, unknown>>("frp_room_leave", { roomId }),
+  frpRoomClose: (roomId: number) => invoke<Record<string, unknown>>("frp_room_close", { roomId }),
+  /** 房主端：起 frpc 暴露本地端口 */
+  frpRoomHostStart: (roomId: number) =>
+    invoke<{ roomId: number; tunnelId: number; name: string; local: string }>(
+      "frp_room_host_start",
+      { roomId },
+    ),
+  /** 访问端：起 frpc 把房主的代理绑到本地端口；把 `connect` 给用户去连 */
+  frpRoomVisitorStart: (roomId: number) =>
+    invoke<{ roomId: number; tunnelId: number; bindPort: number; connect: string }>(
+      "frp_room_visitor_start",
+      { roomId },
+    ),
+  frpRoomStop: (roomId: number) =>
+    invoke<{ roomId: number; tunnelId: number }>("frp_room_stop", { roomId }),
+
+  // ── 共享游戏文件（版本 / 库 / 素材 / Java）───────────────────────────
+  // 游戏本体是**全局共享**的，不在实例目录里 —— 所以「文件」页只看得到 instance.json，
+  // 而删实例也不会回收它。下面三个接口分别用来：显示占用、算能不能清、清掉。
+  /** 这套文件占了多少（版本目录与 Java 可归属到实例；库/素材是共享池，只报总量） */
+  sharedGameUsage: (instanceId: string) =>
+    invoke<{
+      mcVersion: string;
+      versionBytes: number;
+      javaVersion: number;
+      javaBytes: number;
+      librariesBytes: number;
+      assetsBytes: number;
+      instancesTotal: number;
+    }>("shared_game_usage", { instanceId }, { silent: true }),
+  /** 删实例前算：这套文件还有没有别的实例在用，能不能顺带清 */
+  planInstanceCleanup: (instanceId: string) =>
+    invoke<{
+      mcVersion: string;
+      javaVersion: number;
+      versionBytes: number;
+      javaBytes: number;
+      totalBytes: number;
+      othersSameVersion: number;
+      othersSameJava: number;
+      canCleanVersion: boolean;
+      canCleanJava: boolean;
+    }>("plan_instance_cleanup", { instanceId }, { silent: true }),
+  /** 清掉该实例独占的共享文件，返回释放的字节数 */
+  cleanupInstanceShared: (instanceId: string) =>
+    invoke<{ freedBytes: number }>("cleanup_instance_shared", { instanceId }),
   importInstanceImage: (sourcePath: string) => invoke<string>("import_instance_image", { sourcePath }),
   importBackgroundImage: (sourcePath: string) => invoke<string>("import_background_image", { sourcePath }),
   scanMinecraftImport: (source: string) => invoke<void>("scan_minecraft_import", { source }),
