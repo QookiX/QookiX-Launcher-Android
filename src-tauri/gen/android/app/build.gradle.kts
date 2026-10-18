@@ -3,6 +3,8 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    // Kotlin 2.0 起 Compose 编译器由官方插件提供
+    id("org.jetbrains.kotlin.plugin.compose")
     id("rust")
 }
 
@@ -76,6 +78,11 @@ android {
     }
     buildFeatures {
         buildConfig = true
+        // ── Jetpack Compose（启动器界面重构）────────────────────────────────
+        // 目标：把启动器 UI 从 WebView(Vue) 换成原生 Compose + Material 3。
+        // 编译器由 org.jetbrains.kotlin.plugin.compose 提供（Kotlin 2.0+ 不再用
+        // composeOptions.kotlinCompilerExtensionVersion）。
+        compose = true
     }
     // 第二个 assets 源目录：放「游戏组件」这类大体积随包文件（LWJGL 3.4.1 jar/natives、
     // SDL3 等）。**不能**放 src/main/assets —— 那个目录是前端（vite）的 outDir，
@@ -126,6 +133,67 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
+
+    // ── Jetpack Compose + Material 3（启动器界面重构）────────────────────────
+    // Compose 编译器随 Kotlin 版本走（本工程 = 2.0.21，由 plugin.compose 提供）。
+    implementation(platform("androidx.compose:compose-bom:2025.04.01"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material3:material3-window-size-class")
+    implementation("androidx.compose.material:material-icons-extended")
+    // 自适应布局：ListDetailPaneScaffold 等（横屏/平板分栏用）
+    implementation("androidx.compose.material3.adaptive:adaptive")
+    implementation("androidx.compose.material3.adaptive:adaptive-layout")
+    // 导航（Compose 侧路由）
+    implementation("androidx.navigation:navigation-compose:2.8.9")
+    // ViewModel + Compose 互操作
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    // 宿主 Activity：enableEdgeToEdge + setContent
+    implementation("androidx.activity:activity-compose:1.10.1")
+
+    // ── 生态库：让界面「活起来」的那些 ──────────────────────────────────────
+    // ⚠️ 版本选择受一个硬约束：本工程编译器是 **Kotlin 2.0.21**，
+    //    读不了用更新 Kotlin 编译的库的 metadata（报
+    //    "binary version of its metadata is 2.3.0, expected 2.0.0"）。
+    //    所以下面每个库的版本都必须是 **Kotlin ≤ 2.0.x 编译**的。
+    //    实测：shimmer 1.4.0 / reorderable 2.4.3 都不行（2.3.20 编的），
+    //    已降到可用版本。将来升级 Kotlin 后可同步升级这些。
+    //
+    // 图片加载（实例图标 / 皮肤缩略图 / 新闻配图）：内存+磁盘缓存、占位图、淡入
+    implementation("io.coil-kt.coil3:coil-compose:3.0.4")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
+    // 加载骨架屏（shimmer 扫光）
+    implementation("com.valentinilk.shimmer:compose-shimmer:1.3.2")
+    // 列表拖拽排序
+    implementation("sh.calvin.reorderable:reorderable:2.3.3")
+    // Lottie 动画
+    implementation("com.airbnb.android:lottie-compose:6.6.2")
+
+    debugImplementation(platform("androidx.compose:compose-bom:2025.04.01"))
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // ── 兜底：把 kotlin-stdlib 钉在本工程的编译器版本上 ─────────────────────
+    // 为什么必须钉：部分生态库（实测 shimmer 1.4.0、reorderable 2.4.3）
+    // 是用**更新的 Kotlin**（2.3.20）编的，会把 stdlib 抬到 2.3.20；
+    // 而本工程编译器是 2.0.21 —— 编译器读不了更新版本的 metadata，报
+    // FileAnalysisException / "Module was compiled with an incompatible Kotlin"。
+    //
+    // ⚠️ 用 configurations.all + resolutionStrategy.force，**不能**用 constraints：
+    //   这些库的 POM 里是 `strictly 2.3.20`，constraints 优先级压不过它；
+    //   force 是 Gradle 里唯一能覆盖 strictly 的手段。
+    configurations.all {
+        resolutionStrategy {
+            force(
+                "org.jetbrains.kotlin:kotlin-stdlib:2.0.21",
+                "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21",
+                "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21",
+                "org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21",
+            )
+        }
+    }
 }
 
 apply(from = "tauri.build.gradle.kts")

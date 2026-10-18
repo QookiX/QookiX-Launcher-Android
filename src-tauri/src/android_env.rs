@@ -415,7 +415,27 @@ pub fn preload_jre_libraries(jre_home: &Path) -> usize {
     const SKIP: [&str; 1] = ["libjsig.so"];
 
     let mut pending: Vec<std::path::PathBuf> = Vec::new();
-    for sub in ["lib", "lib/server", "lib/client"] {
+    // ⚠️⚠️ 顺序有讲究：**必须先 `lib/server`，再 `lib`**（2026-10-16 修）。
+    //
+    // 踩过的坑（真机实测，表现是「游戏启动直接闪退、只留一行 LinkageError」）：
+    //
+    //   `lib/` 里有 `libjawt.so` / `libawt_headless.so` / `libawt.so`，
+    //   它们 `DT_NEEDED` 了 **`libjvm.so`** —— 而 `libjvm.so` 只在 `lib/server/`。
+    //
+    //   原来的顺序是 `["lib", "lib/server", ...]`，于是第一轮先尝试
+    //   `lib/libjawt.so` → 它的依赖 `libjvm.so` 还没进全局表 → 失败，
+    //   报的却是外层那个已经存在的库：
+    //       dlopen failed: library "libawt_headless.so" not found
+    //          (needed by .../lib/libjawt.so in namespace clns-9)
+    //   **报错信息把真正缺的东西指向了错误的方向**，非常容易误判成"缺文件"。
+    //
+    //   后果：AWT 相关库全部加载不上 → MC 客户端 `Main` 静态初始化碰 AWT →
+    //   `ExceptionInInitializerError: null` → JVM 在异常路径上再初始化模块系统
+    //   也失败（`SystemModuleFinders$SystemImage`）→ 进程退出。
+    //
+    //   服务端（Paper）**不碰 AWT**，所以同一个 JRE 下服务端一直正常 ——
+    //   这个对比是定位问题的关键线索。
+    for sub in ["lib/server", "lib", "lib/client"] {
         collect_so_files(&jre_home.join(sub), &mut pending);
     }
     pending.retain(|path| {
@@ -443,6 +463,11 @@ pub fn preload_jre_libraries(jre_home: &Path) -> usize {
         attempt += 1;
     for _ in 0..4 {
         let mut next = Vec::new();
+        // 每轮清空：last_error 只在失败时赋值，不清的话早期某轮的失败会
+        // 一直留在最终日志里 —— 即使那个库后来**成功加载了**。
+        // 真机踩过：日志报 "剩余 0 个未就绪" 却带着 libjawt.so 的错，
+        // 让人以为它失败了，白查好几轮。
+        last_error.clear();
         let mut progressed = false;
         for path in pending {
             match unsafe { UnixLibrary::open(Some(&path), RTLD_NOW | RTLD_GLOBAL) } {
@@ -487,14 +512,25 @@ pub fn preload_jre_libraries(jre_home: &Path) -> usize {
         }
     }
 
+    // ⚠️ 只有在**真的还有未就绪的库**时才报"最后错误"。
+    //
+    // 之前无论 pending 是否为空都会把 last_error 打出来，而 last_error 是
+    // "最后一次失败"的残留 —— 日志于是变成
+    //   「剩余 0 个未就绪，最后错误：libjawt.so ...」
+    // 自相矛盾，让人以为 libjawt.so 是故障，实际它后来成功了。
+    let stuck = if pending.is_empty() {
+        String::from("无")
+    } else {
+        let names: Vec<String> = pending
+            .iter()
+            .filter_map(|p| p.file_name().and_then(|n| n.to_str()).map(String::from))
+            .collect();
+        format!("{}（{}）", names.join(", "), last_error)
+    };
     crate::util::log_line(&format!(
-        "预加载 JRE 内部库 {loaded} 个（剩余 {} 个未就绪，最后错误：{}）｜C++ 运行时：{}",
+        "预加载 JRE 内部库 {loaded} 个，未就绪 {} 个：{}｜C++ 运行时：{}",
         pending.len(),
-        if last_error.is_empty() {
-            "无"
-        } else {
-            last_error.as_str()
-        },
+        stuck,
         if natives_ok { "已挂载" } else { "未找到" }
     ));
     loaded

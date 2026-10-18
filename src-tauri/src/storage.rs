@@ -72,7 +72,7 @@ pub async fn scan() -> StorageStats {
     // 否则存储页会漏掉外部实例，还会把它们算进「其他数据」。
     let inst_root = crate::settings::instances_root()
         .await
-        .unwrap_or_else(|_| root.join("instances"));
+        .unwrap_or_else(|_| crate::settings::resolve_instances_root(&root));
     match tokio::task::spawn_blocking(move || scan_sync(&root, &inst_root)).await {
         Ok(stats) => stats,
         Err(e) => {
@@ -141,7 +141,7 @@ fn scan_sync(root: &Path, inst_root: &Path) -> StorageStats {
     total += inst_size;
 
     // 托管服务器实例：同样改成一次遍历
-    let srv_dir = root.join("servers");
+    let srv_dir = crate::settings::resolve_servers_root(&root);
     let mut server_count = 0u64;
     let mut servers: Vec<InstanceStorage> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&srv_dir) {

@@ -118,7 +118,15 @@ impl JvmLauncher {
         let argc = c_ptrs.len() as i32;
         let argv = c_ptrs.as_ptr();
 
-        tracing::info!("Launching JVM with {} args", argc);
+        // 一行摘要就够：排查启动问题时最需要知道"传了多少条 classpath"，
+        // 而不是把 6KB 的路径全打出来（日志会变得没法读）。
+        //
+        // ⚠️ 用 println! 而不是 tracing::info!：tracing 在本项目**没有接到
+        // logcat 或启动日志文件**上，写了等于没写（真机排查时踩到）。
+        println!(
+            "[launcher] JLI_Launch argc={argc} classpath 条目={}",
+            classpath.matches(':').count() + 1
+        );
 
         // 版本字符串只用于 java.version / java.fullversion 这类信息性属性，
         // 从 JRE 自带的 release 文件里取真实值（取不到时退回 "unknown"）。
@@ -143,7 +151,7 @@ impl JvmLauncher {
                 c_prog_name.as_ptr(),
                 c_prog_name.as_ptr(),
                 0, // javaargs  = JNI_FALSE
-                1, // cpwildcard = JNI_TRUE（与 Pojav 的 C 包装一致）
+                1, // cpwildcard = JNI_TRUE（与 Pojav 的 C 包装一致；实测改 false 无效，见报告）
                 0, // javaw     = JNI_FALSE
                 0, // ergo      = DEFAULT_POLICY
             )

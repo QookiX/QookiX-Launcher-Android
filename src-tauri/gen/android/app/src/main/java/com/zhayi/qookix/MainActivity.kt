@@ -6,6 +6,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.app.AlertDialog
 import android.content.Intent
+import net.kdt.pojavlaunch.CustomControlsActivity
+import org.lwjgl.glfw.CallbackBridge
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.content.pm.ActivityInfo
@@ -528,9 +530,9 @@ class MainActivity : TauriActivity() {
   fun enableSdlIntegration() {
     runOnUiThread {
       try {
-        val ok = org.lwjgl.glfw.CallbackBridge.notifyLauncher(
-          org.lwjgl.glfw.CallbackBridge.NOTIF_TYPE_SDL,
-          org.lwjgl.glfw.CallbackBridge.ACTION_INIT_LAUNCHER_INTEGRATION,
+        val ok = CallbackBridge.notifyLauncher(
+          CallbackBridge.NOTIF_TYPE_SDL,
+          CallbackBridge.ACTION_INIT_LAUNCHER_INTEGRATION,
         )
         Log.i(TAG, "SDL 启动器侧整合：$ok")
       } catch (e: Throwable) {
@@ -774,7 +776,7 @@ class MainActivity : TauriActivity() {
     fun openControlEditor(layout: String?, preview: Boolean, saveAs: String?) {
       runOnUiThread {
         runCatching {
-          val i = Intent(this, net.kdt.pojavlaunch.CustomControlsActivity::class.java)
+          val i = Intent(this, CustomControlsActivity::class.java)
           if (!layout.isNullOrBlank()) i.putExtra("layout", layout)
           i.putExtra("preview", preview)
           if (!saveAs.isNullOrBlank()) i.putExtra("saveAs", saveAs)

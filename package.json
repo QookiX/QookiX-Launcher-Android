@@ -1,42 +1,19 @@
 {
   "name": "qookix-launcher",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.7.0",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/weimosheng/QookiX-Launcher.git"
+    "url": "git+https://github.com/ZhaYi-Miao/QookiX-Launcher-Android.git"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "node scripts/clean-web-assets.mjs && vue-tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "tauri": "node scripts/run-tauri.mjs",
+    "build:web-assets": "node scripts/build-web-assets.mjs",
     "icons": "tauri icon",
-    "version": "node scripts/update-version.mjs",
-    "i18n:extract": "node scripts/extract-i18n.mjs",
-    "i18n:audit": "node scripts/audit-i18n.mjs",
-    "imports:audit": "node scripts/audit-missing-imports.mjs",
-    "ui:audit": "node scripts/ui-audit.mjs"
+    "version": "node scripts/update-version.mjs"
   },
-  "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-dialog": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "dompurify": "^3.4.16",
-    "marked": "^18.0.14",
-    "pinia": "^2.2.6",
-    "skinview3d": "^3.4.2",
-    "vant": "^4.10.2",
-    "vue": "^3.5.13",
-    "vue-router": "^4.4.5"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "@vitejs/plugin-vue": "^5.2.1",
-    "pinyin-pro": "^3.29.4",
-    "typescript": "~5.6.2",
-    "vite": "^6.0.3",
-    "vue-tsc": "^2.1.10"
+    "@tauri-apps/cli": "^2"
   }
 }

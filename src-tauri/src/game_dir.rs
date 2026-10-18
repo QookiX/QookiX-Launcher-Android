@@ -59,8 +59,7 @@ async fn state() -> Result<GameDirState, String> {
         .map_err(|e| e.to_string())?;
     let custom_root = crate::settings::custom_game_root().await;
     let root = crate::settings::game_root().await.map_err(|e| e.to_string())?;
-    let instances_dir = Path::new(&root)
-        .join("instances")
+    let instances_dir = crate::settings::resolve_instances_root(Path::new(&root))
         .to_string_lossy()
         .to_string();
     Ok(GameDirState {
@@ -180,13 +179,10 @@ pub async fn set_game_dir(root: Option<String>, migrate: bool) -> Result<GameDir
         .await
         .map_err(|e| e.to_string())?;
     let new_instances = match &new_root {
-        Some(r) => PathBuf::from(r).join("instances"),
-        None => PathBuf::from(
-            crate::settings::get_data_dir()
-                .await
-                .map_err(|e| e.to_string())?,
-        )
-        .join("instances"),
+        Some(r) => crate::settings::resolve_instances_root(Path::new(r)),
+        None => crate::settings::resolve_instances_root(Path::new(
+            &crate::settings::get_data_dir().await.map_err(|e| e.to_string())?,
+        )),
     };
 
     tokio::fs::create_dir_all(&new_instances)

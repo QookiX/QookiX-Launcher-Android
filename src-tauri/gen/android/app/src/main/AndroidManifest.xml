@@ -90,7 +90,23 @@
         android:allowNativeHeapPointerTagging="false"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
 
-        <!-- Main Activity (Tauri WebView) -->
+        <!--
+          旧 WebView 入口。
+
+          ⚠️ **已不再是桌面入口**（2026-10-13 起 LAUNCHER 移到 Compose 版）。
+
+          它现在的作用：
+            1. 提供 19 项原生能力的历史实现（能力已收敛到 HostCapabilities，
+               两个入口共用 —— 这里保留是为了不动既有代码）
+            2. 兜底入口，只在 adb 显式指定时才会启动
+
+          ⚠️ 注意：它现在**没有可显示的界面**。
+          前端资源已被替换成最小引导页（bootstrap/index.html），
+          而旧界面本来就靠 Vue 渲染 —— Vue 不在包里了，所以它是一片空白。
+
+          换句话说：它现在只是一个「IPC 端点 + 能力宿主」，
+          真正的界面在 Compose 版里。
+        -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
@@ -101,6 +117,36 @@
             android:enableOnBackInvokedCallback="true"
             android:alwaysRetainTaskState="true"
             android:exported="true">
+        </activity>
+
+        <!--
+          Compose 版启动器界面 —— **桌面主入口**。
+
+          2026-10-13 起 LAUNCHER intent-filter 从旧 MainActivity 移到这里。
+          前置条件（6/6）已全部达成，见 COMPOSE-PHASE5-READY.md：
+            1. 19 项原生能力（HostCapabilities）
+            2. TauriBridge.attach(this)
+            3. onCreate 初始化三项（控制布局播种 / 中转清理 / 断点续启）
+            4. WebView 与 Vue 脱钩（引导页 4.6 KB）
+            5. 返回键处理（Compose 导航栈）
+            6. 音量键缩放
+
+          ── screenOrientation 说明 ──────────────────────────────────────
+          用 `sensorLandscape`（横屏优先，两个方向都允许）—— 按用户要求
+          新界面先做横屏形态（NavigationRail 左侧栏）。
+
+          将来补竖屏形态时改成 `fullSensor` 即可（Compose 侧已按
+          window size class 自适应，见 shell/WindowSize.kt）。
+
+          configChanges 与 MainActivity 保持一致，避免切换时 Activity 重建。
+        -->
+        <activity
+            android:name=".compose.ComposeMainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

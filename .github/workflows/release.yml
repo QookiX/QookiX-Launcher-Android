@@ -80,11 +80,18 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # ① 前端：产物直接写进 gen/android 的 assets
-      - name: 构建前端
+      # ① 前端资源：只有 index.html + skin3d/*.js（Vue 已删除）
+      #
+      # ⚠️ 2026-10-18 修：原来是 `npm ci && npm run build`，但：
+      #   - `npm ci` 要求 package.json 与 lock 严格一致，
+      #     删掉 Vue 后 lock 里还有大量残留 → 直接失败
+      #   - `npm run build` 这个脚本已经不存在了（改成 build:web-assets）
+      # 现在用 `npm install`（会按 package.json 更新 lock）+
+      # `build:web-assets`（纯拷贝，无打包器）。
+      - name: 构建前端资源
         run: |
-          npm ci
-          npm run build
+          npm install --no-audit --no-fund
+          npm run build:web-assets
 
       # ② Rust：release 交叉编译（assets 会被 generate_context! 编进 .so，必须在 cargo 之前）
       - name: 构建 Rust 库
@@ -194,3 +201,4 @@ jobs:
           files: |
             dist/*.apk
             dist/SHA256SUMS.txt
+

@@ -87,9 +87,5 @@ patch("src-tauri/gen/android/app/tauri.properties", (c) => {
   );
 });
 
-// 5. 关于页的 "vX.Y.Z"（徽章 + 注释里的示例）
-patch("src/views/SettingsView.vue", (c) =>
-  c.replace(/v\d+\.\d+\.\d+/g, `v${newVersion}`),
-);
 
 console.log(`完成（安卓 versionCode=${versionCode}）。`);

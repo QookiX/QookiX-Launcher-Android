@@ -1,0 +1,994 @@
+package com.zhayi.qookix.compose
+
+import com.zhayi.qookix.nativebridge.PojavShim
+import android.os.Bundle
+import android.util.Log
+import android.view.View
+import android.view.ViewGroup
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.zhayi.qookix.HostCapabilities
+import com.zhayi.qookix.PendingLaunch
+import com.zhayi.qookix.R
+import com.zhayi.qookix.ServerDocsProvider
+import com.zhayi.qookix.TauriActivity
+import com.zhayi.qookix.GameActivity
+import com.zhayi.qookix.compose.bridge.QookixApi
+import com.zhayi.qookix.compose.bridge.RustBridge
+import com.zhayi.qookix.compose.pages.FirstRunSetup
+import com.zhayi.qookix.compose.pages.FirstRunUiState
+import com.zhayi.qookix.compose.shell.LauncherShell
+import com.zhayi.qookix.compose.shell.NavDestination
+import com.zhayi.qookix.compose.theme.QookiXTheme
+import com.zhayi.qookix.tauri.TauriBridge
+import android.content.Intent
+
+/**
+ * 启动器主入口（LAUNCHER）。
+ */
+class ComposeMainActivity : TauriActivity() {
+
+    companion object {
+        private const val TAG = "ComposeMain"
+    }
+
+    private var composeOverlayAttached = false
+    private var composeView: android.view.View? = null
+    private val caps by lazy { HostCapabilities(this) }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        TauriBridge.attach(this)
+
+        // ⚠️⚠️ 必须在这里初始化 Pojav 的平台上下文（2026-10-16 修，游戏启动崩溃的根因）。
+        //
+        // ── 崩溃现象 ───────────────────────────────────────────────────
+        // 点「启动游戏」→ GL 初始化阶段 SIGSEGV，tombstone：
+        //     #07 libandroid.so (AHardwareBuffer_getNativeHandle+24)
+        //     #08 libpojavexec.so
+        //     fault addr 0x28（NULL + 偏移）
+        //
+        // ── 因果链（每一步都用真机日志证实过）───────────────────────────
+        //   ① 桌面入口从 `MainActivity` 改成了本类（2026-10-13）
+        //   ② 但 `PojavShim.init(this)` **只在 MainActivity 里调用**，没跟着搬
+        //   ③ → `PojavShim.appContext == null`
+        //   ④ → `nativeLibDir()` 返回 null → 找不到 `libpojavexec.so`
+        //   ⑤ → `ensurePojavLoaded()` 报
+        //        「libpojavexec 缺失：natives 未抽取成功，游戏无法启动」
+        //   ⑥ → `setupBridgeWindow()` **静默 return**
+        //        （它开头是 `if (!ensurePojavLoaded()) return`）
+        //   ⑦ → 原生侧 `pojav_environ->pojavWindow` 保持 **NULL**
+        //   ⑧ → `egl_bridge.c:218` 的 `ANativeWindow_setBuffersGeometry(NULL, …)`
+        //        在 `pojavInit()` 里**没有任何空指针保护** → 解引用 → SIGSEGV
+        //
+        // 这是 Vue→Compose 迁移时漏掉的一步：入口 Activity 换了，
+        // 但它承担的**平台初始化职责**没有一起搬过来。
+        //
+        // 注：`TauriBridge.attach` 管的是 Rust 回调，`PojavShim.init` 管的是
+        // Pojav 输入桥（`CallbackBridge` 的剪贴板 / native 库目录），两者都要有。
+        PojavShim.init(this)
+        // ⚠️⚠️ 启动时必须应用已保存的「界面方向」（2026-10-17 修，真机实测）。
+        //
+        // 缺陷：`setOrientation` 只有定义、**启动路径里从来没调用过** ——
+        // 只有用户在设置里点一下才生效，重启后又回到清单文件里的横屏锁定。
+        // 实测：settings.json 写的是 `"orientation":"system"`（跟随系统），
+        // 但 dumpsys 显示 `requestedOrientation=SCREEN_ORIENTATION_SENSOR_LANDSCAPE`，
+        // 用户切竖屏后重启又变横屏，看起来像"设置没保存"。
+        //
+        // MainActivity 里有 `applyStoredOrientation()`（onCreate 调用），
+        // 但实际运行的是 ComposeMainActivity，它没搬这个调用。
+        applyStoredOrientation()
+        // ── 以下三项在 MainActivity 里就有，迁移时漏了（2026-10-17 系统核对补回）──
+        //
+        // 1) 通知权限：Android 13+ 不申请就没有通知栏权限 →
+        //    「游戏正在运行」的常驻通知、下载进度、服务器状态全都看不到。
+        requestNotificationPermission()
+        // 2) 清理上次残留的游戏任务：异常退出后系统可能留下一个空的 GameActivity 任务，
+        //    下一次启动会先显示空白页（用户以为卡死了）。
+        removeStaleGameTask()
+        // 3) 预热陶瓦联机隧道服务：提前把 Service 拉起来，
+        //    用户点「开启联机」时不用再等冷启动（否则要等好几秒才出房间码）。
+        runCatching { ensureTunnelService() }
+        PendingLaunch.consume(this)?.let { (instanceId, accountUuid) ->
+            Log.i(TAG, "消费待启动记录: $instanceId")
+            startGameActivity(instanceId, accountUuid)
+        }
+        window?.decorView?.post { attachComposeOverlay(0) }
+        Log.i(TAG, "onCreate 完成")
+        // 3 秒后把视图树打出来（诊断用）
+        window?.decorView?.postDelayed({ dumpTree() }, 3000)
+        window?.decorView?.postDelayed({ dumpTree() }, 8000)
+    }
+
+    /** 诊断：把 decorView 的完整视图树打印出来。 */
+    private fun dumpTree() {
+        val root = window?.decorView ?: return
+        val sb = StringBuilder("View tree:\n")
+        fun walk(v: View, depth: Int) {
+            val pad = "  ".repeat(depth)
+            val vis = when (v.visibility) {
+                View.VISIBLE -> "V"; View.INVISIBLE -> "I"; else -> "G"
+            }
+            sb.append("$pad${v.javaClass.simpleName} vis=$vis ${v.width}x${v.height} alpha=${v.alpha}\n")
+            if (v is ViewGroup) {
+                for (i in 0 until v.childCount) walk(v.getChildAt(i), depth + 1)
+            }
+        }
+        walk(root, 0)
+        Log.i(TAG, sb.toString())
+    }
+
+    /**
+     * ⚠️ 关键：让 Rust 创建的 WebView **不可见但仍可用**。
+     *
+     * Tauri/wry 启动时会创建一个 WebView，它承载**全部 IPC**：
+     * Rust 的每个 `invoke` 都是通过往这个 WebView 注入脚本、
+     * 再读回调实现的。而它是**加在 content view 之上**的 ——
+     * 不管它，Compose 界面就被完全盖住（实机验证 2026-10-14：
+     * dump 里 2 个 WebView 节点，屏幕全是旧 Vue 界面）。
+     *
+     * ⚠️⚠️ 但**绝不能用 `visibility = GONE`** ——
+     * GONE 的 View 不参与渲染，WebView **不会执行 JavaScript**，
+     * 于是注入脚本跑不了、桥永远不就绪：所有命令都报「桥尚未就绪」。
+     *（实测踩到：皮肤页「获取皮肤」失败、实例列表拉不到。）
+     *
+     * 正解：**alpha = 0f**。它仍然参与渲染（JS 照常跑），
+     * 只是完全透明看不见 —— Compose 在它上层，用户只看得到 Compose。
+     */
+    override fun onWebViewCreate(webView: android.webkit.WebView) {
+        super.onWebViewCreate(webView)
+        webView.alpha = 0f
+        Log.i(TAG, "Rust WebView 已设为透明（保留 IPC，不参与显示）")
+    }
+
+    private fun attachComposeOverlay(attempt: Int) {
+        if (composeOverlayAttached) return
+        runOnUiThread {
+            try {
+                // ⚠️ 必须把 ComposeView 加到 **wry 放 WebView 的那个容器**里。
+                //
+                // 踩过的两个坑（实机验证 2026-10-14）：
+                //   1. `setContent()` —— wry 稍后自己 setContentView，把 Compose 顶掉；
+                //   2. `addContentView()` —— 加的是 Activity 的 content view，
+                //      同样被覆盖（视图树里根本找不到 ComposeView）。
+                //
+                // 正解：遍历 decorView 找到装了 RustWebView 的容器，
+                // 直接把 ComposeView addView 进去 —— 与 WebView 同层，
+                // 我们后加所以必然在上层。
+                val found = findWebViewContainer(window?.decorView)
+                if (found == null) {
+                    if (attempt < 30) {
+                        window?.decorView?.postDelayed({ attachComposeOverlay(attempt + 1) }, 100)
+                    } else {
+                        android.util.Log.e(TAG, "找不到 wry 容器，Compose 无法挂载")
+                    }
+                    return@runOnUiThread
+                }
+                val host: ViewGroup = found
+                val cv = androidx.compose.ui.platform.ComposeView(this).apply {
+                    setContent {
+                        QookiXTheme {
+                            // ⚠️ 必须 remember：RustBridge 内部有 `ready` 状态，
+                            // 而 `start()` 只在首次 LaunchedEffect 里跑一次。
+                            // 不 remember 的话每次重组都新建实例 —— ready 永远是 false，
+                            // 所有命令都报「桥尚未就绪」（实测踩到：皮肤页获取失败、
+                            // 实例列表拉不到，但日志里明明写着「注入结果: ok」）。
+                            val bridge = androidx.compose.runtime.remember {
+                                RustBridge(this@ComposeMainActivity)
+                            }
+                            LauncherRoot(
+                                bridge = bridge,
+                                activity = this@ComposeMainActivity,
+                            )
+                        }
+                    }
+                }
+                composeView = cv
+                host.addView(
+                    cv,
+                    ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+                composeOverlayAttached = true
+                android.util.Log.i(TAG, "Compose 已挂到 wry 容器（${host.javaClass.simpleName}，第 $attempt 次）")
+
+                // 记下容器与 WebView，供「3D 预览提层」用（见 setSkinPreviewVisible）
+                overlayHost = host
+                tauriWebView = findWebViewIn(host)
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "attachComposeOverlay 失败（attempt=$attempt）", e)
+                if (attempt < 20) {
+                    window?.decorView?.postDelayed({ attachComposeOverlay(attempt + 1) }, 100)
+                }
+            }
+        }
+    }
+
+    // ── 「3D 预览直接渲染」模式的提层控制 ──────────────────────────────
+    //
+    // ── 背景：为什么需要它 ────────────────────────────────────────────
+    // 皮肤页的 3D 预览原本走"离屏渲染 → readPixels → PNG → base64 →
+    // 过 binder → Kotlin 解码"这条搬运链，实测只有 22–25fps，
+    // 瓶颈 100% 在搬运，不在渲染。
+    //
+    // 而实测那个 WebView 的 rAF 循环**本来就能跑 90fps**
+    //（`WebView 渲染能力: rAF 136 帧 / 1506ms = 90.3fps visibility=visible`）——
+    // `alpha = 0f` 并不会让 Chromium 节流。也就是说：
+    // **只要让它显示出来，就能拿到 ~60fps 以上，且不用再搬一个像素。**
+    //
+    // ── 做法 ────────────────────────────────────────────────────────
+    // ComposeView 与 WebView 原本是同一个容器里的兄弟节点，ComposeView
+    // 后加、所以在上面 —— 这就是 WebView 看不见的原因。
+    //
+    // 这里把 WebView **removeView 再 addView 回同一容器**，
+    // 于是它排到了 ComposeView 之后（= 在上面）。
+    // 平时用 1×1 + alpha=0 保持隐形（IPC 照常），
+    // 只有皮肤页选了"直接渲染"时才展开到预览区大小、alpha=1。
+    //
+    // ⚠️ 风险：这个 WebView 承载全部 153 个 Rust 命令的 IPC。
+    // wry 的 IPC 是**按 webview id 查表**（binding.rs），
+    // 挪动视图树理论上不影响 id，但这是推测 —— 所以我同时保留了
+    // "离屏回传"那条路作为默认，用户/我可以随时切回去。
+    private var overlayHost: ViewGroup? = null
+    private var tauriWebView: android.webkit.WebView? = null
+    private var webViewRaisedForPreview = false
+
+    /**
+     * 让 wry 的 WebView 在 ComposeView **之上**显示（或收回隐形）。
+     *
+     * @param visible true = 提到最上层并展开；false = 还原成 1×1 alpha=0
+     * @param x/y/w/h 预览区在容器里的位置与大小（仅 visible=true 时用）
+     * @return 是否操作成功（失败时调用方应退回离屏模式）
+     */
+    fun setSkinPreviewVisible(visible: Boolean, x: Int, y: Int, w: Int, h: Int): Boolean {
+        val host = overlayHost ?: return false
+        val wv = tauriWebView ?: return false
+        return try {
+            runOnUiThread {
+                if (visible) {
+                    // ⚠️ 必须幂等：滚动时预览框位置一直在变，本函数会被
+                    // 反复调用。每次都 removeView+addView 会闪、还浪费。
+                    // 只有「首次提层」或「尺寸变了」才重挂。
+                    val needRemount = !webViewRaisedForPreview ||
+                        wv.width != w || wv.height != h
+                    if (needRemount) {
+                        (wv.parent as? ViewGroup)?.removeView(wv)
+                        host.addView(
+                            wv,
+                            ViewGroup.LayoutParams(
+                                if (w > 0) w else ViewGroup.LayoutParams.MATCH_PARENT,
+                                if (h > 0) h else ViewGroup.LayoutParams.MATCH_PARENT,
+                            ),
+                        )
+                    }
+                    wv.x = x.toFloat()
+                    wv.y = y.toFloat()
+                    if (wv.alpha != 1f) {
+                        wv.alpha = 1f
+                        wv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    }
+                    val first = !webViewRaisedForPreview
+                    webViewRaisedForPreview = true
+                    if (first || needRemount) {
+                        // 通知页面：canvas 移到屏内 + 启动自驱动渲染循环。
+                        // 尺寸用**物理像素**传，JS 侧按 devicePixelRatio 换算成 CSS。
+                        wv.evaluateJavascript(
+                            "window.QkSkin3D && window.QkSkin3D.setDirectDisplay(true, $w, $h)"
+                        ) { }
+                        android.util.Log.i(TAG, "3D 预览：WebView 已提层 ${w}x$h @($x,$y)")
+                    }
+                } else if (webViewRaisedForPreview) {
+                    webViewRaisedForPreview = false
+                    // 先让页面停掉渲染循环、把 canvas 挪回屏幕外，
+                    // 再收回 WebView —— 否则它会继续以 60fps 白跑（耗电）。
+                    wv.evaluateJavascript(
+                        "window.QkSkin3D && window.QkSkin3D.setDirectDisplay(false, 0, 0)"
+                    ) { }
+                    wv.alpha = 0f
+                    wv.x = 0f
+                    wv.y = 0f
+                    wv.layoutParams = ViewGroup.LayoutParams(1, 1)
+                    (wv.parent as? ViewGroup)?.removeView(wv)
+                    host.addView(wv, ViewGroup.LayoutParams(1, 1))
+                    android.util.Log.i(TAG, "3D 预览：WebView 已收回隐形")
+                }
+            }
+            true
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "setSkinPreviewVisible 失败", e)
+            false
+        }
+    }
+
+    /** 在容器里找第一个 WebView。 */
+    /** 3D 预览渲染方式在 SharedPreferences 里的键。 */
+    private val KEY_PREVIEW_MODE = "preview_render_mode"
+    /** 内容中心紧凑模式（布尔）。 */
+    private val KEY_BROWSE_COMPACT = "browse_compact"
+
+    /** Android 侧自己的小配置（不经过 Rust 的 settings.json）。 */
+    internal fun prefs() = getSharedPreferences("qookix_ui", MODE_PRIVATE)
+
+    /**
+     * 内容中心的**紧凑模式**开关（2026-10-17 加，用户要求「记住上次选择」）。
+     *
+     * 为什么存 SharedPreferences 而不是 settings.json：
+     * Rust 的 `Settings` 是强类型结构体，没有这个字段 ——
+     * 写进去也会被静默丢弃（和 previewRenderMode 同一个坑）。
+     */
+    fun browseCompactPref(): Boolean = prefs().getBoolean(KEY_BROWSE_COMPACT, false)
+
+    /** 写入内容中心紧凑模式。 */
+    fun setBrowseCompactPref(compact: Boolean) {
+        prefs().edit().putBoolean(KEY_BROWSE_COMPACT, compact).apply()
+    }
+
+    /** 读取 3D 预览渲染方式：compose（省电，默认）/ webview（流畅）。 */
+    fun previewRenderModePref(): String =
+        prefs().getString(KEY_PREVIEW_MODE, "compose") ?: "compose"
+
+    /** 写入 3D 预览渲染方式（设置页切换时调）。 */
+    fun setPreviewRenderModePref(mode: String) {
+        prefs().edit().putString(KEY_PREVIEW_MODE, mode).apply()
+    }
+
+    private fun findWebViewIn(root: ViewGroup): android.webkit.WebView? {
+        for (i in 0 until root.childCount) {
+            val c = root.getChildAt(i)
+            if (c is android.webkit.WebView) return c
+            if (c is ViewGroup) findWebViewIn(c)?.let { return it }
+        }
+        return null
+    }
+
+    /** 找到 wry 用来装 WebView 的 ViewGroup（即 RustWebView 的父容器）。 */
+    private fun findWebViewContainer(root: View?): ViewGroup? {
+        if (root == null || root !is ViewGroup) return null
+        for (i in 0 until root.childCount) {
+            val child = root.getChildAt(i)
+            if (child is android.webkit.WebView) return root
+            findWebViewContainer(child)?.let { return it }
+        }
+        return null
+    }
+
+    // ══ 回调注册 ══
+    private var backHandler: (() -> Boolean)? = null
+    private var logZoomListener: ((Int) -> Unit)? = null
+
+    fun setComposeBackHandler(handler: (() -> Boolean)?) { backHandler = handler }
+    fun setLogZoomListener(listener: ((Int) -> Unit)?) { logZoomListener = listener }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
+            keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+        ) {
+            logZoomListener?.invoke(if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) 1 else -1)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != android.app.Activity.RESULT_OK) return
+        when (requestCode) {
+            REQ_PICK_IMAGE -> {
+                caps.onPickFileResult(data?.data)
+                dispatchPickResult()
+            }
+            REQ_PICK_FILE -> {
+                caps.onPickFileResult(data?.data)
+                val path = caps.consumePickedFile()
+                val cb = pendingFileCallback
+                pendingFileCallback = null
+                cb?.invoke(path)
+            }
+            else -> caps.onPickFileResult(data?.data)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (backHandler?.invoke() == true) return
+        super.onBackPressed()
+    }
+
+    // ══ 能力方法 ══
+    fun hasAllFilesAccess(): String = caps.hasAllFilesAccess()
+    fun requestAllFilesAccess() = caps.requestAllFilesAccess()
+    fun isBatteryUnrestricted(): String = caps.isBatteryUnrestricted()
+    fun requestIgnoreBatteryOptimizations() = caps.requestIgnoreBatteryOptimizations()
+    fun wifiIpv4(): String? = caps.wifiIpv4()
+    fun thermalStatus(): String = caps.thermalStatus()
+    fun systemProxy(): String? = caps.systemProxy()
+    fun readPojavPrefs(): String? = caps.readPojavPrefs()
+    fun readClipboardText(): String? = caps.readClipboardText()
+    fun gameDirOptions(): String = caps.gameDirOptions()
+    fun pickGameDir() = caps.pickGameDir()
+    fun vpnConsentGranted(): String = caps.vpnConsentGranted()
+    fun ensureVpnConsent() = caps.ensureVpnConsent()
+    fun ensureTunnelService() = caps.ensureTunnelService()
+    fun installApk(path: String) = caps.installApk(path)
+    fun setLogZoomCapture(enabled: Boolean) = caps.setLogZoomCapture(enabled)
+    fun preloadJreLibs(dir: String): Int = caps.preloadJreLibs(dir)
+    fun enableSdlIntegration() = caps.enableSdlIntegration()
+    fun openExternalUrl(url: String) = caps.openUrl(url)
+    fun copyToClipboard(label: String, text: String) = caps.copyToClipboard(label, text)
+    fun consumeGameDirPick(): String? = caps.consumeGameDirPick()
+
+    fun importControlLayout(): String? {
+        caps.importControlLayout()
+        return null
+    }
+
+    fun pickImage(onResult: (String?) -> Unit) {
+        pendingImageCallback = onResult
+        caps.pickFile(HostCapabilities.MIME_IMAGE, REQ_PICK_IMAGE)
+    }
+
+    /**
+     * 按 MIME 选文件并把**真实路径**回调给调用方。
+     *
+     * 与 pickImage 同一套两步式机制（HostCapabilities.pickFile +
+     * consumePickedFile），只是 MIME 可指定 —— 导入整合包要收
+     * `.mrpack` / `.zip`，不能限定成图片。
+     */
+    fun pickFileByMime(mime: String, onResult: (String?) -> Unit) {
+        pendingFileCallback = onResult
+        caps.pickFile(mime, REQ_PICK_FILE)
+    }
+
+    private var pendingFileCallback: ((String?) -> Unit)? = null
+    private val REQ_PICK_FILE = 1002
+
+    private fun dispatchPickResult() {
+        val path = caps.consumePickedFile()
+        val cb = pendingImageCallback
+        pendingImageCallback = null
+        cb?.invoke(path)
+    }
+
+    private var pendingImageCallback: ((String?) -> Unit)? = null
+    private val REQ_PICK_IMAGE = 1001
+
+    // ══ Rust call_activity 依赖的方法 ══
+    fun startGameActivity(instanceId: String, accountUuid: String) {
+        runOnUiThread {
+            val runningId = runningInstanceId()
+            if (runningId != null && runningId != instanceId) {
+                confirmSwitchInstance(instanceId, accountUuid)
+                return@runOnUiThread
+            }
+            try {
+                GameActivity.start(this, instanceId, accountUuid)
+            } catch (e: Exception) {
+                Log.e(TAG, "启动游戏界面失败", e)
+            }
+        }
+    }
+
+    private fun runningInstanceId(): String? = try {
+        if (!TauriBridge.isGameRunning()) null
+        else org.json.JSONObject(TauriBridge.gameStatus()).optString("instance_id").ifEmpty { null }
+    } catch (e: Throwable) { null }
+
+    private fun confirmSwitchInstance(instanceId: String, accountUuid: String) {
+        androidx.appcompat.app.AlertDialog.Builder(this, R.style.QookixAlertDialog)
+            .setTitle(getString(R.string.app_switch_instance_title))
+            .setMessage(getString(R.string.app_switch_instance_message))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(getString(R.string.app_switch_instance_confirm)) { _, _ ->
+                PendingLaunch.save(this, instanceId, accountUuid)
+                Thread { runCatching { TauriBridge.killGame() } }.start()
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    runCatching { android.os.Process.killProcess(android.os.Process.myPid()) }
+                }, 5000L)
+            }
+            .show()
+    }
+
+    /**
+     * 读取 settings.json 的 `orientation` 并应用。
+     * 与 MainActivity.applyStoredOrientation 同逻辑 —— 那边启动时就调了，这里之前漏了。
+     */
+    private fun applyStoredOrientation() {
+        val mode = try {
+            val f = java.io.File(filesDir, "settings.json")
+            if (f.exists()) org.json.JSONObject(f.readText()).optString("orientation", "landscape") else "landscape"
+        } catch (e: Exception) {
+            Log.w(TAG, "读 orientation 失败，按横屏处理", e)
+            "landscape"
+        }
+        Log.i(TAG, "applyStoredOrientation: $mode")
+        setOrientation(mode)
+    }
+
+    /** 申请通知权限（Android 13+）。迁移遗漏，见 onCreate 说明。 */
+    private fun requestNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        try {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+        } catch (e: Exception) {
+            Log.w(TAG, "申请通知权限失败", e)
+        }
+    }
+
+    /** 清理上次残留的 GameActivity 任务（异常退出会留下空白任务）。迁移遗漏。 */
+    private fun removeStaleGameTask() {
+        try {
+            val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            am.appTasks?.forEach { task ->
+                val cmp = task.taskInfo?.baseIntent?.component
+                if (cmp?.className == GameActivity::class.java.name) {
+                    Log.i(TAG, "清理残留的游戏任务：taskId=${task.taskInfo?.taskId}")
+                    task.finishAndRemoveTask()
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "清理残留游戏任务失败（不影响启动）", e)
+        }
+    }
+
+    fun setOrientation(mode: String) {
+        val requested = when (mode) {
+            "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER
+        }
+        runOnUiThread { if (requestedOrientation != requested) requestedOrientation = requested }
+    }
+
+    fun writeClipboardText(text: String): String = try {
+        val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            ?: return getString(R.string.app_clipboard_unavailable)
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("QookiX", text))
+        ""
+    } catch (e: Throwable) { e.message ?: e.toString() }
+
+    fun openDirectory(path: String): String {
+        val base = java.io.File(filesDir, ServerDocsProvider.DIR_NAME).canonicalFile
+        val target = runCatching { java.io.File(path).canonicalFile }.getOrNull() ?: return "-1"
+        if (target != base && !target.path.startsWith(base.path + java.io.File.separator)) return "-1"
+        if (!target.isDirectory) return "-1"
+        val rel = target.toRelativeString(base).trim('/')
+        val docId = if (rel.isEmpty() || rel == ".") ServerDocsProvider.ROOT_ID
+                    else ServerDocsProvider.DOC_PREFIX + rel
+        val uri = android.provider.DocumentsContract.buildDocumentUri("$packageName.serverdocs", docId)
+        return runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "vnd.android.document/directory")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            "1"
+        }.getOrDefault("0")
+    }
+
+    fun shareFile(path: String, mimeType: String) {
+        runOnUiThread {
+            runCatching {
+                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", java.io.File(path))
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = mimeType.ifBlank { "*/*" }
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }, getString(R.string.app_share)))
+            }.onFailure { Log.w(TAG, "分享文件失败", it) }
+        }
+    }
+
+    fun shareLogsZip(archiveName: String, srcDir: String) {
+        runOnUiThread {
+            runCatching {
+                val out = java.io.File(cacheDir, archiveName)
+                java.util.zip.ZipOutputStream(out.outputStream().buffered()).use { zos ->
+                    java.io.File(srcDir).listFiles()?.forEach { f ->
+                        if (f.isFile) {
+                            zos.putNextEntry(java.util.zip.ZipEntry(f.name))
+                            f.inputStream().use { it.copyTo(zos) }
+                            zos.closeEntry()
+                        }
+                    }
+                }
+                shareFile(out.absolutePath, "application/zip")
+            }.onFailure { Log.w(TAG, "打包日志失败", it) }
+        }
+    }
+
+    fun resolvePickedUri(uriOrPath: String): String? {
+        if (!uriOrPath.startsWith("content://")) return uriOrPath
+        return runCatching {
+            val uri = android.net.Uri.parse(uriOrPath)
+            contentResolver.openInputStream(uri)?.use { input ->
+                val name = queryDisplayName(uri) ?: "picked_${System.currentTimeMillis()}"
+                val dst = java.io.File(cacheDir, name)
+                dst.outputStream().use { input.copyTo(it) }
+                dst.absolutePath
+            }
+        }.onFailure { Log.w(TAG, "解析选中的文件失败", it) }.getOrNull()
+    }
+
+    private fun queryDisplayName(uri: android.net.Uri): String? = runCatching {
+        contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (c.moveToFirst() && i >= 0) c.getString(i) else null
+        }
+    }.getOrNull()
+
+    fun writePojavPrefs(json: String) {
+        runCatching { java.io.File(filesDir, "pojav_prefs.json").writeText(json) }
+            .onFailure { Log.w(TAG, "写 Pojav 偏好失败", it) }
+    }
+
+    fun importControlLayoutFromPath(path: String): String {
+        val p = path.trim()
+        if (p.isEmpty()) return org.json.JSONObject()
+            .put("ok", false).put("error", getString(R.string.app_import_layout_empty_path)).toString()
+        return runCatching {
+            val f = java.io.File(p)
+            if (!f.isFile) throw java.io.IOException(getString(R.string.app_import_layout_not_found))
+            if (f.length() > 8 * 1024 * 1024) throw java.io.IOException(getString(R.string.app_import_layout_too_large))
+            val text = f.readText(Charsets.UTF_8)
+            val j = org.json.JSONObject(text)
+            if (!j.has("version") || !j.has("mControlDataList")) throw java.io.IOException(getString(R.string.app_import_layout_invalid))
+            val tmp = java.io.File(filesDir, "controlmap/TMP_IMPORT_FILE.json")
+            tmp.parentFile?.mkdirs()
+            tmp.parentFile?.listFiles()?.forEach { old ->
+                if (old.isFile && old.name.startsWith("TMP_IMPORT_FILE") &&
+                    old.name.endsWith(".json") && old.absolutePath != tmp.absolutePath) old.delete()
+            }
+            tmp.writeText(text)
+            org.json.JSONObject().put("ok", true).put("name", "TMP_IMPORT_FILE")
+                .put("buttons", j.optJSONArray("mControlDataList")?.length() ?: 0)
+                .put("joysticks", j.optJSONArray("mJoystickDataList")?.length() ?: 0)
+                .put("drawers", j.optJSONArray("mDrawerDataList")?.length() ?: 0).toString()
+        }.getOrElse {
+            Log.w(TAG, "从路径导入按键布局失败", it)
+            org.json.JSONObject().put("ok", false)
+                .put("error", it.message ?: getString(R.string.app_import_layout_failed)).toString()
+        }
+    }
+
+    fun exportControlLayout(layout: String) {
+        val f = java.io.File(filesDir, "controlmap/$layout.json")
+        if (!f.isFile) { Log.w(TAG, "导出控制布局失败：布局不存在 $layout"); return }
+        shareFile(f.absolutePath, "application/json")
+    }
+}
+
+/**
+ * Compose 壳的根。
+ */
+@androidx.compose.runtime.Composable
+private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
+    // ── 外观设置（主题 / 主题色）────────────────────────────────────────
+    //
+    // ⚠️⚠️ 2026-10-15 修：用户反馈「点色块没变化 + 改深浅模式没反应」。
+    //
+    // 根因：原来 `QookiXTheme { }` 是**裸调用**，既没传 darkTheme 也没传
+    // themeColor；而且全局设置状态只存在于 `SettingsRoute` 内部
+    // （进设置页才加载），主题在外面根本感知不到。
+    //
+    // 修法：在根节点**单独拉一次外观相关的设置**（只有两个字段，
+    // 走同一个 get_settings），把它喂给 QookiXTheme。
+    // 不去复用 SettingsRoute 的 state —— 那会把"进设置页才加载"
+    // 变成"必须进过设置页主题才生效"。
+    var themeMode by remember { mutableStateOf("system") }
+    var themeColor by remember { mutableStateOf("") }
+    // ⚠️ 界面缩放同样"存了但没用"（2026-10-15 一起修）：
+    // 原来 `uiScale` 只在设置页显示数字，没有任何地方把它变成实际尺寸。
+    var uiScale by remember { mutableStateOf(100) }
+    // 侧边栏宽度（dp）。设置页拖动滑杆时回传到这里，驱动 LauncherShell。
+    var sidebarWidth by remember { mutableStateOf(168) }
+    // 3D 预览渲染方式：compose（省电，默认）/ webview（流畅）
+    // 顶栏自定义内容（内容中心的搜索工具栏）。null = 用普通标题。
+    var toolbarContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
+    var previewRenderMode by remember { mutableStateOf("compose") }
+
+    LaunchedEffect(bridge) {
+        // 桥就绪前 get_settings 会失败，用重试等到可用为止
+        repeat(60) {
+            val ok = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+                bridge.invoke("get_settings", "{}") { r ->
+                    r.fold(
+                        onSuccess = { raw ->
+                            runCatching {
+                                val o = org.json.JSONObject(raw)
+                                themeMode = o.optString("theme", "system").ifBlank { "system" }
+                                // ⚠️ Rust 的 Settings 没有 rename_all，实际键是
+                                // **snake_case**（theme_color / ui_scale）。
+                                // 两个都试，避免以后被命名坑。
+                                themeColor = o.optString("theme_color", "")
+                                    .ifBlank { o.optString("themeColor", "") }
+                                uiScale = o.optString("ui_scale", "")
+                                    .ifBlank { o.optString("uiScale", "") }
+                                    .toIntOrNull() ?: 100
+                                uiScale = uiScale.coerceIn(60, 150)
+
+                                // 侧边栏宽度（2026-10-17 用户可调）
+                                sidebarWidth = o.optString("sidebar_width", "")
+                                    .ifBlank { o.optString("sidebarWidth", "") }
+                                    .toIntOrNull() ?: 168
+                                sidebarWidth = sidebarWidth.coerceIn(140, 260)
+
+                                // ── 启动时套用已保存的 3D 预览渲染方式 ──────
+                                //
+                                // ⚠️⚠️ 2026-10-16 关键：**不能存在 Rust 的 settings 里**。
+                                //
+                                // 踩过的坑：把 previewRenderMode 写进 settings.json 后，
+                                // 文件里确实有 `"previewRenderMode": "webview"`，但重启后读不回来 ——
+                                // 因为 `get_settings()` 反序列化到**强类型的 `Settings` 结构体**
+                                //（models.rs L355），里面没有这个字段，于是被静默丢弃。
+                                // 而改 Rust 是硬约束（0 改动）。
+                                //
+                                // 改用 SharedPreferences：这是**纯 Android 前端的渲染策略**，
+                                // 本来就不该混进跨端共享的 settings.json。
+                                previewRenderMode = activity.previewRenderModePref()
+
+                                // ── 启动时套用已保存的屏幕方向 ──────────────
+                                //
+                                // ⚠️ 2026-10-15 补：只在设置页改方向时下发是不够的 ——
+                                // 应用重启后 Android 会回到 manifest 的默认方向
+                                //（fullSensor），用户存的 `orientation` 就白设了。
+                                // 实测：设成竖屏 → 重启 → 又变回横屏。
+                                //
+                                // 这里在读到设置后立即下发一次，保证"重启也保持"。
+                                val o2 = o.optString("orientation", "system")
+                                    .ifBlank { "system" }
+                                if (o2.isNotBlank() && o2 != "system") {
+                                    bridge.invoke(
+                                        "set_orientation",
+                                        org.json.JSONObject().put("mode", o2).toString(),
+                                    ) { }
+                                }
+                            }
+                            cont.resumeWith(Result.success(true))
+                        },
+                        onFailure = { cont.resumeWith(Result.success(false)) },
+                    )
+                }
+            }
+            if (ok) return@LaunchedEffect
+            kotlinx.coroutines.delay(500)
+        }
+    }
+
+    // 三态换算：system 跟随系统，其余强制
+    val darkTheme = when (themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> androidx.compose.foundation.isSystemInDarkTheme()
+    }
+
+    // ── 界面缩放：改写 LocalDensity ──────────────────────────────────
+    //
+    // 只改 density（不改 fontScale）：density 影响 dp→px 的换算，
+    // 于是 padding / 尺寸 / 圆角一起缩放，是"整体密度"该有的行为。
+    // 如果同时放大 fontScale，字会比控件涨得更快，比例会失真。
+    val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+    val scaledDensity = androidx.compose.runtime.remember(baseDensity, uiScale) {
+        androidx.compose.ui.unit.Density(
+            density = baseDensity.density * (uiScale / 100f),
+            fontScale = baseDensity.fontScale,
+        )
+    }
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides scaledDensity,
+    ) {
+        QookiXTheme(
+            darkTheme = darkTheme,
+            themeColor = themeColor,
+            // 用户显式选了主题色时，静态派生色板优先（见 QookiXTheme 的注释）
+            dynamicColor = themeColor.isBlank(),
+        ) {
+        androidx.compose.material3.Surface(
+            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+            color = androidx.compose.material3.MaterialTheme.colorScheme.background,
+        ) {
+            var current by remember { mutableStateOf(NavDestination.Home) }
+    // 选中的实例 / 服务器 id —— **必须放在这一层**（2026-10-17）。
+    // LauncherShell 在横屏用侧栏、竖屏用底部导航，是两个不同的组合分支；
+    // 旋转时 PageHost 子树会被销毁重建，放在里面的 remember 全丢 ——
+    // 结果就是「详情页转竖屏自动退回列表」。放到 Activity 层才能跨形态存活。
+    var selectedServerId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedInstanceId by rememberSaveable { mutableStateOf<String?>(null) }
+        // 顶栏标题覆盖（文件浏览这类「非 NavDestination 的下钻层」用）
+        var titleOverride by remember { mutableStateOf<String?>(null) }
+        // PageHost 注册的「内部返回处理器」（文件浏览这类栈外下钻层用）
+        var innerBack by remember { mutableStateOf<(() -> Boolean)?>(null) }
+            var bridgeReady by remember { mutableStateOf(false) }
+            val backStack = remember { androidx.compose.runtime.mutableStateListOf<NavDestination>() }
+
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                activity.setComposeBackHandler {
+                    when {
+                        backStack.isNotEmpty() -> { current = backStack.removeAt(backStack.lastIndex); true }
+                        current != NavDestination.Home -> { current = NavDestination.Home; true }
+                        else -> false
+                    }
+                }
+                onDispose { activity.setComposeBackHandler(null) }
+            }
+
+            LaunchedEffect(Unit) { bridge.start { bridgeReady = true } }
+
+            fun navigate(dest: NavDestination) {
+                if (dest in NavDestination.bottomBar) { current = dest; backStack.clear() }
+                else { if (current !in NavDestination.bottomBar) backStack.add(current); current = dest }
+            }
+
+            var firstRun by remember { mutableStateOf(FirstRunUiState()) }
+            LaunchedEffect(bridgeReady) {
+                if (!bridgeReady) return@LaunchedEffect
+                val api = QookixApi(bridge)
+                api.getPluginSetupStatus { r ->
+                    r.onSuccess { o ->
+                        val needed = o.optBoolean("needed", false)
+                        val dismissed = o.optBoolean("dismissed", false)
+                        if (needed && !dismissed) {
+                            val missing = o.optJSONArray("missing")
+                            val names = (0 until (missing?.length() ?: 0)).mapNotNull { i ->
+                                missing?.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
+                            }
+                            firstRun = firstRun.copy(visible = true, planned = names, running = true)
+                            api.installRecommendedPlugins { ir ->
+                                val failedArr = runCatching {
+                                    org.json.JSONObject(ir.getOrNull() ?: "{}").optJSONArray("failed")
+                                }.getOrNull()
+                                val failedNames = (0 until (failedArr?.length() ?: 0)).mapNotNull { j -> failedArr?.optJSONObject(j) }
+                                firstRun = firstRun.copy(
+                                    running = false, finished = true,
+                                    doneIds = names.filter { f -> failedNames.none { it.optString("name") == f } },
+                                    failedIds = names.filter { f -> failedNames.any { it.optString("name") == f } },
+                                )
+                                api.getPluginSetupStatus { s ->
+                                    s.onSuccess { o2 ->
+                                        if (!o2.optBoolean("needed", false)) {
+                                            android.os.Handler(android.os.Looper.getMainLooper())
+                                                .postDelayed({ firstRun = firstRun.copy(visible = false) }, 1500)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            LauncherShell(
+                current = current,
+                onNavigate = { navigate(it) },
+                onOpenAccount = { navigate(NavDestination.Account) },
+                // 文件浏览等「栈外下钻层」用这个覆盖标题；没覆盖时不传，
+                // 让 LauncherShell 用它自己的 titleFor(current) 默认值。
+                title = titleOverride,
+                // 内容中心把搜索/筛选/排序工具栏注册到这里 —— 和标题同一行
+                titleContent = toolbarContent,
+                sidebarWidthDp = sidebarWidth,
+                //
+                // 以前只有一级页面（首页/实例/内容/多人/下载/更多）有顶栏，
+                // 二级页面各自在内容区自绘标题栏 —— 结果「新建实例」页
+                // 出现两个标题（用户截图指出）。现在统一由顶栏提供。
+                //
+                // 返回目标按页面决定：
+                //   新建实例 → 实例列表
+                //   实例详情 → 实例列表
+                //   服务器详情 → 多人
+                //   其余二级页 → 各自的上层
+                onBack = ({
+                    // 先问 PageHost 的「内部返回处理器」（文件浏览这类栈外下钻层）。
+                    // 它返回 true 表示已消费，外层就不再动 nav 状态。
+                    if (innerBack?.invoke() != true) {
+                        when {
+                            current == NavDestination.CreateInstance ||
+                                current == NavDestination.InstanceDetail ->
+                                navigate(NavDestination.Instances)
+                            current == NavDestination.ServerDetail ->
+                                navigate(NavDestination.Multiplayer)
+                            current == NavDestination.Skins ||
+                                current == NavDestination.News ||
+                                current == NavDestination.Playtime ||
+                                current == NavDestination.Settings ->
+                                navigate(NavDestination.More)
+                            current == NavDestination.Frp ||
+                                current == NavDestination.FrpRooms ->
+                                navigate(NavDestination.Multiplayer)
+                            current == NavDestination.Account ->
+                                navigate(NavDestination.Home)
+                        }
+                    }
+                }).takeIf {
+                    current !in NavDestination.bottomBar
+                },
+            ) {
+                PageHost(
+                    dest = current,
+                    bridge = bridge,
+                    bridgeReady = bridgeReady,
+                    onNavigate = { navigate(it) },
+                    // 文件浏览这类「非 NavDestination 的下钻层」用它上报真实标题
+                    onTitleChange = { titleOverride = it },
+                    onBackHandlerChanged = { innerBack = it },
+                    onSidebarWidthChanged = { sidebarWidth = it },
+                    // 内容中心把搜索/筛选/排序工具栏注册到顶栏（2026-10-17）
+                    onRegisterToolbar = { toolbarContent = it },
+                    selectedServerId = selectedServerId,
+                    onSelectedServerIdChange = { selectedServerId = it },
+                    selectedInstanceId = selectedInstanceId,
+                    onSelectedInstanceIdChange = { selectedInstanceId = it },
+                    activity = activity,
+                    // 3D 预览渲染方式（外观页可切）。不传的话 PageHost
+                    // 会一直用默认值 "compose"，「流畅」模式就永远不生效
+                    //（踩过：设置副标题变了但提层日志一条没有）。
+                    previewRenderMode = previewRenderMode,
+                    // 设置页改了主题/主题色 → 立刻回传给根节点，无需重启
+                    onAppearanceChanged = { mode, color, scale, preview ->
+                        themeMode = mode
+                        themeColor = color
+                        uiScale = scale
+                        previewRenderMode = preview
+                    },
+                )
+            }
+
+            FirstRunSetup(
+                state = firstRun,
+                onStart = {
+                    firstRun = firstRun.copy(running = true, failedIds = emptyList())
+                    // ⚠️ 2026-10-17 修（审计报告 H-1）：
+                    // 原来这里传的是**空回调** `{ }` —— running 永远不会复位，
+                    // 而「稍后」按钮 enabled=!running、「重试」按钮显示条件含 !running，
+                    // 两个都消失，进度条永远转 → 界面**永久卡死**，只能杀进程。
+                    //
+                    // 现在和首次自动安装（见上面 getPluginSetupStatus 那段）走同一套回调：
+                    // 收 failed 列表 → 算出 doneIds/failedIds → running 复位。
+                    val api2 = QookixApi(bridge)
+                    val planned = firstRun.planned
+                    api2.installRecommendedPlugins { ir ->
+                        val failedArr = runCatching {
+                            org.json.JSONObject(ir.getOrNull() ?: "{}").optJSONArray("failed")
+                        }.getOrNull()
+                        val failedNames = (0 until (failedArr?.length() ?: 0))
+                            .mapNotNull { j -> failedArr?.optJSONObject(j) }
+                        firstRun = firstRun.copy(
+                            running = false,
+                            finished = true,
+                            doneIds = planned.filter { f -> failedNames.none { it.optString("name") == f } },
+                            failedIds = planned.filter { f -> failedNames.any { it.optString("name") == f } },
+                        )
+                    }
+                },
+                onDismiss = {
+                    QookixApi(bridge).dismissPluginSetup { }
+                    firstRun = firstRun.copy(visible = false)
+                },
+            )
+        }
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+

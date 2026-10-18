@@ -1778,3 +1778,115 @@ pub fn save_text_file(path: &str, content: &str) -> Result<(), String> {
     }
     std::fs::write(p, content).map_err(|e| format!("写入文件失败: {e}"))
 }
+
+// ==================== 服务器内容安装（2026-10-18 新增）====================
+
+/// 把内容装到**托管服务器**的对应目录。
+///
+/// 与 [install_content] 的区别只有一处：目标目录不是实例目录，
+/// 而是 `<servers>/<server_id>/<folder>/`。
+///
+/// ## 为什么需要它
+///
+/// 用户问「我有一个 fabric 的服务器，能直接在内容中心选一个 mod 装到服务器吗」。
+/// 查证：**不能** —— `install_content` 的签名里只有 `instance_id`。
+/// UI 上却对所有内容类型都显示「安装到服务器」区块，选了也不生效，
+/// 最终被「请选择实例与版本」挡回来。这是误导，不是功能。
+///
+/// ## 只允许服务端能用的类型
+///
+/// 只有 `mod` / `plugin` 能装到服务器：
+///   - `resourcepack` / `shader` 是**纯客户端**的东西，服务端没这两个目录
+///   - `modpack` 是整合包，要整体解压，不走这条路
+///
+/// ⚠️ 还有个拦不住的限制：**客户端专属 mod（Sodium、光影加载器这类）
+/// 装到服务端会让服务端启动崩溃**。这里只能按 kind 拦，
+/// 拦不了「这个 mod 是否支持 dedicated server」——
+/// UI 层应当用 Modrinth 的 `server_side` 字段提示用户。
+pub async fn install_content_to_server(
+    server_id: &str,
+    provider: &str,
+    project_id: &str,
+    version_id: &str,
+    kind: &str,
+) -> Result<Value> {
+    let folder = match kind {
+        "mod" => "mods",
+        "plugin" => "plugins",
+        other => {
+            return Err(anyhow::anyhow!(
+                "「{other}」不能安装到服务器，只有模组和插件可以"
+            ))
+        }
+    };
+
+    let server_path = crate::servers::server_dir(server_id).map_err(|e| anyhow::anyhow!(e))?;
+    let content_dir = server_path.join(folder);
+    tokio::fs::create_dir_all(&content_dir).await.ok();
+
+    let (file_url, file_name) = resolve_content_file(provider, version_id).await?;
+    let project_title = if provider == "modrinth" {
+        project_info("modrinth", project_id)
+            .await
+            .map(|i| i.title)
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    if file_url.is_empty() || file_name.is_empty() {
+        return Err(anyhow::anyhow!("Could not find file to download"));
+    }
+    if !crate::util::is_safe_filename(&file_name) {
+        return Err(anyhow::anyhow!("非法的文件名: {file_name}"));
+    }
+
+    // 任务中心里要能区分「装到哪个服务器」
+    let server_name = crate::servers::list_servers()
+        .into_iter()
+        .find(|s| s.id == server_id)
+        .map(|s| s.name)
+        .unwrap_or_else(|| server_id.to_string());
+    let provider_label = if provider == "curseforge" { "CurseForge" } else { "Modrinth" };
+    let ctx = crate::progress::TaskCtx::new(
+        server_id,
+        &server_name,
+        &format!(
+            "{provider_label}（服务器）：{}",
+            if project_title.is_empty() { file_name.as_str() } else { project_title.as_str() }
+        ),
+    );
+    crate::progress::emit_install(&ctx, "content", &format!("正在下载 {file_name}…"), 0, 1);
+
+    let dest = content_dir.join(&file_name);
+    let download_result = download::download_file(&file_url, &dest.to_string_lossy(), None).await;
+    match &download_result {
+        Ok(p) => {
+            crate::progress::emit_download(
+                &ctx,
+                "content",
+                1,
+                1,
+                &file_name,
+                p.downloaded_bytes.max(0) as u64,
+                p.total_bytes.max(0) as u64,
+                true,
+            );
+            crate::progress::emit_install_done(&ctx, true, "安装完成", 1, 1);
+        }
+        Err(e) => {
+            crate::progress::emit_install_done(&ctx, false, &format!("安装失败：{e}"), 0, 1);
+        }
+    }
+    download_result?;
+
+    // 服务器没有「内容记录」这套元数据（那是实例的 instance.json 才有的），
+    // 所以这里不登记 —— 服务器页的文件列表直接读磁盘。
+    let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+
+    Ok(json!({
+        "ok": true,
+        "filename": file_name,
+        "size": size,
+    }))
+}

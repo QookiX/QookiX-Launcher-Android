@@ -84,9 +84,20 @@ class GameGuardService : Service() {
         return am.runningAppProcesses?.any { it.pid == pid } == true
     }
 
+
     private fun relaunchLauncher() {
-        val intent = Intent().apply {
-            setClassName(packageName, "com.zhayi.qookix.MainActivity")
+        // ⚠️ 必须拉起**当前的 LAUNCHER**（ComposeMainActivity）。
+        //
+        // 这里原来硬编码 `com.zhayi.qookix.MainActivity` —— 那是旧 Vue 时代的入口，
+        // 2026-10-13 起 LAUNCHER 已改成 `compose.ComposeMainActivity`。
+        //
+        // 后果（实测）：游戏退出 / 启动失败后，守护服务把用户拉回**旧空壳 Activity**，
+        // 界面一片空白，用户以为「启动器坏了」，只能手动杀进程重开。
+        //
+        // 用 LAUNCHER intent（而不是写死类名），以后再换入口也只需改 LAUNCHER_CLASS。
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            setClassName(packageName, LAUNCHER_CLASS)
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
@@ -133,6 +144,8 @@ class GameGuardService : Service() {
     }
 
     companion object {
+        /** 当前启动器入口 —— 换 LAUNCHER 时只改这一处。 */
+        const val LAUNCHER_CLASS = "com.zhayi.qookix.compose.ComposeMainActivity"
         private const val TAG = "GameGuard"
         private const val CHANNEL_ID = "game_guard_channel"
         private const val NOTIFICATION_ID = 4201
@@ -162,3 +175,7 @@ class GameGuardService : Service() {
         }
     }
 }
+
+
+
+

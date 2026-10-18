@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 /// 服务器根目录（数据目录下 servers/）
 fn servers_root() -> Option<PathBuf> {
     let data = crate::settings::data_dir_sync()?;
-    Some(PathBuf::from(data).join("servers"))
+    Some(crate::settings::resolve_servers_root(Path::new(&data)))
 }
 
 pub fn server_dir(id: &str) -> Result<PathBuf, String> {

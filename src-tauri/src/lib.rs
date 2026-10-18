@@ -225,6 +225,7 @@ pub fn run() {
             commands::get_loader_versions,
             commands::install_game,
             commands::install_content,
+        commands::install_server_content,
             commands::list_content,
             commands::mc_wiki_url,
             commands::fetch_news,

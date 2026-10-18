@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use serde_json::Value;
 use tokio::fs;
 use anyhow::{Context, Result};
@@ -41,6 +41,53 @@ pub fn data_dir_sync() -> Option<String> {
     }
 }
 
+/// 实例目录的**新**名字（2026-10-17 从 `instances` 改为 `game`）。
+///
+/// 为什么改：`instances` 对用户不直观。别的启动器（PojavLauncher / HMCL）用
+/// `.minecraft`，玩家一眼能懂；Android 上没法用 `.minecraft`（`files/` 是
+/// `Context.getFilesDir()` 的标准路径，且沙箱已经隔离，`.` 前缀无意义），
+/// 但至少可以叫 `game` —— 比 `instances` 短、直白。
+pub const GAME_DIR_NAME: &str = "game";
+
+/// 实例目录的**旧**名字。保留只为**兼容读取**（老用户数据还在 `instances/`）。
+///
+/// 迁移策略（用户确认的方案 B）：
+///   - **写**：永远写新目录 `game/`
+///   - **读**：两个都认 —— 新目录存在就用新目录，否则回退旧目录
+///
+/// 这样老用户升级后数据还在、不会"消失"；新装用户从零开始就是新名字。
+pub const GAME_DIR_NAME_LEGACY: &str = "instances";
+
+/// 服务器目录的**新**名字（原 `servers`）。
+pub const SERVER_DIR_NAME: &str = "server";
+
+/// 服务器目录的**旧**名字（兼容读取）。
+pub const SERVER_DIR_NAME_LEGACY: &str = "servers";
+
+/// 解析「实例目录根」：优先新名 `game/`，不存在则回退旧名 `instances/`。
+///
+/// 注意：**只在旧目录存在且新目录不存在时**才回退 —— 一旦用户有了新目录，
+/// 就再也不看旧目录（避免两个目录各有一半实例、界面上分裂）。
+pub fn resolve_instances_root(root: &Path) -> PathBuf {
+    let new_dir = root.join(GAME_DIR_NAME);
+    let legacy = root.join(GAME_DIR_NAME_LEGACY);
+    if new_dir.exists() || !legacy.exists() {
+        new_dir
+    } else {
+        legacy
+    }
+}
+
+/// 解析「服务器目录根」：优先新名 `server/`，不存在则回退旧名 `servers/`。
+pub fn resolve_servers_root(root: &Path) -> PathBuf {
+    let new_dir = root.join(SERVER_DIR_NAME);
+    let legacy = root.join(SERVER_DIR_NAME_LEGACY);
+    if new_dir.exists() || !legacy.exists() {
+        new_dir
+    } else {
+        legacy
+    }
+}
 /// 游戏数据根目录（`instances/` 的父目录）。
 ///
 /// 默认 `<data>`（内部私有目录）；用户在「存储 → 游戏目录」里选了外部目录时，
@@ -63,7 +110,7 @@ pub fn game_root_sync() -> Option<String> {
 
 /// 同步版实例目录根 = [`game_root_sync`] + `instances`（供无法 `await` 的调用点）。
 pub fn instances_root_sync() -> Option<String> {
-    game_root_sync().map(|r| Path::new(&r).join("instances").to_string_lossy().to_string())
+    game_root_sync().map(|r| resolve_instances_root(Path::new(&r)).to_string_lossy().to_string())
 }
 
 /// 同步读取设置文件原始 JSON（不存在或损坏时返回空表）。
@@ -439,7 +486,7 @@ pub async fn game_root() -> Result<String> {
 /// `Path::new(&data_dir).join("instances")`）：用户把游戏目录改到外部后，
 /// 漏改一处就会出现「实例分成两处、界面上看不见」。
 pub async fn instances_root() -> Result<std::path::PathBuf> {
-    Ok(Path::new(&game_root().await?).join("instances"))
+    Ok(resolve_instances_root(Path::new(&game_root().await?)))
 }
 
 /// 单个实例目录 = `instances_root()/<id>`。
@@ -447,3 +494,4 @@ pub async fn instances_root() -> Result<std::path::PathBuf> {
 pub async fn instance_dir(instance_id: &str) -> Result<std::path::PathBuf> {
     Ok(instances_root().await?.join(instance_id))
 }
+

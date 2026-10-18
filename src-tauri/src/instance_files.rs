@@ -400,7 +400,7 @@ fn dir_bytes(path: &std::path::Path) -> u64 {
 /// 所有实例的 `(实例 id, MC 版本)`，用于判断"这套文件还有没有别人在用"。
 fn instances_versions(data_dir: &std::path::Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir(data_dir.join("instances")) else {
+    let Ok(rd) = std::fs::read_dir(crate::settings::resolve_instances_root(data_dir)) else {
         return out;
     };
     for entry in rd.flatten() {

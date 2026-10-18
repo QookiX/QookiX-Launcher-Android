@@ -48,7 +48,7 @@ class ServerDocsProvider : DocumentsProvider() {
     const val DOC_PREFIX = "srv:"
 
     /** 暴露给系统的目录名（`filesDir/servers`）。 */
-    const val DIR_NAME = "servers"
+    const val DIR_NAME = DataDirs.SERVER  // ⚠️ 走常量（2026-10-17 目录改名）
 
     private val DOC_COLS = arrayOf(
       Document.COLUMN_DOCUMENT_ID,
@@ -289,3 +289,4 @@ class ServerDocsProvider : DocumentsProvider() {
     throw FileNotFoundException("同名文件太多：$displayName")
   }
 }
+

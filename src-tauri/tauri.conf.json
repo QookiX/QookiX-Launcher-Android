@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "QookiX Launcher",
-  "version": "1.6.0",
+  "productName": "QookiX Launcher Android",
+  "version": "1.7.0",
   "identifier": "com.zhayi.qookix",
   "build": {
     "frontendDist": "gen/android/app/src/main/assets",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build:web-assets"
   },
   "app": {
     "withGlobalTauri": true,
@@ -48,3 +48,5 @@
     }
   }
 }
+
+

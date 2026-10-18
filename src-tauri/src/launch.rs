@@ -455,14 +455,41 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
 
             // 窗口尺寸决定触摸坐标换算是否准确，出问题时最需要看到它
             for arg in jvm_args.iter().filter(|a| a.starts_with("-Dglfwstub")) {
-                tracing::info!("[launcher] {arg}");
+                println!("[launcher] {arg}");
             }
-            tracing::info!(
+            // ⚠️ 用 println! 而不是 tracing::info!：tracing 在本项目**没有接到
+            // logcat 或启动日志文件**上，写了等于没写（真机排查时踩到）。
+            // 这行是排查「classpath 只有 1 条 → MC 主类 LinkageError」的关键证据，
+            // 必须落到 launch-<id>.log 里。
+            println!(
                 "[launcher] classpath 条目 {}，java {} @ {}",
                 classpath.matches(':').count() + 1,
                 runtime.java_version,
                 runtime.path
             );
+            // 把 classpath 里的 LWJGL 条目单独打出来：官方 3.3.3 jar 必须**不在**这里，
+            // 否则会和 natives 里的 Pojav 原生库版本冲突（LWJGL 那句
+            // "Incompatible Java and native library versions detected"）。
+            for entry in classpath.split(':') {
+                if entry.to_lowercase().contains("lwjgl") {
+                    println!("[launcher] classpath 含 LWJGL: {entry}");
+                }
+            }
+            println!(
+                "[launcher] version_info.libraries = {}",
+                version_info
+                    .libraries
+                    .as_ref()
+                    .map(|l| l.len().to_string())
+                    .unwrap_or_else(|| "None".into())
+            );
+            // 把**完整** JVM 参数列表打到启动日志：排查启动崩溃时这是第一手资料，
+            // 比逐条猜测哪个参数有问题快得多。
+            for (i, a) in jvm_args.iter().enumerate() {
+                if a.len() < 300 {
+                    println!("[launcher] jvm_arg[{i}] = {a}");
+                }
+            }
         }
 
         // 把**进程的工作目录**切到实例目录。

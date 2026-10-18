@@ -191,15 +191,42 @@ pub async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, Strin
 }
 
 /// 下载更新包，返回落盘的绝对路径。进度走 [`PROGRESS_EVENT`]。
+///
+/// ## 为什么要传 `version`（2026-10-18 修）
+///
+/// 原来这个函数只读全局 `PENDING`。`PENDING` 是**单例**，检查 A 版本后
+/// 若又检查了 B 版本，它会被覆盖成 B —— 此时前端界面还显示 A，
+/// 点「下载」实际下的是 **B**（版本号与文件名都对不上）。
+///
+/// 现在要求前端把 `check_for_update` 返回的版本号带回来：
+///   - 与 `PENDING` 一致 → 正常下载
+///   - 不一致 → 报错「版本已变化，请重新检查更新」
+/// 这样即使中途又检查了别的版本，也不会下错。
+///
+/// `version` 传空串时回退到 `PENDING`（保持对旧调用的兼容）。
 #[tauri::command]
-pub async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
+pub async fn download_update(
+    app: tauri::AppHandle,
+    version: Option<String>,
+) -> Result<String, String> {
     use tauri::Emitter as _;
 
-    let pending = PENDING
+    let pending_all = PENDING
         .lock()
         .unwrap()
         .clone()
         .ok_or_else(|| "请先检查更新".to_string())?;
+
+    // 前端给了版本号就校验一致；没给就用 PENDING 里的
+    let pending = match version.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        Some(v) if v != pending_all.version => {
+            return Err(format!(
+                "版本已变化（当前待下载 {}，收到 {v}），请重新检查更新",
+                pending_all.version
+            ))
+        }
+        _ => pending_all,
+    };
     let data_dir = crate::settings::data_dir_sync().unwrap_or_default();
     let dir = updates_dir(&data_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建更新目录失败：{e}"))?;
@@ -298,3 +325,4 @@ fn find_sha256(sums: &str, file_name: &str) -> Option<String> {
     }
     None
 }
+

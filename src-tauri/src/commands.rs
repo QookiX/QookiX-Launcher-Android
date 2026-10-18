@@ -87,6 +87,19 @@ pub async fn create_instance(
     account_id: Option<String>,
     icon: Option<String>,
     group: Option<String>,
+    // ⚠️⚠️ 必须声明（2026-10-16 修，阻断性缺陷）。
+    //
+    // Tauri 命令的参数是**按签名反序列化**的：签名里没写的字段会被**静默丢弃** ——
+    // 不报错、不警告。而下面那个 `serde_json::json!` 又是**手工重建** config 的，
+    // 于是 `instances.rs:119` 的 `config["renderer"]` 永远拿不到值 ——
+    // 尽管那边的注释写着「创建实例时也允许直接指定」。
+    //
+    // 后果（真机实测）：新建实例的 `renderer` 恒为 null →
+    // `launch::resolve_renderer` 走「按版本自动」→ MC 1.21.x 被判给 **GL4ES** →
+    // GL4ES 不实现 `glMapBufferRange` → 游戏一点启动就崩：
+    //     IllegalStateException: Can't map buffer, opengl error 0
+    // 这是**每个新用户都会撞上**的路径。
+    renderer: Option<String>,
 ) -> Result<MinecraftProfile, String> {
     let config = serde_json::json!({
         "name": name,
@@ -102,6 +115,8 @@ pub async fn create_instance(
         "accountId": account_id,
         "icon": icon,
         "group": group,
+        // 前端（CreateRepo.autoRendererFor）按 MC 版本算好再传，避开上面那个误判
+        "renderer": renderer,
     });
     instances::create_instance(config).await.map_err(|e| e.to_string())
 }
@@ -680,7 +695,25 @@ pub async fn install_content(
     version_id: String,
     kind: String,
 ) -> Result<Value, String> {
-    browse::install_content(&instance_id, &provider, &project_id, &version_id, &kind).await.map_err(|e| e.to_string())
+    browse::install_content(&instance_id, &provider, &project_id, &version_id, &kind)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 把内容装到托管服务器（模组 -> mods/，插件 -> plugins/）。
+///
+/// 见 `browse::install_content_to_server` 的说明（2026-10-18 新增）。
+#[command]
+pub async fn install_server_content(
+    server_id: String,
+    provider: String,
+    project_id: String,
+    version_id: String,
+    kind: String,
+) -> Result<Value, String> {
+    browse::install_content_to_server(&server_id, &provider, &project_id, &version_id, &kind)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[command]

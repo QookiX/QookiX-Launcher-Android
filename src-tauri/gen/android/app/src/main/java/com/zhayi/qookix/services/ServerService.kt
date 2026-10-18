@@ -1,5 +1,7 @@
 package com.zhayi.qookix.services
 
+import com.zhayi.qookix.DataDirs
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -11,7 +13,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import com.zhayi.qookix.MainActivity
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -161,7 +162,7 @@ class ServerService : Service() {
             return START_STICKY
         }
 
-        val dir = File(filesDir, "servers/$serverId")
+        val dir = DataDirs.serverDir(filesDir, serverId)
         val launchJson = File(dir, "launch.json")
         if (!launchJson.exists()) {
             Log.e(TAG, "launch.json 不存在: $launchJson")
@@ -228,7 +229,9 @@ class ServerService : Service() {
     private fun buildNotification(id: String, text: String): Notification {
         val open = PendingIntent.getActivity(
             this, 0,
-            Intent(this, MainActivity::class.java).apply {
+                Intent().apply {
+                    // 指向当前 LAUNCHER（通知点一下回启动器）
+                    setClassName(packageName, "com.zhayi.qookix.compose.ComposeMainActivity")
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
                 putExtra("openServer", id)
             },
@@ -292,3 +295,6 @@ class ServerService : Service() {
         super.onDestroy()
     }
 }
+
+
+

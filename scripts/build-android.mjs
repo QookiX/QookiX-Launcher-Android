@@ -9,11 +9,11 @@
  *
  * **为什么必须有这个脚本**：Tauri 的 `generate_context!` 会在**编译 Rust 时**把
  * `frontendDist`（这里就是 gen/android/app/src/main/assets）**嵌进 .so**。
- * 所以只要改了前端，就必须「先 vite build，再 cargo build」，否则 APK 里虽然是新资源，
- * 运行时 WebView 拿到的仍是 .so 里那份旧前端 —— 表现为「改了没生效」，而且
- * `adb install -r` 看不出任何异常（今天在这上面栽了两次）。
+ * 所以只要改了 `bootstrap-public/` 里的静态资源，就必须「先跑 build:web-assets，再 cargo build」，
+ * 否则 APK 里虽然是新资源，运行时 WebView 拿到的仍是 .so 里那份旧资源 —— 
+ * 表现为「改了没生效」，而且 `adb install -r` 看不出任何异常（今天在这上面栽了两次）。
  *
- * 顺序：vite build → touch lib.rs（保证 generate_context! 重跑）→ cargo build →
+ * 顺序：build:web-assets → touch lib.rs（保证 generate_context! 重跑）→ cargo build →
  *      拷 .so 进 jniLibs → gradle assemble<Abi>Debug →（可选）install -r
  */
 import { execFileSync, execSync } from "node:child_process";
@@ -63,8 +63,10 @@ function clangFor(prefix) {
   return join(NDK_BIN, list[list.length - 1]);
 }
 
-step("1/5 前端构建（vite → gen/android/app/src/main/assets）");
-run("npm", ["run", "build"]);
+step("1/5 前端资源（bootstrap 静态文件 → gen/android/app/src/main/assets）");
+// Vue 前端已删除（界面全部是 Compose）。这里只拷贝 index.html + skin3d/*.js —— 
+// 那个 index.html 是 Tauri IPC 的引导页，没有它所有 Rust 命令都会静默失效。
+run("npm", ["run", "build:web-assets"]);
 
 step("2/5 重编 Rust（generate_context! 会在这里把前端嵌进 .so）");
 const cc = clangFor(abi.ccPrefix);
@@ -103,3 +105,4 @@ if (shouldInstall) {
   step("5/5 跳过安装（加 --install 可自动装）");
 }
 console.log("\n完成。");
+

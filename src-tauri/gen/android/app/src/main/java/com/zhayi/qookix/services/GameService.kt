@@ -10,7 +10,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.zhayi.qookix.MainActivity
 import com.zhayi.qookix.R
 import com.zhayi.qookix.currentPlayerName
 
@@ -151,7 +150,10 @@ class GameService : Service() {
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            // 指向当前 LAUNCHER（通知点一下回启动器）
+            Intent().apply {
+                setClassName(packageName, "com.zhayi.qookix.compose.ComposeMainActivity")
+            },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -168,7 +170,7 @@ class GameService : Service() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(getString(R.string.notification_game_running))
-            .setContentText("Game is currently running")
+            .setContentText(getString(R.string.notification_game_running_text))
             .setContentIntent(pendingIntent)
             .addAction(
                 android.R.drawable.ic_media_pause,
@@ -221,3 +223,4 @@ class GameService : Service() {
         }
     }
 }
+

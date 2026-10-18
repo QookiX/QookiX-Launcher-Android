@@ -1,6 +1,1224 @@
 <resources>
-    <string name="app_name">"QookiX Launcher"</string>
-    <string name="main_activity_title">"QookiX Launcher"</string>
+    <string name="app_name">"QookiX Launcher Android"</string>
+    <string name="main_activity_title">"QookiX Launcher Android"</string>
     <string name="notification_game_running">游戏运行中</string>
     <string name="notification_stop">停止</string>
+    <string name="notification_game_running_text">游戏正在后台运行，点按返回</string>
+    <!-- ══════════════════════════════════════════════════════════════
+         i18n 改造（2026-10-17，版本 1.7.0）
+
+         背景：Compose 端有 1216 处硬编码中文（975 条唯一），
+         完全没有走 Android 资源体系 —— 也就是说**无法翻译、无法适配语言**。
+         旧 Vue 前端有 1624 条 i18n 词表，迁移时整个丢掉了。
+
+         本次按页面/模块分组补齐。命名规则：`<模块>_<语义>`，
+         例如 `settings_general`、`close_behavior_minimize`。
+         ══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── 设置：常规 ── -->
+    <string name="settings_general">常规</string>
+    <string name="settings_launch_group">启动</string>
+    <string name="settings_after_launch">启动游戏后</string>
+    <string name="settings_after_launch_desc">启动器界面如何处理</string>
+    <string name="settings_keep_alive">保持后台运行</string>
+    <string name="settings_keep_alive_desc">游戏运行时让启动器留在后台，方便切回来</string>
+    <string name="settings_autostart">开机自启</string>
+    <string name="settings_autostart_desc">系统启动后自动打开启动器</string>
+    <string name="settings_orientation_group">屏幕方向</string>
+    <string name="settings_orientation">屏幕方向</string>
+    <string name="settings_orientation_desc">启动器界面默认锁定横屏，切换后立即生效（游戏内方向由游戏自身控制）</string>
+    <string name="settings_download_source_group">下载源</string>
+    <string name="settings_mirror">下载镜像源</string>
+    <string name="settings_mirror_desc">加速游戏本体、资源文件与依赖库（Forge / Fabric / NeoForge）的下载，镜像缺失文件时会自动回退官方地址 自定义镜像需兼容 BMCLAPI 接口，直接填写根地址即可</string>
+    <string name="settings_current_mirror">当前镜像</string>
+    <string name="settings_mirror_official">官方源</string>
+
+    <!-- ── 关闭行为 ── -->
+    <string name="close_behavior_minimize">最小化</string>
+    <string name="close_behavior_keep_open">保持打开</string>
+    <string name="close_behavior_close">关闭界面</string>
+
+    <!-- ── 界面方向 ── -->
+    <string name="orientation_system">跟随系统</string>
+    <string name="orientation_landscape">横屏</string>
+    <string name="orientation_portrait">竖屏</string>
+
+    <!-- ── 下载镜像预设 ── -->
+    <string name="mirror_preset_official">官方</string>
+    <string name="mirror_preset_bmclapi">BMCLAPI</string>
+
+    <!-- ── 新建服务器对话框 ── -->
+    <string name="create_server_title">新建服务器</string>
+    <string name="create_server_name">服务器名称</string>
+    <string name="create_server_core">服务端核心</string>
+    <string name="create_server_version">游戏版本（必填）</string>
+    <string name="create_server_cancel">取消</string>
+    <string name="create_server_create">创建</string>
+    <string name="create_server_core_paper">Paper</string>
+    <string name="create_server_core_paper_hint">推荐。性能好、插件生态全，适合大多数情况。</string>
+    <string name="create_server_core_vanilla">原版</string>
+    <string name="create_server_core_vanilla_hint">官方服务端，没有任何优化与插件支持。</string>
+    <string name="create_server_core_fabric">Fabric</string>
+    <string name="create_server_core_fabric_hint">实验性。可以装 Fabric 模组，稳定性不如前两个。</string>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         批量 B：外壳 / 导航 / 首页 / 实例 / 更多 / 新闻 / 首启
+         ══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── 导航入口（NavDestination.labelRes）── -->
+    <string name="nav_home">首页</string>
+    <string name="nav_instances">实例</string>
+    <string name="nav_browse">内容</string>
+    <string name="nav_multiplayer">多人</string>
+    <string name="nav_downloads">下载</string>
+    <string name="nav_more">更多</string>
+    <string name="nav_news">新闻</string>
+    <string name="nav_skins">皮肤</string>
+    <string name="nav_settings">设置</string>
+    <string name="nav_create_instance">新建实例</string>
+    <string name="nav_server_detail">服务器详情</string>
+    <string name="nav_instance_detail">实例详情</string>
+    <string name="nav_frp">MohuaFrp</string>
+    <string name="nav_frp_rooms">联机房间</string>
+    <string name="nav_playtime">游戏统计</string>
+    <string name="nav_account">账号</string>
+
+    <!-- ── LauncherShell：顶栏标题 / 无障碍描述 ── -->
+    <string name="shell_title_home">首页</string>
+    <string name="shell_title_instances">实例</string>
+    <string name="shell_title_browse">内容</string>
+    <string name="shell_title_multiplayer">多人游戏</string>
+    <string name="shell_title_downloads">下载</string>
+    <string name="shell_title_more">更多</string>
+    <string name="shell_title_news">新闻</string>
+    <string name="shell_title_skins">皮肤</string>
+    <string name="shell_title_settings">设置</string>
+    <string name="shell_title_create_instance">新建实例</string>
+    <string name="shell_title_server_detail">服务器详情</string>
+    <string name="shell_title_instance_detail">实例详情</string>
+    <string name="shell_title_account">账号</string>
+    <string name="shell_title_playtime">游玩统计</string>
+    <string name="shell_title_frp">FRP 隧道</string>
+    <string name="shell_title_frp_rooms">联机房间</string>
+    <string name="shell_action_back">返回</string>
+    <string name="shell_action_account">账号</string>
+
+    <!-- ── 首页 ── -->
+    <string name="home_recent_instances">最近游玩</string>
+    <string name="home_in_progress">进行中</string>
+    <string name="home_latest_news">新闻</string>
+    <string name="home_view_all">更多</string>
+    <string name="home_no_instances">还没有游戏实例</string>
+    <string name="home_no_instances_hint">创建第一个实例</string>
+    <string name="home_launching">启动中…</string>
+    <string name="home_launch_game">启动游戏</string>
+    <string name="home_switch_instance">切换实例</string>
+
+    <!-- ── 游玩统计 ── -->
+    <string name="playtime_title">游戏统计</string>
+    <string name="playtime_refresh">刷新</string>
+    <string name="playtime_empty">还没有游玩记录</string>
+    <string name="playtime_empty_hint">启动一次游戏后，这里会统计时长</string>
+    <string name="playtime_total_label">累计游玩时长</string>
+    <string name="playtime_recent_days">近 %1$d 天</string>
+    <string name="playtime_by_instance">按实例</string>
+    <string name="playtime_last_played">上次游玩 %1$s</string>
+    <string name="playtime_duration_zero">0 分钟</string>
+    <string name="playtime_duration_less_minute">不到 1 分钟</string>
+    <string name="playtime_duration_minutes">%1$d 分钟</string>
+    <string name="playtime_duration_hours">%1$d 小时</string>
+    <string name="playtime_duration_hours_minutes">%1$d 小时 %2$d 分钟</string>
+
+    <!-- ── 实例列表 ── -->
+    <string name="instances_new">新建实例</string>
+<string name="instances_empty">暂无实例</string>
+<string name="instances_empty_hint">还没有任何实例，创建一个开始游戏吧</string>
+    <string name="instances_action_prompt">选择要执行的操作</string>
+    <string name="instances_open">打开</string>
+    <string name="instances_delete">删除</string>
+    <string name="instances_cancel">取消</string>
+<string name="instances_delete_title">确定要删除「%1$s」吗？</string>
+<string name="instances_delete_message">删除实例将移除其游戏目录与全部内容，此操作不可恢复</string>
+    <string name="instances_loader_vanilla">原版</string>
+
+    <!-- ── 更多 ── -->
+    <string name="more_skins">皮肤</string>
+    <string name="more_news">新闻</string>
+    <string name="more_playtime">游戏统计</string>
+    <string name="more_settings">设置</string>
+
+    <!-- ── 新闻 ── -->
+    <string name="news_refresh">刷新</string>
+    <string name="news_empty">暂无新闻</string>
+    <string name="news_load_failed">加载失败：%1$s</string>
+    <!-- 日期的 SimpleDateFormat pattern（可翻译：不同语言的月/日顺序不同）。 -->
+    <string name="news_date_month_day">M月d日</string>
+    <string name="news_date_year_month_day">yyyy年M月d日</string>
+
+    <!-- ── 首次运行引导 ── -->
+    <string name="first_run_title">正在准备运行环境</string>
+    <string name="first_run_desc_running">首次运行需要下载几个组件（渲染器等），装完就可以玩了。</string>
+    <string name="first_run_done">全部就绪！</string>
+    <string name="first_run_checking">检查更新组件…</string>
+    <string name="first_run_failed">失败</string>
+    <string name="first_run_downloading">下载中…</string>
+    <string name="first_run_later">稍后</string>
+    <string name="first_run_retry">重试</string>
+
+    <!-- ── 实例详情 ── -->
+<string name="instance_detail_task_installing">安装中…</string>
+    <string name="instance_detail_cancel">取消</string>
+<string name="instance_detail_files_incomplete">游戏文件不完整（已就绪 %1$d/%2$d）</string>
+    <string name="instance_detail_needs_manual">（需要手动处理）</string>
+<string name="instance_detail_repairing">正在补全游戏文件…</string>
+<string name="instance_detail_repair_files">补全游戏文件</string>
+<string name="instance_detail_no_saves_title">这个实例还没有世界存档</string>
+<string name="instance_detail_no_saves_desc">安装游戏后创建的世界会出现在这里</string>
+    <string name="instance_detail_enter_world">进入世界</string>
+    <string name="instance_detail_backup">备份</string>
+<string name="instance_detail_restore_latest">恢复备份</string>
+    <string name="instance_detail_restore">恢复</string>
+    <string name="instance_detail_delete">删除</string>
+<string name="instance_detail_import_layout">导入</string>
+<string name="instance_detail_keys_hint">进原生横屏编辑器调键位、大小与位置（和游戏里那个界面一致，所见即所得）</string>
+<string name="instance_detail_no_layouts_title">还没有布局文件，先进一次游戏</string>
+<string name="instance_detail_no_layouts_desc">请先启动一次游戏后再使用按键绑定工具</string>
+    <string name="instance_detail_in_use">使用中</string>
+<string name="instance_detail_edit">编辑布局</string>
+    <string name="instance_detail_rename">重命名</string>
+    <string name="instance_detail_copy">复制</string>
+<string name="instance_detail_no_content_title">这里还是空的</string>
+<string name="instance_detail_no_content_desc">从内容中心安装</string>
+    <string name="instance_detail_update">更新</string>
+    <string name="instance_detail_uninstall">卸载</string>
+<string name="instance_detail_read_failed">读取报告失败：%1$s</string>
+<string name="instance_detail_shared_files_title">游戏本体（全局共享）</string>
+<string name="instance_detail_usage_game_version">版本 %1$s</string>
+<string name="instance_detail_usage_libraries">依赖库</string>
+<string name="instance_detail_usage_assets">游戏素材</string>
+    <string name="instance_detail_shared_instances">共 %1$d 个实例在用这些共享文件</string>
+    <string name="instance_detail_files_hint">点文件可编辑，长按可重命名/删除</string>
+<string name="instance_detail_system_file_manager">在文件管理器中查看</string>
+<string name="instance_detail_settings_stub_title">跟随全局设置</string>
+    <string name="instance_detail_settings_stub_desc">内存、Java 参数、启动参数目前统一在「设置 → 游戏」里调整</string>
+<string name="instance_detail_no_logs">暂无日志内容</string>
+<string name="instance_detail_no_logs_desc">暂无日志，启动游戏后这里会显示日志</string>
+    <string name="instance_detail_reload">重新读取</string>
+    <string name="instance_detail_log_lines">共 %1$d 行</string>
+    <string name="instance_detail_refresh">刷新</string>
+    <string name="instance_detail_crash_analysis">崩溃分析</string>
+<string name="instance_detail_no_crashes">暂无崩溃报告</string>
+<string name="instance_detail_no_crashes_desc">游戏正常退出时不会生成崩溃报告</string>
+<string name="instance_detail_recheck">重新分析</string>
+    <string name="instance_detail_analyze_hint">点「分析」看可能的原因</string>
+<string name="instance_detail_analyze">分析此崩溃报告</string>
+    <string name="instance_detail_close">关闭</string>
+    <string name="instance_detail_tab_content">内容</string>
+    <string name="instance_detail_tab_saves">存档</string>
+    <string name="instance_detail_tab_keys">按键</string>
+    <string name="instance_detail_tab_settings">设置</string>
+    <string name="instance_detail_tab_files">文件</string>
+    <string name="instance_detail_tab_logs">日志</string>
+    <string name="instance_detail_tab_crash">崩溃</string>
+    <string name="instance_detail_kind_mod">模组</string>
+<string name="instance_detail_kind_resourcepack">材质包</string>
+    <string name="instance_detail_kind_shader">光影</string>
+    <string name="instance_detail_kind_label_count">%1$s %2$d</string>
+    <string name="instance_detail_untitled">实例</string>
+<string name="instance_detail_repair_game_files_cd">补全游戏文件</string>
+<string name="instance_detail_launch">启动游戏</string>
+    <string name="instance_detail_check_updates">检查更新</string>
+    <string name="instance_detail_identify">识别</string>
+
+    <!-- ── FRP 隧道页（FrpPage.kt）── -->
+    <string name="frp_panel_title">面板</string>
+    <string name="frp_panel_address">面板地址</string>
+    <string name="frp_probe">自检 frpc</string>
+    <string name="frp_probe_busy">自检中…</string>
+    <string name="frp_open_site">打开官网</string>
+    <string name="frp_login">登录</string>
+    <string name="frp_login_desc">用设备码登录</string>
+    <string name="frp_account_title">账号</string>
+    <string name="frp_account_username">用户</string>
+    <string name="frp_account_email">邮箱</string>
+    <string name="frp_account_balance">铜币</string>
+    <string name="frp_tunnel">隧道</string>
+    <string name="frp_refresh">刷新</string>
+    <string name="frp_logout">退出登录</string>
+    <string name="frp_tunnel_empty">这个账号下还没有隧道，去面板网页新建一条</string>
+    <string name="frp_tunnel_exited">隧道进程已退出（%1$s）</string>
+    <string name="frp_start">启动</string>
+    <string name="frp_stop">停止</string>
+    <string name="frp_view_log">日志</string>
+    <string name="frp_status_unknown">未知</string>
+    <string name="frp_login_dialog_title">登录面板</string>
+    <string name="frp_login_dialog_hint">已自动复制代码并打开浏览器，在浏览器中粘贴并授权即可</string>
+    <string name="frp_login_waiting">等待你在浏览器里确认…</string>
+    <string name="frp_login_success">登录成功</string>
+    <string name="frp_login_failed">登录未完成</string>
+    <string name="frp_close">关闭</string>
+    <string name="frp_log_loading">加载中…</string>
+    <string name="frp_log_empty">（还没有输出）</string>
+
+    <string name="frp_rooms_mode_desc">房主-访问者模式：双方都要跑 frpc。房主启动房间后，客人「加入并连接」，在游戏里连提示的 127.0.0.1:&lt;端口&gt; 即可</string>
+    <string name="frp_rooms_open">联机房间</string>
+
+    <!-- ── FRP 联机房间页（FrpRoomsPage.kt）── -->
+    <string name="frp_rooms_title">联机房间</string>
+    <string name="frp_rooms_desc">通过公网节点中转，朋友之间不用在同一个局域网</string>
+    <string name="frp_rooms_refresh">刷新</string>
+    <string name="frp_rooms_create">创建房间</string>
+    <string name="frp_rooms_connect_hint">在游戏里连这个地址</string>
+    <string name="frp_rooms_copy">复制</string>
+    <string name="frp_rooms_empty_title">还没有房间</string>
+    <string name="frp_rooms_empty_desc">点「创建房间」建一个，别人就能看到并加入</string>
+    <string name="frp_rooms_has_password">有密码</string>
+    <string name="frp_rooms_reviewing">房间审核中</string>
+    <string name="frp_rooms_reviewing_reason">审核中 —— %1$s</string>
+    <string name="frp_rooms_start">启动房间</string>
+    <string name="frp_rooms_stop">关闭房间</string>
+    <string name="frp_rooms_join">加入并连接</string>
+    <string name="frp_rooms_leave">退出房间</string>
+    <string name="frp_rooms_status_online">在线</string>
+    <string name="frp_rooms_status_closed">已关闭</string>
+    <string name="frp_rooms_name">房间名</string>
+    <string name="frp_rooms_local_port">本地端口（游戏服务端端口）</string>
+    <string name="frp_rooms_port_hint">Minecraft 默认 25565</string>
+    <string name="frp_rooms_password">房间密码</string>
+    <string name="frp_rooms_nodes">节点</string>
+    <string name="frp_rooms_no_nodes">没有可用节点。请检查网络后刷新。</string>
+    <string name="frp_rooms_confirm_create">创建房间</string>
+    <string name="frp_rooms_cancel">取消</string>
+
+    <!-- ── 多人游戏页（MultiplayerPage.kt）── -->
+    <string name="multiplayer_tab_servers">我的服务器</string>
+    <string name="multiplayer_tab_tunnel">陶瓦联机</string>
+    <string name="multiplayer_tab_rooms">联机房间</string>
+    <string name="multiplayer_frp_title">MohuaFrp</string>
+    <string name="multiplayer_frp_desc">内网穿透，将内网穿透到外网</string>
+    <string name="multiplayer_frp_open_tunnel">打开 FRP 隧道</string>
+    <string name="multiplayer_frp_open_rooms">XTCP 联机房间</string>
+    <string name="multiplayer_frp_rooms_desc">房主-访问者模式：双方都要跑 frpc。房主启动房间后，客人「加入并连接」，在游戏里连提示的 127.0.0.1:&lt;端口&gt; 即可</string>
+    <string name="multiplayer_new_server">创建服务器</string>
+    <string name="multiplayer_empty_servers_title">还没有服务器</string>
+    <string name="multiplayer_empty_servers_desc">创建一个，和朋友一起玩</string>
+    <string name="multiplayer_start">启动</string>
+    <string name="multiplayer_stop">停止</string>
+    <string name="multiplayer_host_title">开启房间</string>
+    <string name="multiplayer_host_desc">通过房间码与好友 NAT 穿透联机，无需公网 IP 和端口映射</string>
+    <string name="multiplayer_room_code_label">房间码</string>
+    <string name="multiplayer_copy_room_code">复制房间码</string>
+    <string name="multiplayer_busy">处理中</string>
+    <string name="multiplayer_tunnel_stop">停止开房</string>
+    <string name="multiplayer_tunnel_start">开启房间</string>
+    <string name="multiplayer_guest_title">加入房间</string>
+    <string name="multiplayer_guest_desc">输入朋友的房间码</string>
+    <string name="multiplayer_room_code">房间码</string>
+    <string name="multiplayer_room_code_hint">例如 ABCD-EFGH-ABCD-EFGH</string>
+    <string name="multiplayer_join_room">加入房间</string>
+
+    <!-- ── 账号面板（AccountPanel.kt）── -->
+    <string name="account_title">账号</string>
+    <string name="account_add_offline">添加离线账号</string>
+    <string name="account_ms_login">添加 Microsoft 账户</string>
+    <string name="account_browser_login">在浏览器里完成登录</string>
+    <string name="account_code">代码：%1$s</string>
+    <string name="account_open">打开</string>
+    <string name="account_empty_title">还没有账号</string>
+    <string name="account_empty_desc">点击添加账号</string>
+    <string name="account_delete_title">确定要删除账号「%1$s」吗？</string>
+    <string name="account_delete_online_desc">再次使用需要重新登录微软账号</string>
+    <string name="account_delete_offline_desc">会移除这个离线账号。它的存档与实例不受影响。</string>
+    <string name="account_delete">删除</string>
+    <string name="account_cancel">取消</string>
+    <string name="account_notice">提示</string>
+    <string name="account_ok">知道了</string>
+    <string name="account_current">当前游玩账号</string>
+    <string name="account_online">正版账号</string>
+    <string name="account_offline">离线账号</string>
+    <string name="account_add_offline_title">添加离线账号</string>
+    <string name="account_username">游戏内用户名（≤16 字符）</string>
+    <string name="account_offline_desc">离线账号的 UUID 由用户名确定，可与官方启动器互通</string>
+    <string name="account_add">添加</string>
+    <string name="account_fetching_code">正在获取登录代码…</string>
+    <string name="account_step_open_url">1. 打开下面的网址</string>
+    <string name="account_step_enter_code">2. 输入这个代码</string>
+    <string name="account_done_hint">请浏览器中完成授权，本窗口会自动继续…</string>
+    <string name="account_open_browser">打开浏览器</string>
+    <string name="account_close">关闭</string>
+
+    <!-- ── 皮肤页（SkinPage.kt / SkinRepo.kt / Skin3dHost.kt）── -->
+    <string name="skin_none_selected">未选择皮肤</string>
+    <string name="skin_current_account_online">当前账号：%1$s</string>
+    <string name="skin_current_account_offline">当前账号：%1$s</string>
+    <string name="skin_applying">应用中…</string>
+    <string name="skin_upload">上传皮肤</string>
+    <string name="skin_apply">应用</string>
+    <string name="skin_delete">删除皮肤</string>
+    <string name="skin_capes">披风设置</string>
+    <string name="skin_capes_loading">正在读取披风…</string>
+    <string name="skin_capes_empty">这个账号没有可用披风</string>
+    <string name="skin_cape_none">不使用</string>
+    <string name="skin_library">皮肤库</string>
+    <string name="skin_import">导入</string>
+    <string name="skin_player_name">输入 Minecraft 正版玩家名</string>
+    <string name="skin_fetch">按玩家名获取</string>
+    <string name="skin_empty_title">还没有保存的皮肤</string>
+    <string name="skin_empty_desc">选择本地 PNG</string>
+    <string name="skin_preview_3d">皮肤 3D 预览</string>
+    <string name="skin_rendering">正在渲染 3D…</string>
+    <string name="skin_select_hint">请先选择皮肤</string>
+    <string name="skin_anim_idle">站立</string>
+    <string name="skin_anim_walk">行走</string>
+    <string name="skin_anim_run">奔跑</string>
+    <string name="skin_anim_none">静止</string>
+    <string name="skin_model_classic">经典</string>
+    <string name="skin_model_slim">纤细</string>
+    <string name="skin_auto_rotate">自动旋转</string>
+    <string name="skin_reset_view">重置视角</string>
+    <string name="skin_drag_hint">拖动旋转</string>
+    <string name="skin_3d_webview_unavailable">WebView 不可用</string>
+    <string name="skin_3d_init_failed">初始化失败</string>
+    <string name="skin_3d_not_ready">3D 渲染器未就绪：%1$s</string>
+    <string name="skin_3d_timeout">3D 渲染超时</string>
+    <string name="skin_3d_failed">3D 渲染失败</string>
+    <string name="skin_3d_decode_failed">位图解码失败</string>
+    <!-- ── PageHost（跨页面通用文案）── -->
+    <string name="renderer_hint_title">渲染器建议</string>
+    <string name="renderer_hint_switch">切换为 %1$s</string>
+    <string name="renderer_hint_keep">仍用当前</string>
+    <string name="login_timeout">授权超时，请重新登录</string>
+    <string name="login_denied">授权被拒绝或已过期</string>
+    <string name="no_instances">还没有实例</string>
+    <string name="no_instances_hint">还没有实例，先去「实例」页创建一个</string>
+    <string name="hint_title">提示</string>
+    <string name="skin_delete_title">删除这个皮肤？</string>
+    <string name="speedtest_title">下载源测速</string>
+    <string name="speedtest_running">正在测速…</string>
+    <string name="speedtest_desc">对比官方源与国内镜像的耗时，选快的</string>
+    <string name="speedtest_result_header">下载源测速结果\n\n</string>
+    <string name="update_check_title">更新检查</string>
+    <string name="licenses_title">许可与版权声明</string>
+    <string name="common_cancel">取消</string>
+    <string name="layout_copy_title">复制布局</string>
+<string name="backup_restore_title">恢复备份</string>
+<string name="backup_delete_title">删除备份</string>
+    <string name="saved">已保存</string>
+    <string name="multiplayer_short">联机</string>
+    <string name="multiplayer_address">联机地址</string>
+    <string name="deps_title">依赖</string>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         批量 C：设置页（settings 子代理）
+         ══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── 设置页通用对话框（SettingsDialogs.kt）── -->
+    <string name="dialog_save">保存</string>
+    <string name="dialog_cancel">取消</string>
+    <string name="dialog_reading">加载中…</string>
+    <string name="dialog_no_content">（没有内容）</string>
+    <string name="dialog_close">关闭</string>
+
+    <!-- ── 设置页外壳 / 分组 tab（SettingsPage.kt）── -->
+    <string name="settings_tab_general">常规</string>
+    <string name="settings_tab_plugins">插件</string>
+    <string name="settings_tab_appearance">外观</string>
+    <string name="settings_tab_download">下载</string>
+    <string name="settings_tab_content_services">内容服务</string>
+    <string name="settings_tab_game">游戏内</string>
+    <string name="settings_tab_storage">存储</string>
+    <string name="settings_tab_about">关于</string>
+    <string name="settings_placeholder_wip">这个分组还在开发中</string>
+
+    <!-- ── 设置：网络代理（ProxySection.kt）── -->
+    <string name="settings_proxy_group">下载代理</string>
+    <string name="settings_proxy_mode">代理模式</string>
+    <string name="settings_proxy_address">代理地址</string>
+    <string name="settings_proxy_address_support">http://127.0.0.1:7890 或 socks5://127.0.0.1:1080</string>
+    <string name="settings_proxy_test_title">测试连接</string>
+    <string name="settings_proxy_test_desc">对 Mojang 官方地址发一次请求，看代理是否真的生效</string>
+    <string name="settings_proxy_detect">探测</string>
+    <string name="settings_proxy_detecting">探测中…</string>
+    <string name="settings_proxy_test">测试</string>
+    <string name="settings_proxy_testing">测试中…</string>
+    <string name="settings_proxy_mode_system">跟随系统</string>
+    <string name="settings_proxy_mode_system_hint">使用系统网络代理设置（默认）</string>
+    <string name="settings_proxy_mode_direct">直连</string>
+    <string name="settings_proxy_mode_direct_hint">直连，不经过任何代理</string>
+    <string name="settings_proxy_mode_custom">自定义</string>
+    <string name="settings_proxy_mode_custom_hint">自定义代理用于绕过 CDN 下载失败（404/连接失败）修改后需重启启动器生效</string>
+
+    <!-- ── 设置：插件（PluginsPane.kt）── -->
+    <string name="plugins_title">插件</string>
+    <string name="plugins_not_initialized">插件尚未初始化</string>
+    <string name="plugins_not_initialized_desc">部分功能（渲染器适配、翻译）在初始化前不会生效。点下面的按钮安装推荐插件。</string>
+    <string name="plugins_install_recommended">安装推荐插件</string>
+    <string name="plugins_installing">安装中…</string>
+    <string name="plugins_installing_progress">正在安装…</string>
+    <string name="plugins_installed_count">已安装（%1$d）</string>
+    <string name="plugins_empty">还没有安装任何插件</string>
+    <string name="plugins_refresh">刷新</string>
+    <string name="plugins_check_updates">检查更新</string>
+    <string name="plugins_about">插件是启动器自身的扩展（渲染器适配、翻译服务等），不是 Minecraft 模组。模组请在「内容」页安装。</string>
+    <string name="plugins_enabled">已启用</string>
+    <string name="plugins_disabled">已禁用</string>
+
+    <!-- ── 设置：渲染器（RendererPane.kt）── -->
+    <string name="settings_renderer_title">渲染器</string>
+    <string name="settings_renderer_desc">决定游戏怎么把画面画到屏幕上。选错会导致游戏启动失败。</string>
+    <string name="settings_renderer_bundled">随包自带</string>
+    <string name="settings_renderer_in_use">使用中</string>
+    <string name="settings_renderer_switch">切换</string>
+    <string name="settings_renderer_label_gl4es">GL4ES</string>
+    <string name="settings_renderer_label_mobileglues">MobileGlues</string>
+    <string name="settings_renderer_label_zink">Zink + Turnip</string>
+    <string name="settings_renderer_not_bundled_warning">「%1$s」不在安装包里，需要先在「设置 → 插件」安装。没装就启动的话，游戏会崩在找不到 native 库上 —— 如果不想折腾，建议切回「GL4ES」。</string>
+    <string name="settings_renderer_hint_gl4es">兼容性最好，随包自带。多数设备选这个最省心。</string>
+    <string name="settings_renderer_hint_mobileglues">性能更好，但需要先在插件页安装。</string>
+    <string name="settings_renderer_hint_zink">走 Vulkan 驱动，需要 Turnip 插件，配置门槛较高。</string>
+
+    <!-- ── 设置：外观（AppearancePane.kt）── -->
+    <string name="settings_appearance_title">外观</string>
+    <string name="settings_appearance_theme_group">主题</string>
+    <string name="settings_appearance_theme_color">主题色</string>
+    <string name="settings_appearance_theme_color_desc">主色调，影响按钮、选中态与强调色</string>
+    <string name="settings_appearance_custom_color">自定义颜色</string>
+    <string name="settings_appearance_dark_mode">深浅模式</string>
+    <string name="settings_appearance_dark_mode_desc">跟随系统，或强制浅色/深色</string>
+    <string name="settings_appearance_preview_mode">3D 皮肤预览</string>
+    <string name="settings_appearance_preview_smooth_desc">流畅（约 60fps，更耗电）</string>
+    <string name="settings_appearance_preview_battery_desc">省电（约 25fps，界面纯 Compose）</string>
+    <string name="settings_appearance_ui_scale">界面缩放</string>
+    <string name="settings_appearance_ui_scale_desc">整体放大或缩小整个界面，立即生效</string>
+    <string name="settings_appearance_ui_scale_desc_changed">影响所有页面的文字与控件大小（当前非默认）</string>
+    <string name="settings_appearance_reset_ui_scale">恢复默认（100%）</string>
+    <string name="settings_appearance_sidebar_width">侧边栏宽度</string>
+    <string name="settings_appearance_sidebar_width_desc">横屏时左侧导航栏的宽度</string>
+    <string name="settings_appearance_sidebar_width_desc_changed">横屏时左侧导航栏的宽度（当前非默认）</string>
+    <string name="settings_appearance_reset_sidebar">恢复默认（168 dp）</string>
+    <string name="settings_appearance_background">背景图片</string>
+    <string name="settings_appearance_background_unset">未设置</string>
+    <string name="settings_appearance_background_set">已设置</string>
+    <string name="settings_appearance_background_choose">选择图片</string>
+    <string name="settings_appearance_background_change">更换</string>
+    <string name="settings_appearance_background_clear">清除背景图</string>
+    <string name="settings_appearance_background_clear_desc">恢复纯色背景</string>
+    <string name="settings_appearance_clear">清除</string>
+    <string name="settings_appearance_home_group">首页显示</string>
+    <string name="settings_appearance_home_downloads">正在下载卡片</string>
+    <string name="settings_appearance_home_downloads_desc">有下载任务时在首页显示进度</string>
+    <string name="settings_appearance_home_recent">最近实例</string>
+    <string name="settings_appearance_home_recent_desc">在首页显示最近玩过的实例</string>
+    <string name="settings_appearance_home_stats">游戏统计</string>
+    <string name="settings_appearance_home_stats_desc">在首页显示累计游玩时长与近 30 天曲线</string>
+    <string name="settings_appearance_home_news">新闻</string>
+    <string name="settings_appearance_home_news_desc">在首页与更多页显示新闻入口</string>
+    <string name="settings_appearance_theme_system">跟随系统</string>
+    <string name="settings_appearance_theme_light">浅色</string>
+    <string name="settings_appearance_theme_dark">深色</string>
+    <string name="settings_appearance_preview_battery">省电</string>
+    <string name="settings_appearance_preview_smooth">流畅</string>
+    <string name="settings_appearance_color_hue">色相</string>
+    <string name="settings_appearance_color_saturation">饱和度</string>
+    <string name="settings_appearance_color_lightness">明度</string>
+    <string name="settings_appearance_apply">应用</string>
+
+    <!-- ── 设置：关于（AboutAndContentPanes.kt）── -->
+    <string name="about_title">关于</string>
+    <string name="about_tagline">一个简洁无广告的 Minecraft Java 版启动器，支持在 Android 上运行桌面版游戏。</string>
+    <string name="about_dep_group_title">%1$s（%2$d）</string>
+    <string name="about_dep_group_frontend">Android / Compose</string>
+    <string name="about_dep_group_rust">Rust 后端</string>
+    <string name="about_dep_group_bundled">随包分发的组件</string>
+    <string name="about_this_project">本项目</string>
+    <string name="about_third_party_notices">第三方声明全文</string>
+    <string name="about_third_party_notices_desc">完整的版权与许可文本</string>
+    <string name="about_view">查看 ›</string>
+    <string name="about_projects">项目</string>
+    <string name="about_github_repo">GitHub 仓库</string>
+    <string name="about_github_repo_desc">源码、问题反馈、更新日志</string>
+    <string name="about_open">打开 ›</string>
+    <string name="about_desktop">桌面版</string>
+    <string name="about_desktop_desc">QookiX Launcher 桌面端（同一套界面体验）</string>
+    <string name="about_learn_more">了解</string>
+    <string name="about_disclaimer">启动器本身只是下载与安装工具，不托管任何游戏文件。游戏客户端来自官方渠道，模组/整合包来自 Modrinth、CurseForge 等第三方平台。请确保你拥有 Minecraft 正版授权。</string>
+
+    <!-- ── 设置：内容服务（AboutAndContentPanes.kt）── -->
+    <string name="content_services_title">内容服务</string>
+    <string name="content_services_curseforge_group">CurseForge</string>
+<string name="content_services_builtin_key">可选不填使用默认key 可能会导致 CurseForge 内容中心不可用，Modrinth 不受影响</string>
+    <string name="content_services_set">设置</string>
+    <string name="content_services_modify">修改</string>
+<string name="content_services_translate_group">内容翻译</string>
+    <string name="content_services_translate_service">翻译服务</string>
+    <string name="content_services_translate_service_desc">用于翻译模组描述</string>
+<string name="content_services_auto_translate">翻译正文</string>
+<string name="content_services_auto_translate_desc">打开资源详情时自动加载正文译文</string>
+<string name="content_services_api_base">接口地址</string>
+<string name="content_services_api_base_unset">请先填写接口地址与模型名</string>
+    <string name="content_services_unset">未设置</string>
+    <string name="content_services_model">模型</string>
+    <string name="content_services_translate_cache">翻译缓存</string>
+    <string name="content_services_translate_cache_desc">清掉已缓存的译文，下次重新翻译</string>
+<string name="content_services_clearing">清除中…</string>
+<string name="content_services_clear">清除缓存</string>
+    <string name="content_services_plugins_group">插件</string>
+    <string name="content_services_plugins_platform">插件平台</string>
+    <string name="content_services_plugins_platform_desc">启动器支持通过插件扩展功能（如渲染器、翻译）</string>
+    <string name="content_services_manage">管理</string>
+    <string name="content_services_curseforge_dialog_title">CurseForge API Key</string>
+<string name="content_services_curseforge_help">在 console.curseforge.com 免费申请</string>
+    <string name="content_services_translate_api_title">翻译 API 地址</string>
+    <string name="content_services_translate_api_label">地址</string>
+<string name="content_services_translate_api_help">任何 OpenAI 兼容接口（DeepSeek / 硅基流动 / 本地 Ollama 等）翻译时会把英文描述或正文发过去</string>
+    <string name="content_services_translate_key_title">翻译 API Key</string>
+    <string name="content_services_translate_key_help">你的接口密钥。留空时按接口是否允许匿名访问处理。</string>
+    <string name="content_services_translate_model_title">翻译模型</string>
+    <string name="content_services_translate_model_label">模型名</string>
+<string name="content_services_translate_model_help">模型名，如 deepseek-chat</string>
+<string name="content_services_provider_builtin">内置翻译服务</string>
+<string name="content_services_provider_custom">自定义 OpenAI 兼容接口</string>
+<string name="content_services_provider_baidu">百度网页翻译（开浏览器）</string>
+
+    <!-- ── 设置：下载（DownloadGameStoragePanes.kt）── -->
+    <string name="settings_download_title">下载</string>
+    <string name="settings_download_concurrency_group">并发</string>
+    <string name="settings_download_parallel_files">并行下载</string>
+    <string name="settings_download_parallel_files_desc">同时从服务器下载的文件数量值越大并发越高，但对服务器压力也越大</string>
+    <string name="settings_download_chunk_threads">单文件分片线程数</string>
+    <string name="settings_download_chunk_threads_desc">对单个大文件使用 HTTP Range 分片并行下载的线程数仅对支持断点续传的服务器生效，小文件始终单线程</string>
+    <string name="settings_download_network_hint">网络提示</string>
+    <string name="settings_download_network_hint_desc">并发数改大后如果下载反而变慢，说明服务端限速了，调小即可</string>
+    <string name="settings_download_update_group">更新</string>
+    <string name="settings_download_auto_update">自动检查更新</string>
+    <string name="settings_download_auto_update_desc">启动时检查启动器新版本</string>
+    <string name="settings_download_update_source">更新源</string>
+    <string name="settings_download_update_source_desc">国内访问 GitHub 慢时可换镜像</string>
+    <string name="settings_download_check_now">检查更新</string>
+    <string name="settings_download_check_now_desc">手动触发一次更新检查</string>
+    <string name="settings_download_check">检查</string>
+    <string name="settings_download_mirror_group">下载源测速</string>
+    <string name="settings_download_mirror_test">测速</string>
+    <string name="settings_download_testing">测速中…</string>
+    <string name="settings_download_start_test">开始测速</string>
+    <string name="settings_download_mirror_hint">对比官方源与国内镜像的耗时，选快的</string>
+    <string name="settings_download_update_result_title">更新检查</string>
+    <string name="settings_download_source_github">GitHub</string>
+    <string name="settings_download_source_mirror">镜像</string>
+
+    <!-- ── 设置：游戏（DownloadGameStoragePanes.kt）── -->
+    <string name="settings_game_title">游戏内</string>
+    <string name="settings_game_renderer_group">渲染器</string>
+    <string name="settings_game_current_renderer">当前渲染器</string>
+    <string name="settings_game_renderer_wrong_hint">选错会导致游戏启动失败</string>
+    <string name="settings_game_memory_group">内存分配</string>
+    <string name="settings_game_memory_suggestion">内存建议</string>
+    <string name="settings_game_memory_detect_desc">读取设备内存，给出推荐值</string>
+    <string name="settings_game_detect">探测</string>
+    <string name="settings_game_device_memory">设备内存</string>
+    <string name="settings_game_total_memory">总内存</string>
+    <string name="settings_game_used_memory">已用</string>
+    <string name="settings_game_available_memory">可用</string>
+    <string name="settings_game_apply_suggestion">采用建议（%1$d MB）</string>
+    <string name="settings_game_memory_summary">总 %1$d MB · 可用 %2$d MB · 建议 %3$d MB</string>
+    <string name="settings_game_alloc_mode">分配模式</string>
+    <string name="settings_game_alloc_mode_desc">自动按设备内存计算，或手动指定</string>
+    <string name="settings_game_max_memory">最大内存</string>
+    <string name="settings_game_max_memory_desc">分配过多内存可能导致手机卡顿或被系统强制回收</string>
+    <string name="settings_game_min_memory">最小内存</string>
+    <string name="settings_game_min_memory_desc">启动即占用的初始内存，建议不超过最大内存的一半</string>
+    <string name="settings_game_launch_args_group">启动参数</string>
+    <string name="settings_game_jvm_args">JVM 参数</string>
+    <string name="settings_game_game_args">游戏参数（额外）</string>
+    <string name="settings_game_java_path">Java 路径</string>
+    <string name="settings_game_use_default">使用默认值</string>
+    <string name="settings_game_use_builtin_runtime">使用内置运行时</string>
+    <string name="settings_game_edit">编辑</string>
+    <string name="settings_game_select">选择</string>
+    <string name="settings_game_jvm_help">例如：-XX:+UseG1GC -XX:MaxGCPauseMillis=50</string>
+    <string name="settings_game_game_help">会追加到 Minecraft 主类后面。\n例如：--demo  以演示模式启动（不进存档）。\n留空 = 用默认值。</string>
+    <string name="settings_game_java_path_label">java 可执行文件路径</string>
+    <string name="settings_game_java_help">留空 = 使用内置运行时。\n填绝对路径可指向自带的 JRE（例如 21 需要更新的运行时）。</string>
+    <string name="settings_game_memory_mode_auto">自动</string>
+    <string name="settings_game_memory_mode_custom">手动</string>
+
+    <!-- ── 设置：存储（DownloadGameStoragePanes.kt）── -->
+    <string name="settings_storage_title">存储</string>
+    <string name="settings_storage_location_group">位置</string>
+    <string name="settings_storage_game_dir">游戏目录</string>
+    <string name="settings_storage_default_dir">默认（应用私有目录）</string>
+    <string name="settings_storage_cleanup_group">清理</string>
+    <string name="settings_storage_shared_files">共享游戏文件</string>
+    <string name="settings_storage_shared_files_desc">多个实例共用的版本库/素材，清理后下次启动会重新下载</string>
+    <string name="settings_storage_cache">缓存</string>
+    <string name="settings_storage_cache_desc">图标、元数据等缓存。不会影响已下载的实例</string>
+    <string name="settings_storage_view">查看</string>
+    <string name="settings_storage_clear">清除</string>
+    <string name="settings_storage_stats_group">存储统计</string>
+    <string name="settings_storage_usage">存储占用</string>
+    <string name="settings_storage_tap_for_details">点击查看详细统计</string>
+    <string name="settings_storage_details">详情</string>
+    <string name="settings_storage_clear_cache_title">清除缓存</string>
+    <string name="settings_storage_clear_cache_message">将可安全删除的缓存，不会影响任何实例、库、资源或版本文件，确定继续吗？</string>
+    <string name="settings_storage_cache_cleared">已清除缓存</string>
+    <string name="settings_storage_clear_failed">清除缓存失败：%1$s</string>
+    <string name="settings_storage_done">完成</string>
+    <string name="settings_storage_read_failed">加载存储统计失败：%1$s</string>
+    <string name="settings_storage_no_stats">暂无可统计的数据</string>
+    <string name="settings_storage_stat_total">%1$s（总计）</string>
+    <string name="settings_storage_stat_used">%1$s（已用）</string>
+    <string name="settings_storage_stat_free">%1$s（可用）</string>
+    <string name="settings_storage_stat_cache">%1$s（缓存）</string>
+
+    <!-- ── 服务器详情（ServerDetailPage.kt）── -->
+    <string name="server_detail_notice_ok">知道了</string>
+    <string name="server_detail_delete_plugin_title">删除插件</string>
+    <string name="server_detail_delete_plugin_message">删除 %1$s？</string>
+    <string name="server_detail_delete">删除</string>
+    <string name="server_detail_cancel">取消</string>
+    <string name="server_detail_waiting_output">等待输出…</string>
+    <string name="server_detail_not_running">未运行</string>
+    <string name="server_detail_command_placeholder">在下面输入控制台命令，如 list / tp 玩家 / gamemode 1</string>
+    <string name="server_detail_refresh_logs_cd">刷新</string>
+    <string name="server_detail_send_cd">发送</string>
+    <string name="server_detail_share_title">对外开放（陶瓦联机）</string>
+    <string name="server_detail_share_room_code">房间码 %1$s</string>
+    <string name="server_detail_share_waiting">正在等待房间码…</string>
+    <string name="server_detail_share_desc">把这台服务器通过陶瓦联机暴露至网络</string>
+    <string name="server_detail_share_busy">处理中</string>
+    <string name="server_detail_copy_room">复制房间码</string>
+    <string name="server_detail_browse_files_title">服务器文件</string>
+    <string name="server_detail_browse_files_desc">左边浏览服务器目录，右边用内置编辑器修改文本文件</string>
+    <string name="server_detail_open_file_browser">打开文件浏览器</string>
+    <string name="server_detail_system_file_manager_title">打开目录</string>
+    <string name="server_detail_system_file_manager_desc">用系统文件管理器打开，可拷入插件与存档</string>
+    <string name="server_detail_open_with_file_manager">在文件管理器中查看</string>
+    <string name="server_detail_server_logs_title">服务器日志</string>
+    <string name="server_detail_logs_empty">启动服务器后日志会显示在这里</string>
+    <string name="server_detail_logs_recent">最近 %1$d 行（最后一行：%2$s）</string>
+    <string name="server_detail_refresh_logs">刷新日志</string>
+    <string name="server_detail_delete_server_title">删除服务器</string>
+    <string name="server_detail_delete_server_desc">确定删除吗？所有服务器文件将被永久删除</string>
+    <string name="server_detail_delete_this_server">删除这台服务器</string>
+    <string name="server_detail_running_warning">这些项服务端只在启动时读取，改完需要重启服务器才生效</string>
+    <string name="server_detail_delete_server_message">确定要删除服务器「%1$s」吗？该操作不可撤销</string>
+    <string name="server_detail_memory_title">内存分配</string>
+    <string name="server_detail_memory_desc">分配过多内存可能导致手机卡顿或被系统强制回收</string>
+    <string name="server_detail_memory_max">最大内存 %1$d MB</string>
+    <string name="server_detail_memory_min">最小内存 %1$d MB</string>
+    <string name="server_detail_plugins_title">已安装插件</string>
+    <string name="server_detail_plugins_desc">放在服务器 plugins 目录里的 .jar。删除后需要重启服务器才会生效。</string>
+    <string name="server_detail_plugins_folder">目录</string>
+    <string name="server_detail_plugins_empty">还没有插件</string>
+    <string name="server_detail_plugin_deleting">删除中…</string>
+    <string name="server_detail_config_empty">暂未发现其他配置文件</string>
+    <string name="server_detail_tab_console">控制台</string>
+    <string name="server_detail_tab_files">文件</string>
+    <string name="server_detail_tab_plugins">插件</string>
+    <string name="server_detail_tab_config">配置文件</string>
+    <string name="server_detail_untitled">服务器</string>
+    <string name="server_detail_running">运行中</string>
+    <string name="server_detail_stopped">未运行</string>
+    <string name="server_detail_installing">正在下载核心…</string>
+    <string name="server_detail_install_core">下载核心</string>
+    <string name="server_detail_stop">停止</string>
+    <string name="server_detail_start">启动</string>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         批量 D：宿主 Activity / 通信层（bridge 子代理）
+         ══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── ComposeMainActivity（用户可见的对话框 / 分享 / 导入提示）── -->
+    <string name="app_switch_instance_title">需要先结束当前游戏</string>
+    <string name="app_switch_instance_message">一个进程里只能跑一个游戏。要结束它并启动你刚点的这个版本吗？</string>
+    <string name="app_switch_instance_confirm">结束并启动</string>
+    <string name="app_clipboard_unavailable">系统剪贴板不可用</string>
+    <string name="app_share">分享</string>
+    <string name="app_import_layout_empty_path">路径为空</string>
+    <string name="app_import_layout_not_found">找不到这个文件</string>
+    <string name="app_import_layout_too_large">文件太大了（超过 8MB）</string>
+    <string name="app_import_layout_invalid">这不是有效的控制布局文件</string>
+    <string name="app_import_layout_failed">导入失败</string>
+
+    <!-- ── RustBridge：桥未就绪错误（经 Activity 拿 Context）── -->
+    <string name="bridge_not_ready">桥尚未就绪</string>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         批量 D：文件管理 / 内容中心 / 下载（file / install / browse / download）
+         ══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── 文件管理器（FileManagerPage.kt）── -->
+    <string name="file_up_level">上一级</string>
+    <string name="file_new_folder">新建文件夹</string>
+    <string name="file_new_file">新建文件</string>
+    <string name="file_refresh">刷新</string>
+    <string name="file_empty_hint">这个文件夹是空的</string>
+    <string name="file_create">确定</string>
+    <string name="file_rename">重命名</string>
+    <string name="file_delete">删除</string>
+    <string name="file_cancel">取消</string>
+    <string name="file_more">更多</string>
+    <string name="file_name">名称</string>
+    <string name="file_delete_title">确定要删除「%1$s」吗？</string>
+    <string name="file_delete_dir_message">文件夹及其全部内容都会被删除，此操作不可恢复</string>
+    <string name="file_delete_file_message">此操作不可恢复</string>
+
+    <!-- ── 文件编辑器（FileEditorPage.kt）── -->
+    <string name="file_back">返回</string>
+    <string name="file_editor_unsaved">未保存的修改</string>
+    <string name="file_editor_modified">放弃修改</string>
+    <string name="file_editor_saving">保存中…</string>
+    <string name="file_editor_save">保存</string>
+    <string name="file_editor_open_failed">打不开这个文件</string>
+
+    <!-- ── 安装内容对话框（InstallDialog.kt）── -->
+    <string name="install_translating">翻译中…</string>
+    <string name="install_translate">翻译正文</string>
+    <string name="install_target_server">安装到服务器</string>
+    <string name="install_no_server">还没有服务器，先去「更多 → 多人」创建一台</string>
+    <string name="install_target_instance">安装到实例</string>
+    <string name="install_no_instance">还没有实例，先去创建实例</string>
+    <string name="install_create_fabric_instance">新建实例</string>
+    <string name="install_select_version">选择版本</string>
+    <string name="install_type_all">全部</string>
+    <string name="install_type_release">正式版</string>
+    <string name="install_type_beta">测试版</string>
+    <string name="install_type_alpha">先行版</string>
+    <string name="install_loading_versions">加载版本…</string>
+    <string name="install_no_versions">该分类下没有版本</string>
+    <string name="install_dependencies">前置依赖</string>
+    <string name="install_installing">安装中…</string>
+    <string name="install_install">安装</string>
+    <string name="install_cancel">取消</string>
+
+    <!-- ── 内容中心（BrowsePage.kt / BrowseRepo.kt / BrowseFilterSheet.kt）── -->
+    <string name="browse_title">内容</string>
+    <string name="browse_search_hint">搜索内容…</string>
+    <string name="browse_no_results">没有找到相关内容</string>
+    <string name="browse_no_more">没有更多了</string>
+    <string name="browse_install">安装</string>
+    <string name="browse_search">搜索</string>
+    <string name="browse_filter">筛选</string>
+    <string name="browse_sort">排序</string>
+    <string name="browse_switch_to_cards">网格</string>
+    <string name="browse_switch_to_compact">紧凑列表</string>
+    <string name="browse_reset">重置</string>
+    <string name="browse_content_type">内容类型</string>
+    <string name="browse_mod_loader">模组加载器</string>
+    <string name="browse_done">完成</string>
+    <string name="browse_type_mod">模组</string>
+    <string name="browse_type_modpack">整合包</string>
+    <string name="browse_type_resourcepack">资源包</string>
+    <string name="browse_type_shader">光影</string>
+    <string name="browse_type_plugin">插件</string>
+    <string name="browse_loader_all">全部</string>
+    <string name="browse_loader_vanilla">Vanilla</string>
+    <string name="browse_loader_fabric">Fabric</string>
+    <string name="browse_loader_forge">Forge</string>
+    <string name="browse_loader_neoforge">NeoForge</string>
+    <string name="browse_loader_quilt">Quilt</string>
+    <string name="browse_sort_downloads">下载量</string>
+    <string name="browse_sort_updated">最近更新</string>
+    <string name="browse_sort_newest">最新发布</string>
+    <string name="browse_sort_follows">收藏数</string>
+
+    <!-- ── 下载页（DownloadsPage.kt / TasksRepo.kt）── -->
+    <string name="download_tab_active">进行中</string>
+    <string name="download_tab_finished">已完成</string>
+    <string name="download_clear_finished">清除已完成</string>
+    <string name="download_empty_active">暂无进行中的任务</string>
+    <string name="download_empty_finished">没有已完成的任务</string>
+    <string name="download_cancel">取消</string>
+    <string name="download_stalled_hint">下载停滞了 30 秒以上。可能是网络中断，点「取消」后重新开始（已完成的部分会保留）。</string>
+
+    <!-- ── 任务状态文案（TasksRepo.kt）── -->
+
+    <!-- ── 服务器详情路由层（ServerDetailRoute.kt）── -->
+    <string name="server_detail_load_plugins_failed">读取插件失败：%1$s</string>
+    <string name="server_detail_room_ready_notice">房间已开，把房间码发给朋友即可</string>
+    <string name="server_detail_room_timeout">房间码获取失败，请重试</string>
+    <string name="server_detail_load_failed">读取服务器详情失败：%1$s</string>
+    <string name="server_detail_load_config_failed">读取配置失败：%1$s</string>
+    <string name="server_detail_start_failed">启动失败：%1$s</string>
+    <string name="server_detail_stop_failed">停止失败：%1$s</string>
+    <string name="server_detail_unknown_error">未知</string>
+    <string name="server_detail_core_installed_notice">服务端核心已就绪</string>
+    <string name="server_detail_install_core_failed">安装失败：%1$s</string>
+    <string name="server_detail_share_stopped">已停止陶瓦联机</string>
+    <string name="server_detail_share_need_running">请先启动服务器</string>
+    <string name="server_detail_share_preparing">正在准备隧道…</string>
+    <string name="server_detail_share_failed">隧道启动失败</string>
+    <string name="server_detail_share_failed_reason">分享失败：%1$s</string>
+    <string name="server_detail_room_copied">房间码已复制 %1$s</string>
+    <string name="server_detail_plugin_deleted">已删除「%1$s」</string>
+    <string name="server_detail_delete_plugin_failed">删除插件失败：%1$s</string>
+    <string name="server_detail_plugin_folder_copied">已复制为「%1$s」</string>
+    <string name="server_detail_plugin_folder_failed">取插件目录失败：%1$s</string>
+    <string name="server_detail_logs_refreshed">日志已刷新</string>
+    <string name="server_detail_memory_saved">配置已保存</string>
+    <string name="server_detail_memory_failed">改内存失败：%1$s</string>
+    <string name="server_detail_delete_failed">删除失败：%1$s</string>
+    <string name="server_detail_save_config_failed">保存配置失败：%1$s</string>
+
+    <!-- ── 实例设置 tab（InstanceSettingsTab.kt）── -->
+<string name="instance_settings_card_memory">内存分配</string>
+    <string name="instance_settings_memory_mode">分配模式</string>
+<string name="instance_settings_memory_limit">最大内存</string>
+    <string name="instance_settings_card_renderer">渲染器</string>
+<string name="instance_settings_renderer_hint_auto">自动规则：26.x 换用了新版着色器（GL4ES 跑不动）→ MobileGlues；其余 1.x 版本 GL4ES 兼容性更好（MobileGlues 在 1.8.9 这类老版本上会因后处理着色器翻译失败崩在启动阶段）</string>
+<string name="instance_settings_renderer_hint_global">跟随全局设置</string>
+<string name="instance_settings_renderer_hint_custom">本实例指定</string>
+    <string name="instance_settings_card_launch_args">启动参数</string>
+<string name="instance_settings_jvm_args">JVM 参数（额外）</string>
+<string name="instance_settings_game_args">游戏参数（额外）</string>
+<string name="instance_settings_follow_global_hint">跟随全局设置</string>
+<string name="instance_settings_card_alias">实例别名（与桌面版通用）</string>
+<string name="instance_settings_alias_label">别名</string>
+<string name="instance_settings_alias_placeholder">例如 my-sky（仅小写字母、数字、- 和 _）</string>
+<string name="instance_settings_alias_help">别名会随实例保存，桌面版可用它从浏览器或命令行直接启动；Android 端的 qookix:// 协议唤起尚未支持</string>
+    <string name="instance_settings_card_misc">其他</string>
+<string name="instance_settings_check_files">启动前检查游戏文件</string>
+<string name="instance_settings_check_files_desc">启动游戏前自动检查并补全缺失文件，关闭后不再检查</string>
+<string name="instance_settings_card_export">导出 / 分享</string>
+<string name="instance_settings_export_planning">正在打包…</string>
+<string name="instance_settings_export_no_plan">把实例打成一个 .mrpack 整合包分享</string>
+<string name="instance_settings_export_summary">已有 %1$d 个项目只存链接；有 %2$d 个文件（%3$s）需要打进包里</string>
+<string name="instance_settings_export_include_config">包含配置（config / options.txt / 服务器列表）</string>
+    <string name="instance_settings_export_include_saves">包含存档</string>
+    <string name="instance_settings_export_include_screenshots">包含截图</string>
+<string name="instance_settings_exporting">正在打包…</string>
+<string name="instance_settings_export">导出并分享</string>
+    <string name="instance_settings_saving">保存中…</string>
+    <string name="instance_settings_save">保存</string>
+<string name="instance_settings_dirty">未保存的修改</string>
+<string name="instance_settings_memory_mode_global">跟随全局设置</string>
+<string name="instance_settings_memory_mode_global_hint">根据全局配置</string>
+<string name="instance_settings_memory_mode_auto">自动配置</string>
+<string name="instance_settings_memory_mode_auto_hint">（自动配置）</string>
+<string name="instance_settings_memory_mode_custom">自定义</string>
+<string name="instance_settings_memory_mode_custom_hint">本实例指定</string>
+<string name="instance_settings_renderer_mode_auto">自动（推荐）</string>
+<string name="instance_settings_renderer_mode_auto_hint">自动规则：26.x 换用了新版着色器（GL4ES 跑不动）→ MobileGlues；其余 1.x 版本 GL4ES 兼容性更好（MobileGlues 在 1.8.9 这类老版本上会因后处理着色器翻译失败崩在启动阶段）</string>
+<string name="instance_settings_renderer_mode_global">跟随全局设置</string>
+<string name="instance_settings_renderer_mode_global_hint">根据全局配置</string>
+<string name="instance_settings_renderer_mode_custom">指定</string>
+<string name="instance_settings_renderer_mode_custom_hint">本实例指定</string>
+
+    <!-- ── 新建实例页（CreateInstancePage.kt）── -->
+    <string name="create_instance_mode_new">全新创建</string>
+    <string name="create_instance_mode_import">导入整合包</string>
+    <string name="create_instance_import_title">导入整合包</string>
+<string name="create_instance_import_desc">选一个整合包文件（.mrpack / .zip）。版本与加载器按包内清单自动确定；导入在后台进行</string>
+    <string name="create_instance_importing">导入中…</string>
+    <string name="create_instance_pick_file">选择整合包文件</string>
+    <string name="create_instance_name">实例名称</string>
+<string name="create_instance_name_placeholder">留空则自动用版本号命名</string>
+    <string name="create_instance_game_version">游戏版本</string>
+<string name="create_instance_pick_from_right">请先在右侧选择游戏版本</string>
+    <string name="create_instance_loader">加载器</string>
+<string name="create_instance_loader_version">选择加载器版本</string>
+    <string name="create_instance_loading">加载中…</string>
+    <string name="create_instance_no_loader_version">这个游戏版本没有可用的加载器版本\n换个游戏版本，或把加载器选「原版」直接创建</string>
+<string name="create_instance_memory_limit">最大内存</string>
+    <string name="create_instance_creating">创建中…</string>
+    <string name="create_instance_create">创建实例</string>
+    <string name="create_instance_select_version">选择版本</string>
+    <string name="create_instance_version_count">%1$d 个</string>
+    <string name="create_instance_versions_failed">版本列表加载失败</string>
+    <string name="create_instance_check_network">请检查网络后重试</string>
+    <string name="create_instance_loading_versions">正在加载版本清单…</string>
+<string name="create_instance_group_release">正式</string>
+    <string name="create_instance_group_snapshot">快照版</string>
+    <string name="create_instance_group_april_fools">愚人节版</string>
+    <string name="create_instance_group_title">%1$s（%2$d）</string>
+    <string name="create_instance_loader_vanilla">原版</string>
+    <string name="create_instance_loader_fabric">Fabric</string>
+    <string name="create_instance_loader_forge">Forge</string>
+    <string name="create_instance_loader_neoforge">NeoForge</string>
+<string name="create_instance_type_release">正式</string>
+<string name="create_instance_type_snapshot">快照</string>
+    <string name="create_instance_type_old_beta">远古 Beta</string>
+    <string name="create_instance_type_old_alpha">远古 Alpha</string>
+
+    <!-- ── PageHost 续（错误消息 / FRP / 账号 / 皮肤）── -->
+    <string name="instances_section_all">全部</string>
+    <string name="instances_section_ungrouped">未分组</string>
+    <string name="renderer_hint_current">当前：%1$s  →  建议：%2$s</string>
+    <string name="frp_read_failed">读取 FRP 状态失败</string>
+    <string name="selfcheck_passed">frpc 可用：%1$s</string>
+    <string name="selfcheck_failed">frpc 不可用：%1$s</string>
+    <string name="login_success">登录成功 %1$s</string>
+    <string name="frpc_log_title">frpc 日志 · %1$s</string>
+    <string name="frp_rooms_read_failed">读取房间失败：%1$s</string>
+    <string name="frp_room_create_failed">建房失败：%1$s</string>
+    <string name="frp_local_started">本地端口已启动</string>
+    <string name="frp_room_opened">已开启：%1$s</string>
+    <string name="frp_room_open_failed">开启失败：%1$s</string>
+    <string name="frp_room_joined">已加入房间</string>
+    <string name="frp_room_join_failed">加入失败：%1$s</string>
+    <string name="frp_stats_read_failed">读取统计失败：%1$s</string>
+    <string name="account_read_failed">读取账号失败：%1$s</string>
+    <string name="account_add_failed">添加失败：%1$s</string>
+    <string name="account_switch_failed">切换账号失败：%1$s（启动时可能仍在使用旧账号）</string>
+    <string name="account_delete_failed">删除失败：%1$s</string>
+    <string name="launch_checking_files">检查游戏文件…</string>
+    <string name="plugins_read_failed">读取插件失败：%1$s</string>
+    <string name="plugins_install_failed">安装失败：%1$s</string>
+    <string name="skin_lib_read_failed">读取皮肤库失败：%1$s</string>
+    <string name="skin_image_read_failed">读皮肤图片失败：%1$s</string>
+    <string name="skin_3d_render_failed">3D 渲染失败：%1</string>
+    <string name="nav_file">文件</string>
+    <!-- ── PageHost 续 2（皮肤 / 设置 / 代理 / 更新）── -->
+    <string name="frp_start_failed">启动失败：%1$s</string>
+    <string name="login_timeout_detail">登录超时。可能是设备码过期了，请重新点「正版登录」。</string>
+    <string name="login_start_failed">无法开始登录：%1$s</string>
+    <string name="skin_cape_apply_failed">皮肤已应用，但披风应用失败: %1$s</string>
+    <string name="skin_apply_failed">应用失败：%1$s</string>
+    <string name="file_picker_unsupported">当前环境不支持选择文件</string>
+    <string name="skin_invalid_png">读取失败：请选一张 64×64 的皮肤 PNG（不超过 2 MB）</string>
+    <string name="skin_import_failed">导入失败：%1$s</string>
+    <string name="skin_fetch_no_image">获取失败：没有拿到皮肤图片</string>
+    <string name="skin_fetched">已获取 %1$s 的皮肤（%2$s）</string>
+    <string name="skin_save_failed">保存失败：%1$s</string>
+    <string name="skin_fetch_failed">获取失败：%1$s</string>
+    <string name="common_delete">删除</string>
+    <string name="skin_delete_failed">删除失败：%1$s</string>
+    <string name="settings_read_failed">读取设置失败：%1$s</string>
+    <string name="settings_save_failed">保存失败：%1$s</string>
+    <string name="appearance_bg_import_failed">背景图导入失败：%1$s</string>
+    <string name="update_checking">正在检查…</string>
+    <string name="speedtest_no_mirrors">没有可用的镜像列表。</string>
+    <string name="proxy_probe_failed">探测失败：%1$s</string>
+    <string name="proxy_custom_needs_address">自定义模式需要先填写代理地址。</string>
+    <string name="proxy_test_failed">测试失败：%1$s</string>
+    <string name="renderer_save_failed">渲染器保存失败：%1$s</string>
+    <string name="memory_probe_failed">内存探测失败：%1$s</string>
+    <!-- ── PageHost 续 3（内容 / 更新 / 联机 / 安装）── -->
+    <string name="common_uninstall">卸载</string>
+    <string name="update_none">没有可用的更新</string>
+    <string name="content_identify_failed">识别启动失败：%1$s</string>
+    <string name="export_failed">导出失败：%1$s</string>
+    <string name="update_failed">更新失败：%1$s</string>
+    <string name="crash_analyze_failed">分析失败：%1$s</string>
+    <string name="server_list_read_failed">读取服务器列表失败：%1$s</string>
+    <string name="frp_room_code">房间码</string>
+    <string name="frp_room_code_copied">房间码已复制</string>
+    <string name="frp_tunnel_not_ready_join">陶瓦隧道未就绪。请先启动一次游戏，再回到这里加入房间。</string>
+    <string name="frp_joined_room">已加入房间 %1$s</string>
+    <string name="loader_versions_failed">加载器版本获取失败：%1$s</string>
+    <string name="import_failed">导入失败：%1$s</string>
+    <string name="version_manifest_failed">版本清单加载失败：%1$s</string>
+    <string name="create_failed">创建失败：%1$s</string>
+    <string name="version_load_failed">版本加载失败：%1$s</string>
+    <string name="search_failed">搜索失败：%1$s</string>
+    <string name="load_more_failed">加载更多失败：%1$s</string>
+    <string name="translation_none">（暂无译文）</string>
+    <string name="install_pick_server">选择服务器</string>
+    <string name="install_failed">安装失败：%1$s</string>
+    <string name="install_pick_instance_version">选择实例与版本</string>
+    <string name="page_wip">这个页面还在开发中</string>
+    <string name="page_wip_desc">稍后的版本会补上，暂时请先不用这个入口</string>
+    <string name="unknown">未知</string>
+    <!-- ── PageHost 续 4（测速 / 代理 / 缓存 / 布局 / 存档）── -->
+    <string name="speedtest_connect_failed">%1$s：连接失败</string>
+    <string name="speedtest_failed">%1$s：失败（%2$s）</string>
+    <string name="proxy_none_configured">系统当前没有配置 HTTP 代理。</string>
+    <string name="proxy_system">系统代理：%1$s</string>
+    <string name="proxy_unreachable">代理连不通。</string>
+    <string name="translation_cache_empty">缓存是空的</string>
+    <string name="cache_clear_failed">清理失败：%1$s</string>
+    <string name="read_failed">读取失败：%1$s</string>
+    <string name="saves_read_failed">读取存档失败：%1$s</string>
+    <string name="file_read_failed">读取文件失败：%1$s</string>
+    <string name="layout_new_name">新布局名</string>
+    <string name="common_copy">复制</string>
+    <string name="layout_copy_failed">复制失败：%1$s</string>
+    <string name="repair_failed">补全文件失败：%1$s</string>
+    <string name="enter_world_failed">进入世界失败：%1$s</string>
+<string name="backup_restore_confirm">恢复备份</string>
+    <string name="backup_delete_confirm">删除备份</string>
+    <!-- ── PageHost 续 5（布局 / 内容 / 备份 / 更新）── -->
+    <string name="load_failed">加载失败：%1$s</string>
+    <string name="layout_delete_title">删除按键布局「%1$s」？</string>
+    <string name="layout_delete_msg">整套按键配置会被删除，无法恢复。</string>
+    <string name="layout_delete_confirm">删除布局</string>
+    <string name="content_uninstall_title">卸载「%1$s」？</string>
+    <string name="content_uninstall_msg">文件会从实例里删除，无法恢复（下次要重新下载）。</string>
+    <string name="updates_found">发现 %1$d 个更新，点对应条目的「更新」即可升级</string>
+    <string name="backup_delete_msg">备份删掉后无法恢复。如果这是唯一一份能回滚的进度，删了就再也回不去了。</string>
+    <string name="proxy_available">代理可用，耗时 %1$d ms。</string>
+    <string name="cache_cleared">已清理 %1$s</string>
+    <string name="update_latest">当前已是最新版本。</string>
+    <!-- ── PageHost 续 6（启动失败 / 渲染器提示 / 备份恢复）── -->
+    <string name="launch_not_installed">游戏文件还没装好，先点「补全文件」把缺失的补齐再启动。</string>
+    <string name="launch_not_installed_short">游戏文件还没装好。打开实例详情，点「补全文件」补齐后再启动。</string>
+    <string name="launch_failed_msg">启动失败：%1$s</string>
+    <string name="renderer_hint_body">这个实例是 Minecraft %1$s，%2$s 在它上面可能起不来。要切换为 %3$s 吗？（只改这一个实例）</string>
+<string name="backup_restore_msg">确定要用「%1$s」的这份备份覆盖当前存档吗？恢复前会自动为当前存档留一份快照</string>
+    <!-- ── PageHost 续 7（账号 / 皮肤 / 更新 / FRP / 导入）── -->
+    <string name="frp_tunnel_stats">共 %1$d · 可用 %2$d · 待审 %3$d · 过期 %4$d</string>
+    <string name="version_type_release">正式版</string>
+    <string name="version_type_beta">测试版</string>
+    <string name="version_type_alpha">快照版</string>
+    <string name="dep_required">必装</string>
+    <string name="dep_optional">可选</string>
+    <string name="dep_incompatible">不兼容</string>
+    <string name="dep_embedded">内置</string>
+    <string name="no_account_hint">还没有账号。启动游戏需要一个账号 —— 点右上角头像可以添加（离线账号也可以）。</string>
+    <string name="skin_delete_msg">确定删除「%1$s」吗？此操作不可撤销</string>
+    <string name="update_new_version">发现新版本：%1$s</string>
+    <string name="update_check_failed">检查失败：%1$s\n\n（如果是网络问题，可以换个更新源试试）</string>
+    <string name="speedtest_footer">\n\n耗时越小越好。</string>
+    <string name="speedtest_official_note">「官方源」是 Mojang 官方地址，海外网络通常最快；</string>
+    <string name="speedtest_bmclapi_note">国内推荐 BMCLAPI。</string>
+    <string name="file_too_large">「%1$s」太大（%2$s），请用外部编辑器打开</string>
+    <string name="export_done">已导出 %1$s（%2$s），可在分享面板里发出去</string>
+    <string name="update_none_for">「%1$s」暂时没有可用的新版本，先点「检查更新」</string>
+    <string name="update_done_for">「%1$s」更新完成</string>
+    <string name="frp_join_failed">加入失败：%1$s</string>
+    <string name="frp_join_invalid">房间码无效或已满</string>
+    <string name="frp_status_prefix">陶瓦联机：%1$s</string>
+    <string name="frp_tunnel_not_ready">陶瓦联机：隧道未就绪</string>
+    <string name="frp_room_creating">已等待，请先在游戏里开放局域网世界</string>
+    <string name="frp_room_opened2">房间已开：%1$s</string>
+    <string name="frp_tunnel_not_ready_host">陶瓦隧道未就绪。请先启动一次游戏，再回到这里开房。</string>
+    <string name="loader_no_versions">这个游戏版本没有可用的 %1$s 版本</string>
+    <string name="import_partial">导入完成，但有 %1$d 项没下全（进游戏前建议点「修复文件」）</string>
+    <string name="import_done">已导入：%1$s</string>
+    <!-- ── Repo 层（实例详情 / 服务器详情，2026-10-17 注入 Context）── -->
+    <string name="repair_file_missing">文件缺失</string>
+    <string name="repair_disabled">已禁用</string>
+    <string name="stage_checking_files">检查游戏文件…</string>
+    <string name="repair_cannot_fix">游戏文件不完整，且当前无法自动修复。</string>
+<string name="stage_repairing">正在补全缺失文件…</string>
+    <string name="repair_failed_msg">补全文件失败：%1$s</string>
+<string name="stage_starting">游戏正在启动…</string>
+    <string name="launch_err_not_installed">这个实例还没安装游戏文件。去实例详情点「启动游戏」会自动补齐。</string>
+    <string name="launch_err_already_running">游戏已经在运行了。</string>
+    <string name="launch_err_config_broken">实例配置损坏（instance.json 读不出来）。可能需要在实例列表里删掉重建。</string>
+    <string name="loader_vanilla">原版</string>
+    <string name="tunnel_refused">隧道拒绝了请求</string>
+    <string name="size_unknown">未知大小</string>
+    <string name="server_default_name">服务器</string>
+    <string name="stage_preparing_tunnel">正在准备隧道…</string>
+<string name="stage_opening_room">房间创建中…</string>
+<string name="stage_waiting_code">正在等待房间码…</string>
+    <string name="tunnel_not_ready_detail">隧道未启动，完全退出应用后重试</string>
+    <string name="vpn_not_authorized">需要允许「VPN 连接」才能对外开房，请在系统弹窗里点授权</string>
+    <string name="vpn_permission_hint">需要允许「VPN 连接」，请在系统弹窗里点授权</string>
+    <string name="prop_motd">在服务器列表中显示的文本</string>
+    <string name="prop_difficulty">怪物强度与饥饿伤害</string>
+    <string name="prop_gamemode">新玩家进入时的默认模式</string>
+    <string name="prop_max_players">同时在线玩家上限</string>
+    <string name="prop_pvp">玩家之间能否互相攻击</string>
+    <string name="prop_online_mode">关闭后没有正版账号的玩家也能进入（离线模式）</string>
+    <string name="prop_view_distance">越大看得越远，也越吃手机性能</string>
+    <string name="prop_simulation_distance">实体与方块更新的区块半径</string>
+    <string name="prop_spawn_protection">出生点保护半径</string>
+    <string name="prop_white_list">只允许白名单里的玩家进入，先用控制台 /whitelist add 添加</string>
+    <string name="prop_level_seed">留空则随机生成</string>
+    <string name="prop_server_port">玩家连接的端口号</string>
+    <string name="prop_level_name">主世界存档文件夹名</string>
+    <!-- ── friendlyError（错误提示本地化）── -->
+    <string name="error_unknown">未知错误</string>
+    <string name="error_network">网络连接失败，请检查网络或用代理后重试</string>
+    <string name="error_server_unavailable">服务器暂时不可用，请稍后重试</string>
+    <string name="error_not_found">找不到该内容（可能已被删除或下架）</string>
+    <string name="error_rate_limited">请求过于频繁，请等一会儿再试</string>
+    <string name="error_permission_denied">没有文件访问权限，请在系统设置里授予</string>
+    <string name="error_no_space">存储空间不足</string>
+    <string name="error_file_missing">文件不存在（可能已被移动或删除）</string>
+    <string name="error_invalid_call">该功能在 Android 暂未实现，请期待后续版本更新</string>
+    <!-- ── FileOps / TasksRepo（2026-10-17 注入 Context）── -->
+    <string name="file_ops_instance">实例目录</string>
+    <string name="file_ops_server">服务器目录</string>
+    <string name="task_default_title">任务 #%1$s</string>
+    <string name="task_done">已完成</string>
+    <string name="task_failed">失败</string>
+    <string name="task_files_progress">%1$d / %2$d 个文件</string>
+    <string name="task_preparing">准备中</string>
+    <!-- ── 相对时间（刚刚/分钟前/…）── -->
+    <string name="rel_just_now">刚刚</string>
+    <string name="rel_minutes">%1$d 分钟前</string>
+    <string name="rel_hours">%1$d 小时前</string>
+    <string name="rel_days">%1$d 天前</string>
+    <string name="rel_months">%1$d 个月前</string>
+    <string name="rel_years">%1$d 年前</string>
+    <!-- ── 新建服务器页面（2026-10-18 从对话框改独立页）── -->
+    <string name="create_server_version_list_title">选择版本</string>
+    <string name="create_server_version_count">%1$d 个</string>
+    <string name="create_server_version_placeholder">从右侧选择，或手动输入</string>
+    <string name="create_server_version_empty">这个核心没有返回可用版本</string>
+    <string name="create_server_version_manual_hint">左侧仍可手动输入版本号</string>
+    <string name="nav_server_create">新建服务器</string>
+    <string name="server_version_load_failed">版本列表加载失败：%1$s</string>
+    <string name="shell_title_server_create">新建服务器</string>
+    <string name="create_server_version_not_selected">从右侧选择版本</string>
+    <!-- ── 新建页通用 ── -->
+    <string name="create_page_group_title">%1$s（%2$d）</string>
+    <string name="create_server_group_release">正式</string>
+    <string name="create_server_version_release">正式</string>
+    <string name="install_pick_server_version">请选择服务器版本</string>
+    <!-- ── 关于页：更新 + 官方链接（2026-10-18 补回）── -->
+    <string name="about_update_group">更新</string>
+    <string name="about_update_check">检查更新</string>
+    <string name="about_update_check_short">检查</string>
+    <string name="about_update_checking">正在检查…</string>
+    <string name="about_update_available">发现新版本 %1$s</string>
+    <string name="about_update_ready">新版本 %1$s 已下载</string>
+    <string name="about_update_latest">当前已是最新版本（%1$s）</string>
+    <string name="about_update_hint">当前版本 %1$s</string>
+    <string name="about_update_download">下载</string>
+    <string name="about_update_install">安装</string>
+    <string name="about_update_auto">自动检查更新</string>
+    <string name="about_update_auto_desc">启动时静默检查，有新版本才提示</string>
+    <string name="about_links">官方链接</string>
+    <string name="about_official_site">官方网站</string>
+    <string name="about_official_site_desc">文档、下载与常见问题</string>
+    <string name="about_github_repo2">GitHub 仓库</string>
+    <string name="about_issues">问题反馈</string>
+    <string name="about_issues_desc">遇到 bug 或想提建议</string>
+    <string name="about_changelog">更新日志</string>
+    <string name="about_changelog_desc">每个版本改了什么</string>
+    <string name="about_qq_group">官方 Q 群</string>
+    <string name="about_qq_group_desc">加群交流</string>
+    <string name="about_afdian">爱发电赞助</string>
+    <string name="about_afdian_desc">支持这个项目继续做下去</string>
+    <string name="about_dev_role_author">QookiX Launcher Android 的开发者</string>
+    <string name="about_dev_name_contributor">维墨笙</string>
+    <string name="about_dev_role_contributor">QookiX Launcher Android 的协助开发者</string>
+    <string name="about_contributors">社区贡献</string>
+    <string name="about_contributors_empty">名单为空。维护者可编辑 bootstrap-public/contributors.json 后重新打包。</string>
+    <string name="about_update_downloading">正在下载…%1$d / %2$d MB</string>
+    <string name="about_update_downloading_unknown">正在下载…</string>
 </resources>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

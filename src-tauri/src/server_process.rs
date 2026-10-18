@@ -92,7 +92,7 @@ fn unix_now() -> u64 {
 fn server_dir(id: &str) -> Result<PathBuf, String> {
     let base = crate::settings::data_dir_sync()
         .ok_or_else(|| "数据目录不可用（data_dir_sync 返回 None）".to_string())?;
-    Ok(PathBuf::from(base).join("servers").join(id))
+    Ok(crate::settings::resolve_servers_root(Path::new(&base)).join(id))
 }
 
 /// 服务端 JVM 用的临时目录（保证存在、可写）。
