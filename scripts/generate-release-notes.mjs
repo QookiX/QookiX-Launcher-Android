@@ -23,7 +23,7 @@ if (!tag || !output) {
   )
 }
 
-const repo = process.env.GITHUB_REPOSITORY || 'ZhaYi-Miao/QookiX-Launcher-Android'
+const repo = process.env.GITHUB_REPOSITORY || 'QookiX/QookiX-Launcher-Android'
 const ver = tag.replace(/^v/, '')
 const date = new Date().toISOString().slice(0, 10)
 const commitsUrl = `https://github.com/${repo}/commits/${tag}`

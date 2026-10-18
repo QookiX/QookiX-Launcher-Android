@@ -5,7 +5,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ZhaYi-Miao/QookiX-Launcher-Android.git"
+    "url": "git+https://github.com/QookiX/QookiX-Launcher-Android.git"
   },
   "scripts": {
     "build:web-assets": "node scripts/build-web-assets.mjs",

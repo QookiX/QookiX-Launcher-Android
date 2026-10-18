@@ -2676,10 +2676,10 @@ private fun SettingsRoute(
                     appVersion = appVersion,
                     onOpenLicenses = { showLicenses = true },
                     // ⚠️ 仓库地址以 git remote 为准：
-                    //   https://github.com/ZhaYi-Miao/QookiX-Launcher-Android
+                    //   https://github.com/QookiX/QookiX-Launcher-Android
                     // 我原先按「weimosheng/QookiX-Launcher」写（那是桌面版仓库名，
                     // 从注释里看到的），但本仓库的 remote 是上面这个。
-                    onOpenProject = { openUrl?.invoke("https://github.com/ZhaYi-Miao/QookiX-Launcher-Android") },
+                    onOpenProject = { openUrl?.invoke("https://github.com/QookiX/QookiX-Launcher-Android") },
                     // 开源依赖的仓库/协议链接（2026-10-17 补全清单后需要）
                     onOpenUrl = { url -> openUrl?.invoke(url) },
                     onOpenDesktopRepo = {

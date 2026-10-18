@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 /// 默认插件源：我们仓库的 GitHub Release 资产。
 /// 用户可以在「设置 → 插件」里改（空字符串 = 只用本地安装，不联网）。
 pub const DEFAULT_MANIFEST_URL: &str =
-    "https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/releases/download/plugins/manifest.json";
+    "https://github.com/QookiX/QookiX-Launcher-Android/releases/download/plugins/manifest.json";
 
 /// 清单缓存有效期：6 小时。既不至于每次进设置都打网络，也不至于长期看到过期信息。
 const MANIFEST_TTL_SECS: i64 = 6 * 3600;

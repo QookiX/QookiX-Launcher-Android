@@ -2,9 +2,9 @@
 
 **一款免费、纯净、无广告的 Minecraft Java 版安卓启动器**
 
-[![Build](https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/actions/workflows/release.yml/badge.svg)](https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/actions/workflows/release.yml)
-[![Downloads](https://img.shields.io/github/downloads/ZhaYi-Miao/QookiX-Launcher-Android/total)](https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/releases)
-[![Stars](https://img.shields.io/github/stars/ZhaYi-Miao/QookiX-Launcher-Android)](https://github.com/ZhaYi-Miao/QookiX-Launcher-Android)
+[![Build](https://github.com/QookiX/QookiX-Launcher-Android/actions/workflows/release.yml/badge.svg)](https://github.com/QookiX/QookiX-Launcher-Android/actions/workflows/release.yml)
+[![Downloads](https://img.shields.io/github/downloads/QookiX/QookiX-Launcher-Android/total)](https://github.com/QookiX/QookiX-Launcher-Android/releases)
+[![Stars](https://img.shields.io/github/stars/QookiX/QookiX-Launcher-Android)](https://github.com/QookiX/QookiX-Launcher-Android)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20arm64-3ddc84.svg)](#下载与安装)
 
@@ -15,7 +15,7 @@
 
 ## 下载与安装
 
-前往 **[Releases](https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/releases)** 页面下载最新的 `arm64` APK 并安装。
+前往 **[Releases](https://github.com/QookiX/QookiX-Launcher-Android/releases)** 页面下载最新的 `arm64` APK 并安装。
 
 | 项目 | 要求 |
 |---|---|
@@ -139,7 +139,7 @@ PojavLauncher 部分（含修改：包名与 R 引用调整、shim 接线、剥�
 ## 开发者 / 贡献
 
 - 官网：<https://www.qookix.cn/>
-- 问题反馈：[Issues](https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/issues)
+- 问题反馈：[Issues](https://github.com/QookiX/QookiX-Launcher-Android/issues)
 - 桌面端：[weimosheng/QookiX-Launcher](https://github.com/weimosheng/QookiX-Launcher)
 
 欢迎提交 Issue 与 Pull Request；反馈问题时请附上机型、Android 版本、渲染后端与日志（实例页 → 日志）。

@@ -35,5 +35,5 @@
 
 ## 反馈
 
-遇到问题请到 [Issues](https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/issues) 反馈，
+遇到问题请到 [Issues](https://github.com/QookiX/QookiX-Launcher-Android/issues) 反馈，
 并附上机型、Android 版本、渲染后端与日志（实例页 → 日志）。

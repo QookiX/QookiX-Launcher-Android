@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// 仓库坐标与 API 地址（桌面端用的是 latest.json 清单，安卓直接用 GitHub API）。
-const REPO: &str = "ZhaYi-Miao/QookiX-Launcher-Android";
+const REPO: &str = "QookiX/QookiX-Launcher-Android";
 const API_LATEST: &str = "https://api.github.com/repos";
 /// 下载进度事件名（与桌面端同名，前端逻辑可以照抄）。
 pub const PROGRESS_EVENT: &str = "app-update-progress";

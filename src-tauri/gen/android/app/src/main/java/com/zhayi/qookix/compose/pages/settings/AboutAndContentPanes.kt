@@ -197,17 +197,17 @@ fun AboutPane(
             AboutLink(R.string.about_official_site, "https://www.qookix.cn/"),
             AboutLink(
                 R.string.about_github_repo2,
-                "https://github.com/ZhaYi-Miao/QookiX-Launcher-Android",
+                "https://github.com/QookiX/QookiX-Launcher-Android",
                 LinkKind.GitHub,
             ),
             AboutLink(
                 R.string.about_issues,
-                "https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/issues",
+                "https://github.com/QookiX/QookiX-Launcher-Android/issues",
                 LinkKind.GitHub,
             ),
             AboutLink(
                 R.string.about_changelog,
-                "https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/blob/master/CHANGELOG.md",
+                "https://github.com/QookiX/QookiX-Launcher-Android/blob/master/CHANGELOG.md",
                 LinkKind.GitHub,
             ),
             AboutLink(R.string.about_qq_group, "https://qm.qq.com/q/91keQnJ8dy"),
@@ -245,7 +245,7 @@ fun AboutPane(
             SettingsRow(
                 title = "QookiX Launcher Android",
                 subtitle = "GNU General Public License v3.0",
-                onClick = { onOpenUrl?.invoke("https://github.com/ZhaYi-Miao/QookiX-Launcher-Android/blob/master/LICENSE") },
+                onClick = { onOpenUrl?.invoke("https://github.com/QookiX/QookiX-Launcher-Android/blob/master/LICENSE") },
                 showDivider = true,
             ) {
                 Text(
