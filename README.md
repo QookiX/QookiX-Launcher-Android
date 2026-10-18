@@ -59,8 +59,8 @@
 
 | 层 | 说明 |
 |---|---|
-| 界面 | Vue 3 + naive-ui + Pinia（Tauri WebView，跟随系统缩放自适应） |
-| 外壳与后端 | **Tauri 2** + Rust（下载、实例、Java 管理、文件与备份等约 30 个模块） |
+| 界面 | **Jetpack Compose + Material 3**（Kotlin 2.0.21，Compose BOM 2025.04.01，原生渲染） |
+| 外壳与后端 | **Tauri 2** + Rust（IPC 桥与事件总线；下载、实例、Java 管理、文件与备份等约 30 个模块） |
 | 游戏内原生层 | Kotlin/Java + C（`libpojavexec.so`：JVM 引导、EGL/Surface 桥、输入桥） |
 | 图形后端 | GL4ES（默认）、MobileGlues、Mesa（OSMesa + Zink + Turnip） |
 
@@ -69,9 +69,10 @@
 环境：Node.js 20+、Rust（含 `aarch64-linux-android` target）、Android SDK（compileSdk 36）、Android NDK。
 
 ```bash
-# 1) 前端（产物会写进 gen/android 的 assets，随后被 rust 编译进 .so）
+# 1) 静态资源（只有 index.html 与 skin3d/*.js —— 那个 index.html 是 Tauri 的
+#    IPC 引导页，没有它所有 Rust 命令都会静默失效）
 npm ci
-npm run build
+npm run build:web-assets
 
 # 2) Rust（注意：只设目标级 CC/CXX/AR，不要设全局，否则宿主 crate 构建失败）
 cd src-tauri
@@ -127,7 +128,7 @@ PojavLauncher 部分（含修改：包名与 R 引用调整、shim 接线、剥�
 - [PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher) —— 安卓平台上运行 Java 版 Minecraft 的先驱
 - [GL4ES](https://github.com/ptitSeb/gl4es) / [MobileGlues](https://github.com/MobileGLues/MobileGlues) / [Mesa](https://gitlab.freedesktop.org/mesa/mesa) —— 图形翻译与驱动后端
 - [LWJGL](https://www.lwjgl.org/) 与 [Caciocavallo](https://github.com/OpenJDK/caciocavallo) —— Java 侧窗口与输入适配
-- [naive-ui](https://www.naive-ui.com/)、[Vue](https://vuejs.org/)、[Tauri](https://tauri.app/) —— 界面与外壳
+- [Jetpack Compose](https://developer.android.com/jetpack/compose)、[Material 3](https://m3.material.io/)、[Kotlin](https://kotlinlang.org/)、[Tauri](https://tauri.app/) —— 界面与外壳
 - [Modrinth](https://modrinth.com/) 与 [CurseForge](https://www.curseforge.com/) —— 内容平台
 - [Feather Icons](https://feathericons.com/)（MIT）、[Lucide](https://lucide.dev/)（ISC）—— 图标
 

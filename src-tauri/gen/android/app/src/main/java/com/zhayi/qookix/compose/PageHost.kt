@@ -1052,6 +1052,16 @@ private fun FrpRoute(
                         val interval = s.optInt("interval", 5).coerceAtLeast(1)
                         login = login.copy(userCode = code, uri = uri)
                         // 手机上的顺路做法：直接把授权页拉起来
+                        // ⚠️ 2026-10-18 加：拿到设备码先复制到剪贴板，再开浏览器 ——
+                        // 浏览器会盖住 App，自动复制省得用户来回切换抄码。失败静默忽略。
+                        if (code.isNotBlank()) {
+                            runCatching {
+                                activity?.copyToClipboard(
+                                    context.getString(R.string.account_code_label),
+                                    code,
+                                )
+                            }
+                        }
                         if (uri.isNotBlank()) activity?.openExternalUrl(uri)
                         // 轮询上限按「有效期 / 间隔 + 余量」，超时如实说重来
                         val maxRounds = maxOf(3, expiresIn / interval + 2)
@@ -1473,6 +1483,22 @@ private fun AccountRoute(
                             verificationUri = o.optString("verificationUri"),
                             expiresIn = o.optInt("expiresIn", 0),
                         )
+                        // ⚠️ 2026-10-18 加（修「微软登录不自动复制设备码」）：
+                        // 之前只更新了界面状态，复制和开浏览器都要用户手动点 ——
+                        // 但浏览器一弹出来就盖住 App，手动流程要来回切换抄那 9 位码。
+                        // 现在拿到设备码先复制到剪贴板，再直接把授权页拉起来。
+                        //（上一轮我误加到了 FRP 登录的设备码流程里，这次改对地方。）
+                        val msCode = o.optString("userCode")
+                        if (msCode.isNotBlank()) {
+                            runCatching {
+                                activity?.copyToClipboard(
+                                    context.getString(R.string.account_code_label),
+                                    msCode,
+                                )
+                            }
+                        }
+                        val msUri = o.optString("verificationUri")
+                        if (msUri.isNotBlank()) activity?.openExternalUrl(msUri)
                     },
                     onFailure = { e -> error = context.getString(R.string.login_start_failed, e.message) },
                 )
@@ -1775,11 +1801,45 @@ private fun SkinRoute(
         api.listAccounts { r ->
             r.onSuccess { arr ->
                 val acc = arr.optJSONObject(0) ?: return@onSuccess
+                val isOnline = acc.optString("type").contains("microsoft", ignoreCase = true)
+                val accName = acc.optString("username").ifBlank { acc.optString("name") }
                 state = state.copy(
                     accountUuid = acc.optString("uuid"),
-                    accountName = acc.optString("username").ifBlank { acc.optString("name") },
-                    accountOnline = acc.optString("type").contains("microsoft", ignoreCase = true),
+                    accountName = accName,
+                    accountOnline = isOnline,
                 )
+                // ⚠️ 2026-10-18 加（修「正版账号皮肤页永远显示未选择皮肤」）：
+                // 正版账号的皮肤在 Mojang 服务器上，本地皮肤库是空的 ——
+                // 界面只能显示「未选择皮肤」，用户以为皮肤功能坏了。
+                // 现在进皮肤页时**自动按账号名拉一次皮肤**存进皮肤库，
+                // 与「按正版玩家名获取」按钮同一条路，只是不用用户手填名字。
+                // 静默失败（网络不通等），不打扰用户。
+                if (isOnline && accName.isNotBlank() && state.skins.isEmpty()) {
+                    repo.fetchPlayerSkin(accName) { fr ->
+                        fr.onSuccess { ps ->
+                            if (ps.dataUrl.isNotBlank()) {
+                                repo.saveFromData("player-$accName-${System.currentTimeMillis()}", ps.dataUrl) { sr ->
+                                    sr.onSuccess { savedJson ->
+                                        // savedJson 是 Rust SkinEntry 的 JSON 串，取 filename 用于选中
+                                        val savedFile = runCatching {
+                                            org.json.JSONObject(savedJson).optString("filename")
+                                        }.getOrNull().orEmpty()
+                                        repo.listSkins { lr ->
+                                            lr.onSuccess { list ->
+                                                state = state.copy(
+                                                    skins = list,
+                                                    selected = list.firstOrNull { it.filename == savedFile }
+                                                        ?: list.firstOrNull(),
+                                                    imageDataUrl = ps.dataUrl,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -3135,6 +3195,9 @@ private fun InstanceDetailRoute(
         RenameDialog(
             target = target,
             onDismiss = { renameTarget = null },
+            title = context.getString(R.string.layout_rename_title),
+            label = context.getString(R.string.layout_rename_label),
+            confirmText = context.getString(R.string.layout_rename_confirm),
             onConfirm = { newName ->
                 renameTarget = null
                 api.renameControlLayout(
@@ -3364,6 +3427,40 @@ private fun InstanceDetailRoute(
                     android.util.Log.w("PageHost", "导入布局失败: ${e.message}")
                 }
             }
+            // ⚠️ 2026-10-18 补（修「按键导入选完文件没反应」后半段）：
+            // 原生命令选完文件把结果写进 control-import.json，
+            // **前端必须轮询 take_control_import 取走** —— 这一步迁移时整个丢了，
+            // 结果文件永远没人读，界面毫无反馈。
+            // 拿到 ok=true 后把 TMP_IMPORT_FILE 填进预览（与旧 UI 一致）。
+            var importPolls = 0
+            fun pollControlImport() {
+                if (importPolls++ > 40) return  // 最多轮 40 次（约 40 秒）
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    api.takeControlImport { pr ->
+                        pr.onSuccess { s ->
+                            val o = runCatching { org.json.JSONObject(s ?: "") }.getOrNull()
+                            if (o == null) {
+                                pollControlImport()  // 还没写好，继续等
+                            } else if (o.optBoolean("ok")) {
+                                // 成功：刷新按键列表即可看到 TMP_IMPORT_FILE
+                                state = state.copy(tab = InstanceTab.Keys)
+                                state = state.copy(tab = InstanceTab.Keys)
+                                android.widget.Toast.makeText(
+                                    context,
+                                    context.getString(R.string.control_import_done, o.optInt("buttons")),
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                state = state.copy(
+                                    error = o.optString("error").ifBlank { context.getString(R.string.import_failed, "") },
+                                )
+                            }
+                        }
+                        pr.onFailure { pollControlImport() }
+                    }
+                }, 1000L)
+            }
+            pollControlImport()
         },
         onToggleContent = { c, enabled -> api.toggleContentEnabled(instanceId, state.contentKind, c.rel, enabled) },
         // 切换内容分类（2026-10-17 修审计 H-2）。
@@ -3996,6 +4093,7 @@ private fun CreateRoute(
 private const val BROWSE_PAGE_SIZE = 20
 
 /** 内容中心 + 搜索状态。 */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun BrowseRoute(
     bridge: RustBridge,
@@ -4485,6 +4583,31 @@ private fun BrowseRoute(
             onDismiss = { installTarget = null },
         )
     }
+    
+    // ── 筛选面板（2026-10-18 修：原来只设 filterOpen=true，没人读它，
+    //    筛选图标点了没反应。组件早就写好了，就差这一处渲染）
+    com.zhayi.qookix.compose.pages.BrowseFilterSheet(
+        visible = filterOpen,
+        onDismiss = { filterOpen = false },
+        type = state.type,
+        onTypeChange = { newType ->
+            filterOpen = false
+            if (newType != state.type) {
+                state = state.copy(type = newType)
+                doSearch()
+            }
+        },
+        loader = state.loader,
+        onLoaderChange = { newLoader ->
+            filterOpen = false
+            if (newLoader != state.loader) {
+                state = state.copy(loader = newLoader)
+                doSearch()
+            }
+        },
+        // 插件（Hangar）没有加载器维度
+        hideLoader = state.type == BrowseType.Plugin.id,
+    )
 }
 
 /** 新闻页 + 数据加载。这是 Phase 1 的桥验证点。 */

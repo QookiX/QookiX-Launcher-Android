@@ -373,6 +373,16 @@ class QookixApi(private val bridge: RustBridge) {
     // ── 服务器详情（命令名与参数逐个核对自 src/api.ts，不是猜的）────────────
 
     /** 服务器属性（server.properties）。 */
+    /**
+     * 取一台托管服务器的完整配置（`get_hosted_server`）。
+     *
+     * 与 [getHostedServerProperties] 的区别：那个返回的是 `server.properties`
+     * 里的游戏内配置（motd/gamemode/…），这个返回启动器自己的 `ServerConfig`
+     *（name / port / eula / maxMemoryMb / core …）。EULA 同意状态只能从这里读。
+     */
+    fun getHostedServer(id: String, onResult: (Result<JSONObject>) -> Unit = {}) =
+        callObj("get_hosted_server", JSONObject().put("id", id), onResult)
+
     fun getHostedServerProperties(id: String, onResult: (Result<JSONObject>) -> Unit) =
         callObj("get_hosted_server_properties", JSONObject().put("id", id), onResult)
 
@@ -1295,7 +1305,7 @@ class QookixApi(private val bridge: RustBridge) {
     fun updateHostedServer(
         patch: JSONObject,
         onResult: (Result<JSONObject>) -> Unit = {},
-    ) = callObj("update_hosted_server", patch, onResult)
+    ) = callObj("update_hosted_server", JSONObject().put("patch", patch), onResult)
 
     /** 启动本地服务器。 */
     fun startHostedServer(id: String, onResult: (Result<String>) -> Unit = {}) =

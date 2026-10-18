@@ -347,6 +347,23 @@ fun ServerDetailRoute(
         // ── 缺陷 1：分享给朋友 ──────────────────────────────────────────
         //
         // 与旧 Vue `toggleShare`（ServerDetailView.vue:548-609）一一对应。
+                // 勾选 / 取消 Minecraft EULA。
+                // 走 update_hosted_server 的 patch（Rust servers.rs:207 只认 `eula` 字段），
+                // 成功后同步本地状态 —— 否则开关看着变了、实际没写盘。
+                onSetEula = { agreed ->
+                    api.updateHostedServer(
+                        org.json.JSONObject().put("id", serverId).put("eula", agreed),
+                    ) { r ->
+                        r.fold(
+                            onSuccess = { state = state.copy(eulaAgreed = agreed) },
+                            onFailure = { e ->
+                                state = state.copy(
+                                    error = ctx.getString(R.string.server_detail_save_config_failed, e.message),
+                                )
+                            },
+                        )
+                    }
+                },
         onToggleShare = { want ->
             if (state.shareBusy) return@ServerDetailPage
 

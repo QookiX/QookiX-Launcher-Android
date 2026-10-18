@@ -2,6 +2,7 @@ package com.zhayi.qookix.compose.pages
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -112,6 +113,8 @@ fun ServerDetailPage(
     onToggleProperty: (key: String, value: Boolean) -> Unit = { _, _ -> },
     // ── 分享给朋友（缺陷 1）─────────────────────────────────────────────
     /** 打开 / 关闭对外分享（对应旧 Vue 的 `toggleShare`）。 */
+    /** 勾选 / 取消同意 Minecraft EULA（写进 servers/<id>.json 的 eula 字段）。 */
+    onSetEula: (Boolean) -> Unit = {},
     onToggleShare: (Boolean) -> Unit = {},
     /** 复制房间码。 */
     onCopyRoom: (String) -> Unit = {},
@@ -233,6 +236,13 @@ fun ServerDetailPage(
                 onAskDeletePlugin = onAskDeletePlugin,
             )
             ServerTab.Config -> ConfigTab(state, onSetProperty, onToggleProperty)
+            // 服务器设置：EULA 同意 + 对外分享（陶瓦联机）
+            ServerTab.Settings -> SettingsTab(
+                state = state,
+                onToggleShare = onToggleShare,
+                onCopyRoom = onCopyRoom,
+                onSetEula = onSetEula,
+            )
         }
     }
 
@@ -282,7 +292,8 @@ private fun ConsoleTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        ShareCard(state, onToggleShare, onCopyRoom)
+        // 陶瓦联机已移到「服务器设置」tab（2026-10-18）：
+        // 用户要求「对外开放陶瓦联机的这四个给它放到服务器设置里，而不是这儿」。
 
         Surface(
             modifier = Modifier
@@ -367,6 +378,83 @@ private fun ConsoleTab(
  * 为什么放在**控制台**这一页而不是别处：开完服第一件事就是把它分享出去，
  * 而控制台是打开详情页的默认页签 —— 放在这里用户不用切页就能看到。
  */
+/**
+ * 「服务器设置」tab（2026-10-18 新增）。
+ *
+ * ⚠️ 为什么加这个 tab：
+ *   Rust 的 `start_hosted_server` 在 EULA 未同意时会拒绝启动，并提示
+ *   「请先在『服务器设置』里勾选同意 Minecraft EULA」—— 但界面里**根本没有**
+ *   这个 tab（只有控制台/文件/插件/配置文件），用户被指到一个不存在的地方。
+ *
+ * 同时把原来挤在「控制台」顶部的「对外开放（陶瓦联机）」卡片移进来 ——
+ * 用户要求「这四个给它放到服务器设置里，而不是这儿」。
+ * 控制台应该只放日志和命令输入。
+ */
+@Composable
+private fun SettingsTab(
+    state: ServerDetailUiState,
+    onToggleShare: (Boolean) -> Unit,
+    onCopyRoom: (String) -> Unit,
+    onSetEula: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // ── EULA 同意 ────────────────────────────────────────────────
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            shape = MaterialTheme.shapes.medium,
+            colors = CardDefaults.cardColors(
+                containerColor = if (state.eulaAgreed) {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                } else {
+                    // 未同意时用警示色：这是启动的前置阻塞项
+                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                },
+            ),
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.server_settings_eula_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = if (state.eulaAgreed) {
+                                stringResource(R.string.server_settings_eula_agreed)
+                            } else {
+                                stringResource(R.string.server_settings_eula_pending)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Switch(
+                        checked = state.eulaAgreed,
+                        onCheckedChange = onSetEula,
+                    )
+                }
+            }
+        }
+
+        // ── 对外开放（陶瓦联机）──────────────────────────────────────
+        // 从「控制台」移过来的，逻辑完全不变。
+        ShareCard(state, onToggleShare, onCopyRoom)
+    }
+}
+
+
 @Composable
 private fun ShareCard(
     state: ServerDetailUiState,
@@ -995,6 +1083,11 @@ enum class ServerTab(@StringRes val labelRes: Int) {
     Files(R.string.server_detail_tab_files),
     Plugins(R.string.server_detail_tab_plugins),
     Config(R.string.server_detail_tab_config),
+    // ⚠️ 2026-10-18 加（用户反馈「服务器设置又给塞哪儿了？」）：
+    // Rust 启动前检查 EULA 并提示「请先在『服务器设置』里勾选」，
+    // 但界面根本没有这个 tab —— 用户被指到一个不存在的地方。
+    // 现在补上：EULA 同意、对外分享（陶瓦联机）都收进这里。
+    Settings(R.string.server_detail_tab_settings),
 }
 
 /**
@@ -1037,6 +1130,8 @@ data class ServerDetailUiState(
     val name: String = "",
     val running: Boolean = false,
     val coreInstalled: Boolean = true,
+    /** 是否已同意 Minecraft EULA（servers/<id>.json 的 eula 字段）。 */
+    val eulaAgreed: Boolean = false,
     val installing: Boolean = false,
     /**
      * 启动阶段文案（`server://stage` 事件推来，2026-10-17 补）。

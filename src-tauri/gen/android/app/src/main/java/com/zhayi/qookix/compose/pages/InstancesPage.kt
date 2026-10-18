@@ -97,18 +97,10 @@ fun InstancesPage(
     var deleteTarget by remember { mutableStateOf<InstanceUi?>(null) }
     Column(modifier = Modifier.fillMaxSize()) {
         // 新建按钮：右对齐放在内容区顶部（与旧实现的位置语义一致）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            FilledTonalButton(onClick = onCreate) {
-                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.instances_new))
-            }
-        }
+        // ⚠️ 2026-10-18 改：原来「新建实例」按钮占页面内容区一整行（横屏 384dp
+        // 高度里白吃掉约 56dp）。现在移到顶栏 actions 里，和标题、账号同一行 ——
+        // 用户要求「能不能把它放到标题那一块，这样能省一点位置」。
+        // 按钮的渲染在 ComposeMainActivity 的 LauncherShell(actions = ...)。
 
         if (state.sections.isEmpty()) {
             Box(

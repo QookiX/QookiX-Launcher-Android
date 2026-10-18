@@ -6,6 +6,21 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
@@ -28,6 +43,7 @@ import com.zhayi.qookix.compose.shell.NavDestination
 import com.zhayi.qookix.compose.theme.QookiXTheme
 import com.zhayi.qookix.tauri.TauriBridge
 import android.content.Intent
+import net.kdt.pojavlaunch.CustomControlsActivity
 
 /**
  * 启动器主入口（LAUNCHER）。
@@ -99,6 +115,22 @@ class ComposeMainActivity : TauriActivity() {
             Log.i(TAG, "消费待启动记录: $instanceId")
             startGameActivity(instanceId, accountUuid)
         }
+        // ⚠️ 2026-10-18 加：整个 App 隐藏状态栏（沉浸式）。
+        //
+        // 起因：用户反馈「内容中心点开筛选后，系统状态栏会弹出来，
+        // 导致它下面所有元素都动一下」。
+        //
+        // 根因是 `ModalBottomSheet` 在独立 Dialog 窗口里，该窗口默认请求
+        // 系统栏 inset —— 于是状态栏被顶出来、内容区高度重算、布局跳动。
+        // 当前 Material3 版本的 ModalBottomSheet 没有 `windowInsets` 参数可关。
+        //
+        // 用户选了「整个 App 都不要状态栏」的方案：状态栏本来就不显示，
+        // 弹窗时自然不会「弹出来」，跳动问题从根上消失。
+        //
+        // 注意：`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` 让用户从顶部边缘
+        // 下滑时仍能临时看到状态栏（看时间/电量），松手自动隐藏 ——
+        // 完全不给看会很别扭。
+        enableImmersiveMode()
         window?.decorView?.post { attachComposeOverlay(0) }
         Log.i(TAG, "onCreate 完成")
         // 3 秒后把视图树打出来（诊断用）
@@ -122,6 +154,31 @@ class ComposeMainActivity : TauriActivity() {
         }
         walk(root, 0)
         Log.i(TAG, sb.toString())
+    }
+
+    /**
+     * 隐藏状态栏（沉浸式）。
+     *
+     * 保留 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`：用户从屏幕顶部边缘
+     * 下滑时状态栏会临时浮出来（看时间/电量/通知），几秒后自动隐藏。
+     * 完全屏蔽掉会很别扭 —— 用户连现在几点都看不到。
+     *
+     * 导航栏（底部手势条）**不隐藏**：那是系统手势区，藏了会影响返回手势。
+     */
+    private fun enableImmersiveMode() {
+        runCatching {
+            val w = window ?: return
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
+            val controller = androidx.core.view.WindowInsetsControllerCompat(
+                w,
+                w.decorView,
+            )
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            // 只藏状态栏（顶部），导航栏保留
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            Log.i(TAG, "沉浸式：状态栏已隐藏")
+        }.onFailure { Log.w(TAG, "设置沉浸式失败", it) }
     }
 
     /**
@@ -182,10 +239,19 @@ class ComposeMainActivity : TauriActivity() {
                             val bridge = androidx.compose.runtime.remember {
                                 RustBridge(this@ComposeMainActivity)
                             }
-                            LauncherRoot(
-                                bridge = bridge,
-                                activity = this@ComposeMainActivity,
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    // 隐藏状态栏后内容会顶到屏幕最上沿，
+                                    // 加这层内边距让标题栏不被刘海/挖孔挡住；
+                                    // 状态栏临时浮出时也不会压住标题。
+                                    .statusBarsPadding(),
+                            ) {
+                                LauncherRoot(
+                                    bridge = bridge,
+                                    activity = this@ComposeMainActivity,
+                                )
+                            }
                         }
                     }
                 }
@@ -388,10 +454,32 @@ class ComposeMainActivity : TauriActivity() {
             }
             REQ_PICK_FILE -> {
                 caps.onPickFileResult(data?.data)
-                val path = caps.consumePickedFile()
+                var path = caps.consumePickedFile()
+                // ⚠️ 2026-10-18 补（修「整合包导入没反应」）：
+                // 现代 DocumentsProvider 的 query("_data") 基本返回 null，
+                // onPickFileResult 只能存下 content:// URI —— 而 Rust 的
+                // import_modpack 对 URI 直接 bail。这里把 URI 内容拷到
+                // cacheDir 成真实文件，Rust 的 std::fs 才读得到。
+                if (path != null && path.startsWith("content://")) {
+                    path = landUriToCache(android.net.Uri.parse(path))
+                }
                 val cb = pendingFileCallback
                 pendingFileCallback = null
                 cb?.invoke(path)
+            }
+            HostCapabilities.REQ_PICK_CONTROL_LAYOUT -> {
+                // ⚠️ 2026-10-18 补（修「按键导入选完文件没反应」）：
+                // Compose 迁移时这个分支整个丢了 —— 用户选完文件后结果没人接收，
+                // 前端等不到 control-import.json，界面永远停在原地。
+                // 旧 MainActivity 的 reqPickControl 流程照搬到这里。
+                val json = if (data?.data != null) {
+                    importControlLayoutFromUri(data.data!!)
+                } else {
+                    org.json.JSONObject().put("ok", false).put("error", "已取消").toString()
+                }
+                runCatching {
+                    java.io.File(filesDir, "control-import.json").writeText(json)
+                }.onFailure { Log.w("ComposeMain", "写 control-import.json 失败", it) }
             }
             else -> caps.onPickFileResult(data?.data)
         }
@@ -425,6 +513,39 @@ class ComposeMainActivity : TauriActivity() {
     fun openExternalUrl(url: String) = caps.openUrl(url)
     fun copyToClipboard(label: String, text: String) = caps.copyToClipboard(label, text)
     fun consumeGameDirPick(): String? = caps.consumeGameDirPick()
+
+    /**
+     * 打开原生控制布局编辑器（Rust `android_bridge::open_control_editor` 经 JNI 调用）。
+     *
+     * ⚠️ 2026-10-18 修「点铅笔必崩」：Rust 的 JNI 全局引用存的是**实际前台 Activity**
+     *（Compose 版是本类），但 `openControlEditor` 一直只写在旧 `MainActivity.kt` 里 ——
+     * 方法解析失败 → NoSuchMethodError → SIGABRT 整个进程。
+     * 之前用户描述成「连点几次卡死」，实际是点一次就崩。
+     */
+    fun openControlEditor(layout: String?, preview: Boolean, saveAs: String?) {
+        val self = this@ComposeMainActivity
+        runOnUiThread {
+            // 防连点闸门：1.2 秒内的重复点击直接丢弃
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastControlEditorLaunch < 1200L) {
+                android.util.Log.i("ComposeMain", "openControlEditor: 忽略重复点击")
+                return@runOnUiThread
+            }
+            lastControlEditorLaunch = now
+            runCatching {
+                val i = Intent(self, CustomControlsActivity::class.java)
+                if (!layout.isNullOrBlank()) i.putExtra("layout", layout)
+                i.putExtra("preview", preview)
+                if (!saveAs.isNullOrBlank()) i.putExtra("saveAs", saveAs)
+                i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                self.startActivity(i)
+            }.onFailure { e ->
+                android.util.Log.w("ComposeMain", "打开控制布局编辑器失败", e)
+                android.widget.Toast.makeText(self, "无法打开编辑器", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    private var lastControlEditorLaunch = 0L
 
     fun importControlLayout(): String? {
         caps.importControlLayout()
@@ -663,6 +784,59 @@ class ComposeMainActivity : TauriActivity() {
         }
     }
 
+    /**
+     * 从 SAF URI 读取按键布局并校验（结果 JSON 直接返回给 onActivityResult 写盘）。
+     *
+     * 与 [importControlLayoutFromPath] 同一套校验（version + mControlDataList），
+     * 只是数据源从文件路径换成 contentResolver 流。
+     */
+    fun importControlLayoutFromUri(uri: android.net.Uri): String {
+        return runCatching {
+            val text = contentResolver.openInputStream(uri)?.use {
+                it.readBytes().toString(java.nio.charset.StandardCharsets.UTF_8)
+            } ?: throw java.io.IOException(getString(R.string.app_import_layout_failed))
+            val j = org.json.JSONObject(text)
+            if (!j.has("version") || !j.has("mControlDataList")) {
+                throw java.io.IOException(getString(R.string.app_import_layout_invalid))
+            }
+            val tmp = java.io.File(filesDir, "controlmap/TMP_IMPORT_FILE.json")
+            tmp.parentFile?.mkdirs()
+            tmp.parentFile?.listFiles()?.forEach { old ->
+                if (old.isFile && old.name.startsWith("TMP_IMPORT_FILE") &&
+                    old.name.endsWith(".json") && old.absolutePath != tmp.absolutePath) old.delete()
+            }
+            tmp.writeText(text)
+            org.json.JSONObject().put("ok", true).put("name", "TMP_IMPORT_FILE")
+                .put("buttons", j.optJSONArray("mControlDataList")?.length() ?: 0)
+                .put("joysticks", j.optJSONArray("mJoystickDataList")?.length() ?: 0)
+                .put("drawers", j.optJSONArray("mDrawerDataList")?.length() ?: 0).toString()
+        }.getOrElse {
+            Log.w(TAG, "从 URI 导入按键布局失败", it)
+            org.json.JSONObject().put("ok", false)
+                .put("error", it.message ?: getString(R.string.app_import_layout_failed)).toString()
+        }
+    }
+    /**
+     * 把 SAF 的 content:// URI 落地为 cacheDir 下的真实文件，返回路径。
+     *
+     * 为什么需要（2026-10-18）：Rust 侧 import_modpack 等命令用 `std::fs` 读文件，
+     * 对 content:// URI 必然失败；而 `query("_data")` 在现代 DocumentsProvider 上
+     * 基本拿不到真实路径。唯一稳妥的办法是应用自己把流拷出来。
+     *
+     * 文件名优先用 DISPLAY_NAME（保留扩展名，Rust 侧可能按扩展名判断格式）。
+     */
+    fun landUriToCache(uri: android.net.Uri): String? {
+        return runCatching {
+            val name = queryDisplayName(uri) ?: "picked_file"
+            val safe = name.replace(Regex("[^A-Za-z0-9._\\-\\u4e00-\\u9fa5]"), "_")
+            val dst = java.io.File(cacheDir, "import_$safe")
+            contentResolver.openInputStream(uri)?.use { input ->
+                dst.outputStream().use { output -> input.copyTo(output) }
+            } ?: return null
+            Log.i("ComposeMain", "已落地所选文件: ${dst.absolutePath} (${dst.length()} bytes)")
+            dst.absolutePath
+        }.onFailure { Log.w("ComposeMain", "落地所选文件失败", it) }.getOrNull()
+    }
     fun exportControlLayout(layout: String) {
         val f = java.io.File(filesDir, "controlmap/$layout.json")
         if (!f.isFile) { Log.w(TAG, "导出控制布局失败：布局不存在 $layout"); return }
@@ -900,6 +1074,10 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                                 navigate(NavDestination.Instances)
                             current == NavDestination.ServerDetail ->
                                 navigate(NavDestination.Multiplayer)
+                            // ⚠️ 2026-10-18 补：漏了这个分支时点返回毫无反应
+                            //（用户反馈「新建服务器页左上角返回回不去」）
+                            current == NavDestination.ServerCreate ->
+                                navigate(NavDestination.Multiplayer)
                             current == NavDestination.Skins ||
                                 current == NavDestination.News ||
                                 current == NavDestination.Playtime ||
@@ -914,6 +1092,30 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                     }
                 }).takeIf {
                     current !in NavDestination.bottomBar
+                },
+                // ⚠️ 2026-10-18 加：实例页的「新建实例」按钮从内容区移到顶栏，
+                // 和标题、账号图标同一行 —— 省掉原来占掉的一整行（约 56dp）。
+                actions = {
+                    if (current == NavDestination.Instances) {
+                        FilledTonalButton(
+                            onClick = { navigate(NavDestination.CreateInstance) },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                horizontal = 14.dp,
+                                vertical = 6.dp,
+                            ),
+                        ) {
+                            Icon(
+                                androidx.compose.material.icons.Icons.Filled.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                stringResource(R.string.instances_new),
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                    }
                 },
             ) {
                 PageHost(
@@ -982,6 +1184,8 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
         }
     }
 }
+
+
 
 
 

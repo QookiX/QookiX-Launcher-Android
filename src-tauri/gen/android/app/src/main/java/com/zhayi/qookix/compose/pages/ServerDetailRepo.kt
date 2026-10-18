@@ -75,7 +75,8 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         var address = ""
         var coreInstalled = true
         var failed: Throwable? = null
-        var pending = 3
+        var eula = false
+        var pending = 4
 
         fun done() {
             if (--pending > 0) return
@@ -91,6 +92,7 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
                         running = runtime?.optBoolean("running", false) ?: false,
                         address = address,
                         coreInstalled = coreInstalled,
+                        eulaAgreed = eula,
                     )
                 )
             )
@@ -119,6 +121,14 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
 
         api.hostedServerCoreInstalled(id) { r ->
             r.onSuccess { coreInstalled = it }
+            r.onFailure { failed = it }
+            done()
+        }
+
+        // EULA 同意状态：`get_hosted_server` 返回完整 ServerConfig（含 eula 字段）。
+        // 之前界面拿不到它 —— Rust 启动前会因未同意而拒绝，用户却找不到地方勾选。
+        api.getHostedServer(id) { r ->
+            r.onSuccess { o -> eula = o.optBoolean("eula", false) }
             r.onFailure { failed = it }
             done()
         }

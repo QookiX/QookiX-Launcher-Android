@@ -194,7 +194,17 @@
             android:name="net.kdt.pojavlaunch.CustomControlsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|keyboard|navigation"
             android:exported="false"
-            android:screenOrientation="sensorLandscape">
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTop">
+            <!--
+              ⚠️ launchMode="singleTop"（2026-10-18 加，修「连点铅笔卡死」）。
+
+              默认（standard）下每次 startActivity 都会新建一个实例：
+              连点编辑按钮 5 次 → 5 个横屏编辑器实例叠在栈上，
+              每个都完整加载一遍控制布局视图 → 内存暴涨 + 主线程卡住 → ANR。
+
+              改 singleTop 后栈顶已是它就复用（走 onNewIntent），不重复创建。
+            -->
             <intent-filter>
                 <action android:name="net.kdt.pojavlaunch.CustomControlsActivity" />
                 <category android:name="android.intent.category.DEFAULT" />

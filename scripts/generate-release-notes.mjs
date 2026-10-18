@@ -99,7 +99,16 @@ function splitKnownIssues(body) {
   for (const line of lines) {
     const heading = /^###\s+(.+?)\s*$/.exec(line.trim())
     if (heading) {
-      inKnown = /已知问题|known issue/i.test(heading[1])
+      const title = heading[1].trim()
+      if (/已知问题|known issue/i.test(title)) {
+        inKnown = true
+        continue
+      }
+      // 其它 ### 小标题（修复 / 新增 / 优化 …）**保留**，并转成正文加粗行。
+      // 2026-10-18：原来所有 ### 都被丢弃，导致分好组的更新日志在 Release 里
+      // 变成一大坨没有分类的条目。这里改成保留并降级成 `**标题**`。
+      inKnown = false
+      entries.push('', `**${title}**`, '')
       continue
     }
     ;(inKnown ? known : entries).push(line)
@@ -158,3 +167,4 @@ body = `${body.replace(/\n{3,}/g, '\n\n').trim()}\n`
 fs.writeFileSync(output, body)
 console.log(`Wrote ${output}`)
 console.log(`  Changelog: ${changelog ? `yes (${changelog.title})` : 'no'}`)
+

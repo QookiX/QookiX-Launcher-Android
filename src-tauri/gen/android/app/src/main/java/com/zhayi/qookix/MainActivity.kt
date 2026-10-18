@@ -775,15 +775,37 @@ class MainActivity : TauriActivity() {
      */
     fun openControlEditor(layout: String?, preview: Boolean, saveAs: String?) {
       runOnUiThread {
+        // ⚠️ 防连点闸门（2026-10-18 加，修「连点铅笔卡死」）。
+        //
+        // Manifest 已经是 singleTop，但那只能避免「重复实例」；
+        // 连点仍会连续发多次 startActivity，每次都走一遍 Activity 生命周期
+        // 决策 + 横屏切换，主线程被占满照样会卡死。
+        //
+        // 用一个 1.2 秒的时间窗直接丢弃后续点击 ——
+        // 用户从点击到编辑器真正显示大约就是这个量级，期间再点没有意义。
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastControlEditorLaunch < 1200L) {
+          android.util.Log.i(
+            "MainActivity",
+            "openControlEditor: 忽略重复点击（距上次 " + (now - lastControlEditorLaunch) + "ms）",
+          )
+          return@runOnUiThread
+        }
+        lastControlEditorLaunch = now
+
         runCatching {
           val i = Intent(this, CustomControlsActivity::class.java)
           if (!layout.isNullOrBlank()) i.putExtra("layout", layout)
           i.putExtra("preview", preview)
           if (!saveAs.isNullOrBlank()) i.putExtra("saveAs", saveAs)
+          i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
           startActivity(i)
         }.onFailure { android.util.Log.w("MainActivity", "打开控制布局编辑器失败", it) }
       }
     }
+
+    /** 上次打开控制布局编辑器的时间（uptime 毫秒），用于防连点。 */
+    private var lastControlEditorLaunch = 0L
 
     /**
      * 导出控制布局：走系统分享（FileProvider 已经映射了 `<files>/controlmap/`，

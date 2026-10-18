@@ -100,7 +100,18 @@ fun HomePage(
             // ── 左栏：当前实例主卡片（门面）─────────────────────────────
             Column(
                 modifier = Modifier
-                    .width(360.dp)
+                    // ⚠️ 2026-10-18 改（用户反馈「换一台手机可能就溢出去了」）：
+                    //
+                    // 原来写死 `width(360.dp)`。600~720dp 的窄平板/分屏下，
+                    // 左栏吃掉 360 后右栏只剩 240~360，卡片里的长文本开始
+                    // 逐字换行；更窄时右侧内容直接被挤出边界。
+                    //
+                    // 改成「按可用宽度的 42% 取，但限制在 300~420dp」：
+                    //   - 小屏（600dp）→ 300dp，右栏还有 300dp 够用
+                    //   - 大屏（1200dp+）→ 封顶 420dp，不会无限变宽
+                    .width(
+                        (cfg.screenWidthDp * 0.42f).coerceIn(300f, 420f).dp,
+                    )
                     .fillMaxHeight()
                     .verticalScroll(rememberScrollState())
                     .padding(20.dp),
