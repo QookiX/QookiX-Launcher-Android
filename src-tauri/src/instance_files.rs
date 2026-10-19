@@ -108,6 +108,18 @@ fn count_missing_assets(data_dir: &std::path::Path, version_json: &std::path::Pa
 /// 以及告诉用户到底缺什么（避免「点了没反应」或「下完还是黑屏」）。
 #[tauri::command]
 pub async fn check_instance_files(instance_id: String) -> Result<InstanceFileReport, String> {
+    // 诊断：这个命令是启动前的必经一步，卡住会直接表现为「点启动没反应」。
+    // 进来和出去各记一行，才能区分「根本没执行」和「执行了但没返回」。
+    crate::util::log_line(&format!("[check] check_instance_files 开始: {instance_id}"));
+    let result = check_instance_files_inner(instance_id.clone()).await;
+    crate::util::log_line(&format!(
+        "[check] check_instance_files 结束: {instance_id} → {}",
+        if result.is_ok() { "ok" } else { "err" }
+    ));
+    result
+}
+
+async fn check_instance_files_inner(instance_id: String) -> Result<InstanceFileReport, String> {
     crate::fsutil::validate_id(&instance_id, "实例")?;
     let dir = data_dir().await?;
     let inst_dir = crate::settings::instance_dir(&instance_id)
@@ -221,6 +233,46 @@ pub async fn check_instance_files(instance_id: String) -> Result<InstanceFileRep
                 missing.push(MissingItem {
                     kind: "loader".into(),
                     detail: format!("缺少 {loader} {loader_version} 本体"),
+                    fixable: true,
+                });
+            } else if let Some(profile) = crate::loader_install::find_loader_profile(
+                &dir.join("versions"),
+                &loader,
+                &mc_version,
+            ) {
+                // ⚠️ 2026-10-19 真机修（第二处不一致）：
+                // profile 存在 ≠ 依赖齐全。`launch.rs` 会把 profile 声明的
+                // 每个库都算进 classpath，缺一个就可能导致启动失败；
+                // 而这里原来只查「jar 在不在 + profile 在不在」，
+                // 于是界面显示「文件完整」，一点启动却因为缺库而失败。
+                // 现在把 profile 的库也纳入检查。
+                let (ok_paths, lib_missing) = crate::loader_install::profile_library_paths(
+                    &profile,
+                    &dir.join("libraries"),
+                );
+                if lib_missing > 0 {
+                    missing.push(MissingItem {
+                        kind: "loader".into(),
+                        detail: format!(
+                            "{loader} {loader_version} 的依赖库不全（已就绪 {} / 缺 {}）",
+                            ok_paths.len(),
+                            lib_missing
+                        ),
+                        fixable: true,
+                    });
+                }
+            } else {
+                // ⚠️ 2026-10-19 真机实测发现：只有 jar、没有 profile 时，
+                // 这里判「文件完整」→ 启动时 `launch.rs` 又找不到 profile →
+                // 直接回退原版，并打印「未找到加载器 profile，将以原版启动」。
+                // 两处判定不一致，用户看到「不缺文件」却玩到原版 MC。
+                //
+                // 现在把 profile 也纳入检查：缺 profile 同样算可补全的缺失。
+                missing.push(MissingItem {
+                    kind: "loader".into(),
+                    detail: format!(
+                        "{loader} {loader_version} 已下载但尚未安装（缺少加载器配置）"
+                    ),
                     fixable: true,
                 });
             }

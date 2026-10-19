@@ -1,6 +1,6 @@
 use crate::settings;
 use crate::download;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -947,24 +947,466 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
 ///
 /// 落盘路径必须与 [`loader_jar_path`] 一致，否则「安装说已装好、检查说还缺」。
 async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, instance_path: &std::path::Path) -> Result<()> {
+    // 诊断日志：双通道（println 进 logcat，log_line 落文件）。
+    // 安装链路长且跨网络，真机上「卡住」时必须有痕迹可查。
+    crate::util::log_line(&format!(
+        "[loader] install_loader 开始: loader={loader} mc={mc_version} ver={loader_version}"
+    ));
     let libs_dir = instance_path.parent().unwrap().parent().unwrap().join("libraries");
     tokio::fs::create_dir_all(&libs_dir).await.ok();
 
     let dest = loader_jar_path(&libs_dir, loader, mc_version, loader_version);
-    if dest.exists() {
-        return Ok(());
+
+    // ⚠️ 2026-10-19 起：jar 存在**不再**直接返回。
+    // 以前只下载 jar 就当装好了，结果启动时加载器根本没生效
+    //（classpath 里没有它，profile 也没生成）—— 见 loader_install.rs 的说明。
+    // 现在改为：先看 profile 是否已生成，已生成才算真的装好。
+    let data_dir = settings::get_data_dir().await?;
+    let versions_dir = std::path::Path::new(&data_dir).join("versions");
+    // ⚠️ 2026-10-19 修：原来这里是 `return Ok(())` —— 但那样 profile 已存在时
+    // 依赖库永远不会被下载（新实例直接复用旧 profile），启动必然缺类。
+    // 现在只跳过「生成 profile」，依赖校验无论如何都要走。
+    let profile_exists =
+        crate::loader_install::find_loader_profile(&versions_dir, loader, mc_version).is_some();
+    if profile_exists {
+        tracing::info!("加载器 profile 已存在，跳过生成（仍会校验依赖）");
+        crate::util::log_line("[loader] profile 已存在，跳过生成，继续校验依赖");
+    }
+    if !dest.exists() {
+        // `download_file` 内部会按镜像设置改写地址并回退官方源，这里只给官方地址
+        let url = match loader {
+            "fabric" => format!("https://maven.fabricmc.net/net/fabricmc/fabric-loader/{loader_version}/fabric-loader-{loader_version}.jar"),
+            "quilt" => format!("https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-loader/{loader_version}/quilt-loader-{loader_version}.jar"),
+            "forge" => format!("https://files.minecraftforge.net/maven/net/minecraftforge/forge/{mc_version}-{loader_version}/forge-{mc_version}-{loader_version}-installer.jar"),
+            // 之前这里查的是 Modrinth 上的 Fabric API，装 NeoForge 会下一个完全无关的 jar
+            "neoforge" => format!("https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"),
+            other => return Err(anyhow::anyhow!("不支持的加载器：{other}")),
+        };
+        download::download_file(&url, &dest.to_string_lossy(), None).await?;
+        crate::util::log_line("[loader] profile 已存在，跳过生成，继续校验依赖");
     }
 
-    // `download_file` 内部会按镜像设置改写地址并回退官方源，这里只给官方地址
-    let url = match loader {
-        "fabric" => format!("https://maven.fabricmc.net/net/fabricmc/fabric-loader/{loader_version}/fabric-loader-{loader_version}.jar"),
-        "quilt" => format!("https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-loader/{loader_version}/quilt-loader-{loader_version}.jar"),
-        "forge" => format!("https://files.minecraftforge.net/maven/net/minecraftforge/forge/{mc_version}-{loader_version}/forge-{mc_version}-{loader_version}-installer.jar"),
-        // 之前这里查的是 Modrinth 上的 Fabric API，装 NeoForge 会下一个完全无关的 jar
-        "neoforge" => format!("https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"),
-        other => return Err(anyhow::anyhow!("不支持的加载器：{other}")),
+    // ── 真正运行 installer，生成加载器 profile ──────────────────────
+    //
+    // 只有 Forge / NeoForge 需要跑 installer（它们会生成带 inheritsFrom 的
+    // profile）。Fabric / Quilt 的 jar 本身不是 installer，运行它只会启动
+    // 一个 GUI 安装器 —— 安卓 headless 下没有意义，改为下面拼 profile。
+    if !profile_exists {
+        if matches!(loader, "forge" | "neoforge") {
+            install_forge_like(loader, mc_version, loader_version, &dest, &versions_dir).await?;
+        } else {
+            // Fabric / Quilt：官方做法也是跑 installer，但它们的 jar 就是 loader 本体，
+            // 需要的是「生成 profile + 下载依赖」。这里先生成 profile，
+            // 依赖由启动时按 profile 的 libraries 补齐。
+            write_simple_loader_profile(loader, mc_version, loader_version, &dest, &versions_dir).await?;
+        }
+    }
+
+    // ── 下载加载器 profile 里声明的依赖库 ────────────────────────────
+    //
+    // ⚠️ 光有 profile 不够：它声明的 asm / sponge-mixin / intermediary 等
+    // 库如果没下载，启动时 classpath 里缺类，必然 NoClassDefFoundError。
+    // 这里复用原版那套 download_libraries（含并发与镜像回退）。
+    if let Some(profile) =
+        crate::loader_install::find_loader_profile(&versions_dir, loader, mc_version)
+    {
+        crate::util::log_line("[loader] profile 就绪，开始解析依赖");
+        let libs = crate::loader_install::profile_libraries(&profile);
+        if !libs.is_empty() {
+            crate::util::log_line(&format!("[loader] 开始下载 {} 个依赖库", libs.len()));
+            // ⚠️ 2026-10-19 真机修：这段原来没有超时保护。
+            // 弱网下其中一个库（通常是带 `+` 号的 sponge-mixin）卡住不返回，
+            // 整个「补全」就一直停在「正在安装加载器…」，用户只能取消后重来。
+            // 现在给一个总超时，超时就跳过（已下到的库保留，下次补全会续上），
+            // 至少让补全流程能走完、让用户看到结果。
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(180),
+                download::download_libraries(&libs, &data_dir),
+            )
+            .await
+            {
+                Ok(Ok(())) => {
+                    crate::util::log_line("[loader] 依赖库下载完成");
+                    // 校验：download_libraries 内部会跳过「已存在且校验通过」的文件，
+                    // 但弱网下它可能报成功却有文件没落盘（重试耗尽后不再抛错）。
+                    // 这里再点一遍，把真正还缺的文件列出来，用户点「补全」才有方向。
+                    let (ok, left) =
+                        crate::loader_install::profile_library_paths(&profile, &libs_dir);
+                    if left > 0 {
+                        // ⚠️ 定向重试缺失的那几个（真机实测：8 个里总有 1 个
+                        // 首次下不下来，再跑一遍就成功）。并发下载时它可能
+                        // 因为连接被复用/抢占而失败，单独重试往往能过。
+                        crate::util::log_line(&format!(
+                            "[loader] 仍有 {left} 个库没下完，定向重试…"
+                        ));
+                        let retry_libs: Vec<_> = libs
+                            .iter()
+                            .filter(|l| {
+                                let Some(a) =
+                                    l.downloads.as_ref().and_then(|d| d.artifact.as_ref())
+                                else {
+                                    return false;
+                                };
+                                !libs_dir.join(&a.path).exists()
+                            })
+                            .cloned()
+                            .collect();
+                        if !retry_libs.is_empty() {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(120),
+                                download::download_libraries(&retry_libs, &data_dir),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => {
+                                    crate::util::log_line("[loader] 定向重试完成");
+                                }
+                                _ => {
+                                    crate::util::log_line("[loader] 定向重试未全部成功");
+                                }
+                            }
+                        }
+                        let (ok2, left2) =
+                            crate::loader_install::profile_library_paths(&profile, &libs_dir);
+                        crate::util::log_line(&format!(
+                            "[loader] 最终：已就绪 {} / 缺 {left2}",
+                            ok2.len()
+                        ));
+                    } else {
+                        crate::util::log_line(&format!(
+                            "[loader] 加载器依赖齐备（{} 个）",
+                            ok.len()
+                        ));
+                    }
+                }
+                Ok(Err(e)) => {
+                    crate::util::log_line(&format!("[loader] 依赖库下载失败：{e}"));
+                    return Err(e).context("下载加载器依赖库失败");
+                }
+                Err(_) => {
+                    // 超时不当成致命错误：已下载的库仍是有效缓存，
+                    // 下次补全会跳过它们、只重试缺的。
+                    let (ok, left) =
+                        crate::loader_install::profile_library_paths(&profile, &libs_dir);
+                    crate::util::log_line(&format!(
+                        "[loader] 依赖库下载超时（180s）：已就绪 {} / 缺 {left}，请再点一次「补全游戏文件」",
+                        ok.len()
+                    ));
+                }
+            }
+        } else {
+            crate::util::log_line("[loader] profile 里没有可下载的库（libraries 为空或字段不全）");
+        }
+    }
+    Ok(())
+}
+
+/// 跑 Forge / NeoForge 的 installer jar（headless），生成 profile。
+/// Forge / NeoForge：解压 installer jar 里的 `install_profile.json`，生成加载器 profile。
+///
+/// ## 为什么不用「跑 installer jar」
+///
+/// 桌面端（`QookiX-Launcher/src-tauri/src/install.rs::forge_patch`）的做法就是
+/// **解压 install_profile.json** 而不是执行 installer：
+///   - 跑 installer 需要一个可用的 `java` 进程，安卓上还要处理
+///     `LD_LIBRARY_PATH` / SELinux 等一堆坑
+///   - Forge 官方 installer 本质是「解压 + 按 processors 任务链操作」，
+///     而 processors 链需要的工具库在安卓上很难凑齐
+///   - 新版安装器（spec 1，Forge ≥1.17 / NeoForge）的 version.json 用的是
+///     `inheritsFrom` 继承 vanilla，只需合并 mainClass / arguments / libraries
+///
+/// 本实现参照桌面端，覆盖三种安装器格式：
+///   - **spec 1**（Forge ≥1.17 / NeoForge）：`install_profile.json` 无 versionInfo，
+///     版本 json 在 zip 内独立的 `version.json`（由 `json` 字段给出路径）
+///   - **旧版**（≤1.16）：`install_profile.json` 顶层带 `versionInfo`（完整版本 json）
+///   - **spec 0**（1.12.2 等最老式）：既无 versionInfo 也无 processors，
+///     forge 本体与依赖直接内嵌在 installer 的 `maven/` 目录里 → 解压到 libraries
+async fn install_forge_like(
+    loader: &str,
+    mc_version: &str,
+    loader_version: &str,
+    installer_jar: &std::path::Path,
+    versions_dir: &std::path::Path,
+) -> Result<()> {
+    // ── 1. 解出 install_profile.json ──────────────────────────────────
+    let profile_text = read_zip_entry_string(installer_jar, "install_profile.json")
+        .map_err(|e| anyhow!("读取 install_profile.json 失败：{e}"))?;
+    // 官方 profile 里有 ${version} / ${mcVersion} 等占位符，必须先替换
+    let full_ver = forge_full_ver(loader, mc_version, loader_version);
+    let replaced = profile_text
+        .replace("${version}", &full_ver)
+        .replace("${mcVersion}", mc_version)
+        .replace("${forgeVersion}", loader_version)
+        .replace("${neoForgeVersion}", loader_version);
+    let profile: serde_json::Value =
+        serde_json::from_str(&replaced).context("解析 install_profile.json 失败")?;
+
+    let is_legacy_spec0 = profile.get("spec").and_then(|v| v.as_i64()) == Some(0);
+
+    // ── 2. 取出加载器的版本 json ─────────────────────────────────────
+    // 新版：在 zip 内的 version.json（路径由 `json` 字段给出）
+    // 旧版：install_profile.json 顶层的 versionInfo
+    let version_info = if let Some(v) = profile.get("versionInfo") {
+        v.clone()
+    } else {
+        let entry = profile
+            .get("json")
+            .and_then(|v| v.as_str())
+            .unwrap_or("/version.json")
+            .trim_start_matches('/');
+        let text = read_zip_entry_string(installer_jar, entry)
+            .map_err(|e| anyhow!("读取版本 json（{entry}）失败：{e}"))?;
+        serde_json::from_str::<serde_json::Value>(&text).context("解析版本 json 失败")?
     };
-    download::download_file(&url, &dest.to_string_lossy(), None).await?;
+
+    let loader_json_id = version_info
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&full_ver)
+        .to_string();
+
+    // ── 3. 生成 profile（继承 vanilla）──────────────────────────────
+    //
+    // spec 1 的 version.json 是「继承 vanilla 的增量」：只有 mainClass /
+    // arguments 追加项 / libraries。直接用它当版本 json 会丢掉 vanilla 的
+    // arguments.jvm（含 -cp ${classpath}），Java 启动时没有 classpath。
+    // 所以这里显式写 `inheritsFrom`，让 `get_version_info` 递归合并。
+    let mut patched = serde_json::json!({
+        "id": loader_json_id,
+        "inheritsFrom": mc_version,
+        "mainClass": version_info.get("mainClass"),
+        "arguments": version_info.get("arguments"),
+        "libraries": version_info.get("libraries"),
+    });
+    // 去掉 null 字段（versionInfo 里可能没有）
+    if let Some(obj) = patched.as_object_mut() {
+        obj.retain(|_, v| !v.is_null());
+    }
+
+    // installer 的 libraries 里，`:universal` 是 forge 本体，必须进运行时
+    // classpath；其余（jopt-simple / lzma-java 等）是 processors 工具链，不能进。
+    if let Some(installer_libs) = profile.get("libraries").and_then(|v| v.as_array()) {
+        let mut libs = patched
+            .get("libraries")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        for lib in installer_libs {
+            let name = lib.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            if name.ends_with(":universal") || name.ends_with(":client") {
+                libs.push(lib.clone());
+            }
+        }
+        if let Some(obj) = patched.as_object_mut() {
+            obj.insert("libraries".to_string(), serde_json::Value::Array(libs));
+        }
+    }
+
+    // spec 0：forge 本体内嵌在 installer 的 maven/ 目录，解压到 libraries
+    if is_legacy_spec0 {
+        let libs_root = versions_dir.parent()
+            .ok_or_else(|| anyhow!("versions 目录没有父目录"))?
+            .join("libraries");
+        std::fs::create_dir_all(&libs_root).ok();
+        if let Err(e) = extract_zip_strip(installer_jar, &libs_root, "maven/") {
+            println!("[loader] 解压内嵌 maven 依赖失败：{e}");
+        }
+    }
+
+    let dir = versions_dir.join(&loader_json_id);
+    tokio::fs::create_dir_all(&dir).await?;
+    let json_path = dir.join(format!("{loader_json_id}.json"));
+    tokio::fs::write(&json_path, serde_json::to_string_pretty(&patched)?).await?;
+    println!("[loader] 已写入 {loader} profile：{}", json_path.display());
+    Ok(())
+}
+
+/// Forge / NeoForge 的完整版本串（installer 文件名与 maven 路径都用它）。
+///
+/// - Forge：`{mc_version}-{version}`（如 `1.12.2-14.23.5.2860`）；
+///   传入的 version 已含前缀时不再重复拼
+/// - NeoForge：maven 上 neoforge 的版本号形如 `21.8.47`，
+///   loader_version 常是纯 build 号 `47` → 需要补 mc 前缀
+/// Forge/NeoForge 的完整版本串。实现在 `loader_install.rs`（那里有单元测试）。
+fn forge_full_ver(loader: &str, mc_version: &str, version: &str) -> String {
+    crate::loader_install::forge_full_ver(loader, mc_version, version)
+}
+/// 读 zip 里的一个文本条目。
+fn read_zip_entry_string(zip_path: &std::path::Path, entry: &str) -> Result<String> {
+    let file = std::fs::File::open(zip_path)
+        .map_err(|e| anyhow!("打开 {} 失败：{}", zip_path.display(), e))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| anyhow!("{} 不是有效的 zip：{}", zip_path.display(), e))?;
+    let mut e = archive
+        .by_name(entry)
+        .map_err(|_| anyhow!("zip 里没有条目 {entry}"))?;
+    let mut buf = Vec::new();
+    std::io::Read::read_to_end(&mut e, &mut buf)
+        .map_err(|e| anyhow!("读取 {entry} 失败：{e}"))?;
+    String::from_utf8(buf).map_err(|e| anyhow!("{entry} 不是 UTF-8 文本：{e}"))
+}
+
+/// 解压 zip 里的指定前缀目录到目标根（剥掉前缀本身）。
+///
+/// 桌面端用 `extract_zip_strip`，这里做一个最小实现（只服务 spec 0 的 maven/）。
+fn extract_zip_strip(
+    zip_path: &std::path::Path,
+    dest_root: &std::path::Path,
+    prefix: &str,
+) -> Result<()> {
+    let file = std::fs::File::open(zip_path)
+        .map_err(|e| anyhow!("打开 {} 失败：{}", zip_path.display(), e))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| anyhow!("{} 不是有效的 zip：{}", zip_path.display(), e))?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| anyhow!("读 zip 条目失败：{e}"))?;
+        let name = entry.name().to_string();
+        if !name.starts_with(prefix) || entry.is_dir() {
+            continue;
+        }
+        let rel = name.trim_start_matches(prefix);
+        let dest = dest_root.join(rel);
+        if let Some(p) = dest.parent() {
+            std::fs::create_dir_all(p).ok();
+        }
+        let mut out = std::fs::File::create(&dest)
+            .map_err(|e| anyhow!("创建 {} 失败：{}", dest.display(), e))?;
+        std::io::copy(&mut entry, &mut out)
+            .map_err(|e| anyhow!("写 {} 失败：{}", dest.display(), e))?;
+    }
+    Ok(())
+}
+
+/// 为 Fabric / Quilt 生成带 `inheritsFrom` 的 profile。
+///
+/// 官方 installer 会做更多事（下载 mappings/intermediary），但那些库
+/// 在启动时可以按 profile 的 libraries 字段补齐。这里先保证
+/// 「有一个能被 get_version_info 读到的 profile」，让加载器能进 classpath。
+/// 为 Fabric / Quilt 拉取官方 profile 并落盘。
+///
+/// ⚠️ 2026-10-19 修正：最初想自己拼 profile，但那会漏掉一堆必需依赖
+/// （asm / sponge-mixin / intermediary …），启动时必然 `NoClassDefFoundError`。
+/// Fabric 官方提供了现成的 profile 接口，直接拉下来最省事也最准确：
+///
+///   Fabric: https://meta.fabricmc.net/v2/versions/loader/{mc}/{loader}/profile/json
+///   Quilt:  https://meta.quiltmc.org/v3/versions/loader/{mc}/{loader}/profile/json
+///
+/// 返回的内容已经是完整的 MinecraftVersion 结构（含 inheritsFrom / mainClass /
+/// libraries / arguments），落盘到 `versions/<id>/<id>.json` 即可被
+/// `get_version_info` 直接读到并递归合并原版。
+async fn write_simple_loader_profile(
+    loader: &str,
+    mc_version: &str,
+    loader_version: &str,
+    _loader_jar: &std::path::Path,
+    versions_dir: &std::path::Path,
+) -> Result<()> {
+    let url = match loader {
+        "fabric" => format!(
+            "https://meta.fabricmc.net/v2/versions/loader/{mc_version}/{loader_version}/profile/json"
+        ),
+        "quilt" => format!(
+            "https://meta.quiltmc.org/v3/versions/loader/{mc_version}/{loader_version}/profile/json"
+        ),
+        other => return Err(anyhow!("不支持的加载器：{other}")),
+    };
+
+    // ⚠️ 2026-10-19 真机修：这里原来 `reqwest::Client::builder()` 新建了一个
+    // **裸客户端** —— 不走应用统一的代理 / 镜像 / UA 配置。
+    //
+    // 后果：用户在「设置 → 下载代理」里配了代理、或网络只有走代理才通时，
+    // 其它下载都正常，唯独加载器 profile 永远拉不下来，报「请求 fabric profile 失败」。
+    // 真机实测（OnePlus 8 / Android 16）就是这个症状。
+    //
+    // `util::http_client()` 会读 settings.json 的 proxy_mode / proxy 并套用，
+    // 是全局唯一入口；所有新代码都应该用它。
+    let client = crate::util::http_client().await;
+    crate::util::log_line(&format!("[loader] 拉取 profile: {url}"));
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| {
+            // 把底层原因（DNS / TLS / 超时 / 代理拒绝）一并带出来，
+            // 否则用户只看到「请求 profile 失败」，完全无从下手。
+            format!("请求 {loader} profile 失败（{url}）")
+        })?;
+    if !resp.status().is_success() {
+        return Err(anyhow!(
+            "{loader} profile 接口返回 {}（版本 {mc_version} / {loader_version} 可能不存在）",
+            resp.status()
+        ));
+    }
+    let text = resp.text().await.context("读取 profile 内容失败")?;
+    let profile: serde_json::Value =
+        serde_json::from_str(&text).context("解析 profile JSON 失败")?;
+
+    // 用接口返回的 id（它已经按官方规则命名，比自己拼更可靠）
+    let id = profile
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| crate::loader_install::loader_version_id(loader, mc_version, loader_version));
+
+    // Fabric/Quilt 的 profile 里，库只有 `name` + `url`，**没有** `downloads.artifact`。
+    // 而我们的 `download_libraries` 只认 `downloads.artifact.path` —— 不补这一层，
+    // 依赖永远不会被下载，启动时 classpath 里缺 asm/mixin 等必然 NoClassDefFoundError。
+    // 这里按 Maven 坐标 `group:artifact:version` 推导路径（标准布局）。
+    let mut profile = profile;
+    if let Some(libs) = profile.get_mut("libraries").and_then(|l| l.as_array_mut()) {
+        for lib in libs.iter_mut() {
+            let name = lib.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            if name.is_empty() { continue; }
+            let has_artifact = lib
+                .get("downloads")
+                .and_then(|d| d.get("artifact"))
+                .is_some();
+            if has_artifact { continue; }
+            // group:artifact:version[:classifier]
+            let parts: Vec<&str> = name.split(':').collect();
+            if parts.len() < 3 { continue; }
+            let (group, artifact, version) = (parts[0], parts[1], parts[2]);
+            // 标准 Maven 布局：group(点→斜杠)/artifact/version/artifact-version[-classifier].jar
+            // 与桌面端 models::maven_to_path 的规则一致（那里用 PathBuf，这里用字符串）。
+            let classifier = if parts.len() > 3 { parts[3] } else { "" };
+            let rel = if classifier.is_empty() {
+                format!("{}/{}/{}/{}-{}.jar", group.replace('.', "/"), artifact, version, artifact, version)
+            } else {
+                format!("{}/{}/{}/{}-{}-{}.jar", group.replace('.', "/"), artifact, version, artifact, version, classifier)
+            };
+            let base = lib
+                .get("url")
+                .and_then(|u| u.as_str())
+                .unwrap_or("https://maven.fabricmc.net/")
+                .trim_end_matches('/')
+                .to_string();
+            if let Some(obj) = lib.as_object_mut() {
+                obj.insert(
+                    "downloads".to_string(),
+                    serde_json::json!({
+                        "artifact": {
+                            "path": rel,
+                            "url": format!("{base}/{rel}"),
+                            // ⚠️ 三个字段都是**必填**（见 version.rs 的 LibraryArtifact：
+                            // path / sha1 / size / url 都不是 Option，也没有 serde default）。
+                            // 少了 `sha1` 会让 `serde_json::from_value::<Library>` **整体失败**，
+                            // 而 profile_libraries 用 `if let Ok(..)` 吞掉了错误 ——
+                            // 表现就是「依赖一个都没下载」，启动时 ClassNotFoundException。
+                            // 官方 Meta profile 本来就不给 sha1，这里留空串表示「不校验」。
+                            "sha1": "",
+                            "size": 0,
+                        }
+                    }),
+                );
+            }
+        }
+    }
+
+    let dir = versions_dir.join(&id);
+    tokio::fs::create_dir_all(&dir).await?;
+    let json_path = dir.join(format!("{id}.json"));
+    tokio::fs::write(&json_path, serde_json::to_string_pretty(&profile)?).await?;
+    println!("[loader] profile 已写入: {}", json_path.display());
     Ok(())
 }
 

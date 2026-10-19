@@ -990,6 +990,22 @@ async fn download_verified(
         drop(f);
         let _ = cut;
 
+        // ⚠️ 2026-10-19 真机修：没有 sha256 时，也不能「分片有内容就算下好了」。
+        //
+        // Fabric 的 `server/jar` 就是**没有 sha** 的那种。弱网下分段续传被
+        // 200 段上限截断（或者连接反复中断），`.part` 只下到一半就被 rename 成
+        // 正式文件 —— 于是出现「核心已就绪」但点启动就 `nativeStart 返回 -3`
+        // （jar 打不开 → 读不到 Main-Class）。真机实测 1.21.8 的
+        // fabric-server-launch.jar 只有 104KB（官方 164KB）。
+        //
+        // 这里用服务器声明的 Content-Length 做兜底校验：下完必须和它一致。
+        let expected_total: Option<u64> = resp
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|n| n.saturating_add(if append { have } else { 0 }));
+
         let total = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
         tracing::info!("[core] 第 {attempt} 段 +{got} 字节，累计 {total}");
 
@@ -1013,7 +1029,23 @@ async fn download_verified(
         } else if got == 0 {
             return Err("下载中断：服务器没有返回任何数据".to_string());
         } else if total > 0 && !append {
-            // 无 sha256 可校验时，用「本次读完了整个响应」作为完成判据
+            // 无 sha256 可校验时，用「本次读完了整个响应」作为完成判据 ——
+            // **但必须叠加 Content-Length 校验**（见上面的注释：Fabric 的
+            // server/jar 没有 sha，半截文件会被当成下好了）。
+            match expected_total {
+                Some(want) if total < want => {
+                    tracing::warn!(
+                        "[core] 只下到 {total}/{want} 字节，继续续传（第 {attempt} 段）"
+                    );
+                    continue;
+                }
+                Some(want) if total > want => {
+                    tracing::warn!("[core] 分片比预期大（{total} > {want}），删掉重下");
+                    let _ = std::fs::remove_file(&part);
+                    continue;
+                }
+                _ => {}
+            }
             let _ = std::fs::rename(&part, dest).map_err(|e| format!("重命名分片失败: {e}"))?;
             return Ok(total);
         }
@@ -1336,10 +1368,24 @@ async fn download_fabric(
 
     let dir = server_dir(id)?;
     let dest = dir.join("fabric-server-launch.jar");
-    // 已有非空 launcher 就不重下：重复点「安装核心」秒回（对齐 paper/vanilla 的跳过逻辑）
+    // ⚠️ 2026-10-19 真机修：原来只判「文件非空」就跳过下载。
+    //
+    // 弱网下这个 launcher 会被下成半截（实测设备上 104KB，官方 164KB）。
+    // 半截 zip 打不开 → `read_main_class` 返回 None → `nativeStart` 返回 -3
+    // （「启动失败（-3）」，界面上没有任何可操作提示）。
+    // 更糟的是：半截文件本身又成了「已存在」的证据，**永远不重下** —— 死锁。
+    //
+    // 现在要求「能读出 Main-Class」才算已有，否则删掉重下。
     if std::fs::metadata(&dest).map(|m| m.len() > 0).unwrap_or(false) {
-        tracing::info!("[core] Fabric launcher 已存在，跳过下载");
-        return Ok(());
+        if crate::server_process::read_main_class(&dest).is_some() {
+            tracing::info!("[core] Fabric launcher 已存在且可用，跳过下载");
+            return Ok(());
+        }
+        crate::util::log_line(&format!(
+            "[core] Fabric launcher 不完整（{} 字节，读不到 Main-Class），删除后重下",
+            std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0)
+        ));
+        let _ = std::fs::remove_file(&dest);
     }
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{mc_version}/{loader}/{installer}/server/jar"
@@ -1358,8 +1404,37 @@ async fn download_fabric(
 
 /// 核心是否已就绪（能否启动）
 pub fn core_installed(id: &str) -> bool {
-    let Ok(dir) = server_dir(id) else { return false };
-    dir.join("server.jar").exists() || fabric_launcher_jar(&dir).is_some()
+    let Ok(dir) = server_dir(id) else {
+        return false;
+    };
+    if dir.join("server.jar").exists() {
+        return true;
+    }
+    // ⚠️ 2026-10-19 真机修：`fabric-server-launch.jar` 存在**不等于**核心装好了。
+    //
+    // 它只是 Fabric 的薄启动器（约 100KB），真正跑起来还需要同目录的
+    // `libraries/` 与原版 server jar。原来只判文件存在，于是：
+    //   · 界面认为「核心已就绪」→ 跳过下载
+    //   · 点启动 → `read_main_class` 读不到 Main-Class → nativeStart 返回 -3
+    //   · 界面上只看到「启动失败（-3）」，没有任何可操作的提示
+    //
+    // 现在要求启动器 jar 真的带 Main-Class 才算数。
+    match fabric_launcher_jar(&dir) {
+        Some(name) => {
+            let path = dir.join(&name);
+            let mc = crate::server_process::read_main_class(&path);
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            // 落盘诊断：这个判定直接决定界面显示「下载核心」还是「启动」，
+            // 判错就会出现「显示已就绪但一点启动就 -3」的死锁。
+            crate::util::log_line(&format!(
+                "[core] core_installed 检查：{} 存在=true 大小={size} mainClass={:?}",
+                path.display(),
+                mc
+            ));
+            mc.is_some()
+        }
+        None => false,
+    }
 }
 
 fn fabric_launcher_jar(dir: &Path) -> Option<String> {
@@ -1562,8 +1637,20 @@ pub async fn stop_hosted_server(id: String) -> Result<String, String> {
 
     match crate::rcon::graceful_stop(ipc_port, token, &creds, 20) {
         Ok(msg) => {
-            // JVM 已自行退出，:server 进程会随之结束；这里只清通知
+            // ⚠️ 2026-10-19 真机修：**必须真的把 `:server` 进程结束掉**。
+            //
+            // 原来的假设是「JVM 优雅退出后，`:server` 进程会随之结束」——
+            // 实测不成立：JVM 退出后 `ServerService` 仍然活着（还挂着一堆
+            // 僵尸子进程），进程一直不退。
+            // 后果就是用户报的「服务端只能启动一次」：第二次启动复用同一进程，
+            // 而 `JLI_Launch` 在同一个进程里**只能成功创建一次 JVM**，
+            // 于是第二次必然失败且什么都不打印。
+            //
+            // `notify_server_stopped` 只负责撤通知（走广播），这里再补一刀
+            // 真正的 stopService —— 它会触发 `onDestroy` → `killProcessAfterStop`。
             let _ = crate::android_bridge::notify_server_stopped(&id);
+            let _ = crate::android_bridge::force_stop_server(&id);
+            crate::util::log_line("[server] 停服完成，已请求结束 :server 进程");
             Ok(msg)
         }
         Err(e) => {

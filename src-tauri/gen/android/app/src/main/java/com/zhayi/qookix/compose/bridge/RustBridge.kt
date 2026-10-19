@@ -70,6 +70,28 @@ class RustBridge(private val activity: Activity) {
 
     private val pending = ConcurrentHashMap<Int, (Result<String>) -> Unit>()
 
+    /** 桥就绪前收到的调用（就绪后统一补发，见 [invoke] 的说明）。 */
+    private class PendingCall(
+        val cmd: String,
+        val payload: String,
+        val onResult: (Result<String>) -> Unit,
+    )
+
+    /**
+     * 桥未就绪时排队的调用。
+     *
+     * ⚠️ 必须有容量上限：如果桥永远不就绪（页面加载失败等），
+     * 无限制排队会一直吃内存且用户仍看不到错误。
+     * 超出上限时把最早的几条判失败，避免静默堆积。
+     */
+    private val invokeQueue = java.util.Collections.synchronizedList(
+        java.util.ArrayList<PendingCall>(),
+    )
+    private val maxQueued = 256
+
+    /** 桥刚就绪时 `__QK_BRIDGE__` 可能还没提交完成，单条命令最多重试几次。 */
+    private val maxInvokeRetry = 4
+
     /**
      * 3D 帧推送的接收端（由 Skin3dHost 注册）。
      *
@@ -110,7 +132,7 @@ class RustBridge(private val activity: Activity) {
      * 注意参数顺序：`onReady` 放最后，这样调用点能写成
      * `bridge.start { ready = true }` 的尾随 lambda 形式。
      *
-     * @param maxAttempts 最大重试次数（每次间隔 100~200ms）
+     * @param maxAttempts 最大重试次数（间隔 400ms 起、逐步加长，总计约 40 秒）
      * @param onReady 注入成功后的回调（主线程）
      */
     fun start(maxAttempts: Int = 60, onReady: () -> Unit) {
@@ -146,6 +168,9 @@ class RustBridge(private val activity: Activity) {
                     if (r == "ok" || r == "already") {
                         injected = true
                         ready = true
+                        // 桥真正可用了：把就绪前排队的那批调用补发出去
+                        //（页面初始化时并发发出的 list_instances / get_settings 等）
+                        flushQueue()
 
                         // ── 探针：这个 WebView 支持 WebGL 吗？────────────────
                         //
@@ -243,15 +268,98 @@ class RustBridge(private val activity: Activity) {
                             }
                         }, 400)
 
-                        activity.runOnUiThread { onReady() }
+                        activity.runOnUiThread {
+                            Log.i(TAG, "桥就绪 → 通知 Compose（bridgeReady=true）")
+                            onReady()
+                        }
                     } else if (attempt < max) {
-                        // Tauri 的初始化脚本可能还没跑完，稍后重试
+                        // Tauri 的初始化脚本可能还没跑完，稍后重试。
+                        //
+                        // ⚠️ 2026-10-19：间隔从 200ms 放宽到 400ms、并让步数
+                        // 随时间增长。冷启动（尤其模拟器 / 低端机）上
+                        // `__TAURI_INTERNALS__` 出现过十几秒才就绪的情况，
+                        // 原来固定 200ms × 60 次 ≈ 12 秒，刚好卡在边缘 ——
+                        // 超时后**静默放弃**，桥永远不就绪，所有命令都报
+                        // 「桥尚未就绪」，用户看到的是「点什么都没反应」。
+                        val delay = 400L + (attempt.toLong() * 50L)
                         wv.postDelayed({
                             attemptInject(attempt + 1, max, onReady)
-                        }, 200)
+                        }, delay)
+                    } else {
+                        // 重试用尽：必须留一条明确的日志，否则这种失败
+                        // 在真机上完全无迹可寻（只有「点了没反应」）。
+                        Log.e(
+                            TAG,
+                            "桥注入失败：$max 次重试后 __TAURI_INTERNALS__ 仍未就绪" +
+                                "（最后一次结果=$r）。IPC 全部不可用。",
+                        )
                     }
                 }
             }, 300)
+        }
+    }
+
+    /**
+     * 把桥就绪前排队的调用补发出去。
+     *
+     * ⚠️ 不能「设完 ready 立刻发」：实测 `INJECT_JS` 返回 ok 的**同一毫秒**里，
+     * `window.__QK_BRIDGE__` 仍然求值成 null（V8 对该脚本还没提交完成），
+     * 于是补发的第一批命令又全部失败。
+     *
+     * 这里改成**先用 JS 轮询确认 `__QK_BRIDGE__` 真的存在**，再补发。
+     * 轮询本身极轻（一个 typeof 判断），失败则 50ms 后继续，最多 20 次（1 秒）。
+     */
+    private fun flushQueue() {
+        val snapshot: List<PendingCall>
+        synchronized(invokeQueue) {
+            snapshot = ArrayList(invokeQueue)
+            invokeQueue.clear()
+        }
+        if (snapshot.isEmpty()) return
+        val wv = findTauriWebView(activity)
+        if (wv == null) {
+            snapshot.forEach {
+                it.onResult(
+                    Result.failure(
+                        IllegalStateException(activity.getString(R.string.bridge_not_ready)),
+                    ),
+                )
+            }
+            return
+        }
+        Log.i(TAG, "桥已就绪，等待 __QK_BRIDGE__ 生效后补发 ${snapshot.size} 条排队命令")
+        waitBridgeThenFlush(wv, snapshot, 0)
+    }
+
+    private fun waitBridgeThenFlush(
+        wv: android.webkit.WebView,
+        calls: List<PendingCall>,
+        attempt: Int,
+    ) {
+        wv.evaluateJavascript(
+            "(typeof window.__QK_BRIDGE__ === 'object' && " +
+                "typeof window.__QK_BRIDGE__.invoke === 'function') ? 'yes' : 'no'",
+        ) { res ->
+            val ok = res?.trim('"') == "yes"
+            if (ok) {
+                Log.i(TAG, "桥可调用，补发 ${calls.size} 条命令")
+                calls.forEach { invoke(it.cmd, it.payload, it.onResult) }
+                return@evaluateJavascript
+            }
+            if (attempt >= 20) {
+                Log.e(TAG, "__QK_BRIDGE__ 1 秒内未生效，${calls.size} 条命令判失败")
+                calls.forEach {
+                    it.onResult(
+                        Result.failure(
+                            IllegalStateException(
+                                activity.getString(R.string.bridge_not_ready),
+                            ),
+                        ),
+                    )
+                }
+                return@evaluateJavascript
+            }
+            wv.postDelayed({ waitBridgeThenFlush(wv, calls, attempt + 1) }, 50)
         }
     }
 
@@ -262,21 +370,116 @@ class RustBridge(private val activity: Activity) {
      * @param payload JSON 字符串形式的参数；无参传 "{}"
      */
     fun invoke(cmd: String, payload: String = "{}", onResult: (Result<String>) -> Unit) {
+        invokeInternal(cmd, payload, 0, onResult)
+    }
+
+    private fun invokeInternal(
+        cmd: String,
+        payload: String,
+        retryCount: Int,
+        onResult: (Result<String>) -> Unit,
+    ) {
         val wv = findTauriWebView(activity)
-        if (wv == null || !ready) {
+        if (wv == null) {
             onResult(Result.failure(IllegalStateException(activity.getString(R.string.bridge_not_ready))))
             return
         }
+        // 桥还没就绪：先排队，等 start() 的 onReady 之后统一补发。
+        //
+        // ⚠️ 原来这里**立刻**回「桥尚未就绪」。而页面一挂载就会并发发出一堆
+        // 初始化请求（list_instances / fetch_news / get_settings…），它们全赶在
+        // `__QK_BRIDGE__` 生效前的几十毫秒里 —— 实测一次冷启动有 60+ 条这样白白
+        // 失败，界面上表现为「实例列表空、新闻空、设置读不出来」，且不会自愈。
+        if (!ready) {
+            invokeQueue.add(PendingCall(cmd, payload, onResult))
+            if (invokeQueue.size == 1) {
+                Log.i(TAG, "桥未就绪，命令进入队列：$cmd")
+            }
+            // 上限保护：桥永远不就绪时不能让队列无限涨
+            while (invokeQueue.size > maxQueued) {
+                val dropped = invokeQueue.removeAt(0)
+                Log.w(TAG, "桥未就绪且队列已满，丢弃：${dropped.cmd}")
+                dropped.onResult(
+                    Result.failure(
+                        IllegalStateException(activity.getString(R.string.bridge_not_ready)),
+                    ),
+                )
+            }
+            return
+        }
+
         val id = nextId++
         pending[id] = onResult
 
-        val js = "window.__QK_BRIDGE__ && window.__QK_BRIDGE__.invoke(" +
-            "${JSONObject.quote(cmd)}, ${JSONObject.quote(payload)}, $id);"
-        wv.evaluateJavascript(js) { }
+        // ⚠️⚠️ 这一条是整块代码里最容易写错的地方（踩了很久）：
+        //
+        // `__QK_BRIDGE__.invoke(...)` 是**异步**的 —— 它把结果通过
+        // `QookiXNative.onResult(id, ...)` 回推给 Kotlin，函数本身**没有返回值**
+        // （JS 里是 undefined，`evaluateJavascript` 收到的就是字符串 "null"）。
+        //
+        // 所以**绝不能用求值结果判断桥是否可用**：那会把每一次正常调用
+        // 都误判成「桥不可用」，进而重试 → 同一个回调 resume 两次 →
+        //   IllegalStateException: Already resumed, but proposed with update true
+        //（实测崩在 ComposeMainActivity.kt:933）。
+        //
+        // 这里的 JS 只做两件事：确认 `__QK_BRIDGE__` 存在、调用 invoke；
+        // 返回值固定为 'sent' / 'no-bridge'，**不表示命令成功与否**。
+        val js = "window.__QK_BRIDGE__ ? " +
+            "(window.__QK_BRIDGE__.invoke(" +
+            "${JSONObject.quote(cmd)}, ${JSONObject.quote(payload)}, $id), 'sent') : 'no-bridge';"
+
+        wv.evaluateJavascript(js) { result ->
+            val r = result?.trim('"')
+            if (r == "sent") {
+                // 正常发出：等 NativeInbox 回调。这里只起一个看门狗，
+                // 防止「JS 侧静默失败」导致 pending 永久泄漏、UI 永久转圈。
+                //
+                // ⚠️ 超时要按命令区分：`install_recommended_plugins` /
+                // `install_plugin` / 完整度检查这类命令**本身就要下载几十 MB**，
+                // 统一 8 秒会把「正在正常下载」错判成「桥坏了」。
+                val timeoutMs = when {
+                    // 插件安装：要联网下包，给 5 分钟
+                    cmd.contains("plugin", ignoreCase = true) -> 300_000L
+                    // 加载器/核心安装、文件检查：可能遍历大量文件
+                    cmd.contains("install", ignoreCase = true) ||
+                        cmd.contains("repair", ignoreCase = true) ||
+                        cmd.contains("check", ignoreCase = true) -> 120_000L
+                    else -> 8_000L
+                }
+                wv.postDelayed({
+                    val cb = pending.remove(id) ?: return@postDelayed
+                    Log.w(TAG, "命令超时无响应：$cmd（${timeoutMs / 1000}s）")
+                    activity.runOnUiThread {
+                        cb(Result.failure(IllegalStateException("命令超时：$cmd")))
+                    }
+                }, timeoutMs)
+                return@evaluateJavascript
+            }
+            // 只有 'no-bridge' 才是真的没注入上：清掉 pending，短暂重试
+            if (!pending.containsKey(id)) return@evaluateJavascript
+            pending.remove(id)
+            if (retryCount < maxInvokeRetry) {
+                Log.i(TAG, "桥未注入（$cmd），第 ${retryCount + 1} 次重试")
+                wv.postDelayed({
+                    invokeInternal(cmd, payload, retryCount + 1, onResult)
+                }, 200L * (retryCount + 1))
+            } else {
+                Log.w(TAG, "桥不可用（重试用尽）：$cmd，求值结果 $r")
+                activity.runOnUiThread {
+                    onResult(
+                        Result.failure(
+                            IllegalStateException(activity.getString(R.string.bridge_not_ready)),
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     fun destroy() {
         pending.clear()
+        // 排队的调用也一并清掉：桥已销毁，它们不可能再有结果
+        synchronized(invokeQueue) { invokeQueue.clear() }
         ready = false
         injected = false
     }
@@ -674,15 +877,27 @@ class RustBridge(private val activity: Activity) {
               try {
                 var cbId = internals.transformCallback(function (r) { done(true, r); }, true);
                 var errId = internals.transformCallback(function (e) { done(false, e); }, true);
-                internals.ipc({
-                  cmd: cmd,
-                  callback: cbId,
-                  error: errId,
-                  payload: payload,
-                  options: undefined,
-                  __TAURI_INVOKE_KEY__: invokeKey
-                });
+                try {
+                  internals.ipc({
+                    cmd: cmd,
+                    callback: cbId,
+                    error: errId,
+                    payload: payload,
+                    options: undefined,
+                    __TAURI_INVOKE_KEY__: invokeKey
+                  });
+                } catch (ipcErr) {
+                  try {
+                    window.__JS_INTERFACE_NAME.log(
+                      'ipc(' + cmd + ') 抛异常: ' + String(ipcErr)
+                    );
+                  } catch (_) {}
+                  done(false, String(ipcErr));
+                }
               } catch (e) {
+                try {
+                  window.__JS_INTERFACE_NAME.log('invoke(' + cmd + ') 准备异常: ' + String(e));
+                } catch (_) {}
                 done(false, String(e));
               }
             },

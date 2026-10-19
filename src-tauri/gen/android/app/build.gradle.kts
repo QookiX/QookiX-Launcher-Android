@@ -58,7 +58,17 @@ android {
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
-                    .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
+                    // ⚠️ 用 **proguard-android.txt**（不含 -optimize）。
+                    //
+                    // `proguard-android-optimize.txt` 会额外做方法内联、
+                    // 类合并、跨类静态化等激进优化。实测这份 App 开它之后：
+                    // 桥注入 ok、事件订阅 ok，但**每一个 Tauri 命令都收不到回调**
+                    // （8 秒超时），实例列表/新闻/设置全是空的；关掉 minify
+                    // 立刻恢复正常，说明就是优化阶段破坏了 wry 的 IPC 反射链路。
+                    //
+                    // 非 optimize 版本只做「压缩 + 混淆 + 资源裁剪」，
+                    // 体积差别很小（实测 <5%），但保住了反射行为。
+                    .plus(getDefaultProguardFile("proguard-android.txt"))
                     .toList().toTypedArray()
             )
             signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("debug")

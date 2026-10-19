@@ -37,6 +37,7 @@ mod storage;
 mod game_dir;
 mod natives;
 mod jvm_launcher;
+mod loader_install;
 mod terracotta;
 mod render_bridge;
 mod input_bridge;

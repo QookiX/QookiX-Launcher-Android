@@ -187,6 +187,42 @@ fun ServerDetailPage(
             }
         }
 
+        // ── 上次运行的结束原因 ────────────────────────────────────────
+        //
+        // ⚠️ 2026-10-19 补：服务端「关服后再也起不来」时，唯一能说明原因的就是
+        // Rust 写进 `runtime.json.exit` / `launch-error.txt` 的那句话。
+        // 以前界面完全不显示它 —— 用户只能看到「点了没反应」，
+        // 而唯一的日志页也没有入口，等于断了所有排查手段。
+        if (!state.exitNote.isNullOrBlank()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = MaterialTheme.shapes.small,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = state.exitNote,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
         // ── 操作成功提示 ──────────────────────────────────────────────
         if (!state.notice.isNullOrBlank()) {
             Card(
@@ -1141,6 +1177,15 @@ data class ServerDetailUiState(
      * 用户分不清"正在干活"和"卡死了"。
      */
     val stage: String = "",
+    /**
+     * 上一次运行的结束原因（`hosted_server_runtime` 的 `exitNote`）。
+     *
+     * ⚠️ 2026-10-19 补：Rust 侧一直把这个写进 `runtime.json.exit` 与
+     * `launch-error.txt`，但界面**从不显示** —— 服务端起不来时用户只能看到
+     * 「启动失败」四个字，没有任何原因，唯一的线索（日志）也没入口。
+     * 现在直接显示在详情页顶部，不用再去找日志。
+     */
+    val exitNote: String? = null,
     val address: String = "",
     val tab: ServerTab = ServerTab.Console,
     val logs: List<String> = emptyList(),

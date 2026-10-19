@@ -144,6 +144,44 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         crate::progress::emit_launch_progress("正在解压运行库…", 70.0);
         let natives_dir = NativesExtractor::extract(&libraries_dir, get_device_arch(), &natives_cache_dir).await?;
 
+        // ⚠️ 2026-10-20 真机修：把 MC 自带（且已经解压到缓存里的）LWJGL 原生库删掉。
+        //
+        // `natives.rs::get_blacklist` 只能挡住**新解压**；之前版本解出来的
+        // 官方 3.3.3 `liblwjgl*.so` 会留在 `<data>/natives` 里继续参与加载。
+        // 与随包 Pojav 版（配合 `lwjgl-glfw-classes.jar` 的 3.4.0 类）混在一起，
+        // 就是那句 `Incompatible Java and native library versions detected`，
+        // 紧接着 `GLFW.<clinit>` → `NoClassDefFoundError` → Minecraft has crashed。
+        //
+        // 每次启动顺手清理一遍（都是小文件，开销可忽略）；删不掉也不影响启动。
+        #[cfg(target_os = "android")]
+        {
+            const LWJGL_SOS: &[&str] = &[
+                "liblwjgl.so",
+                "liblwjgl_opengl.so",
+                "liblwjgl_openal.so",
+                "liblwjgl_stb.so",
+                "liblwjgl_tinyfd.so",
+                "liblwjgl_nanovg.so",
+                "liblwjgl_shaderc.so",
+                "liblwjgl_spvc.so",
+                "liblwjgl_spng.so",
+                "liblwjgl_vma.so",
+                "liblwjgl_vulkan.so",
+                "liblwjgl_freetype.so",
+                "liblwjgl_sdl.so",
+            ];
+            let mut cleaned = 0usize;
+            for name in LWJGL_SOS {
+                let p = natives_dir.join(name);
+                if p.exists() && std::fs::remove_file(&p).is_ok() {
+                    cleaned += 1;
+                }
+            }
+            if cleaned > 0 {
+                println!("[launcher] 已清理 {cleaned} 个旧版 LWJGL 原生库（避免版本冲突）");
+            }
+        }
+
         // 安卓端真正的基础原生库（liblwjgl / libgl4es / libopenal …）随 APK 分发。
         // 新版本安卓默认不从 APK 解出 .so，这里解析出（必要时从 APK 抽取）一个
         // 能让 JVM `System.loadLibrary` 成功的目录。
@@ -160,7 +198,83 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         }
         let vendor = load_vendor_jars(&data_dir, runtime.java_version, use_lwjgl341).await?;
 
-        let classpath = build_classpath(&version_info, &data_dir, &vendor).await?;
+        let mut classpath = build_classpath(&version_info, &data_dir, &vendor).await?;
+
+        // ⚠️ 2026-10-19 加：把加载器 profile 的库并入 classpath。
+        // 以前 classpath 只来自原版 version_info，装了 Fabric/Forge 也跑原版。
+        {
+            let versions_dir = Path::new(&data_dir).join("versions");
+            let loader_str = loader_name(&instance.loader);
+            if loader_str != "vanilla" {
+                if let Some(profile) = crate::loader_install::find_loader_profile(
+                    &versions_dir,
+                    &loader_str,
+                    &instance.mc_version,
+                ) {
+                    let libs_dir = Path::new(&data_dir).join("libraries");
+                    let (lib_paths, missing) =
+                        crate::loader_install::profile_library_paths(&profile, &libs_dir);
+                    if missing > 0 {
+                        // 列出到底缺哪个文件：只报数字时，用户（和我们）
+                        // 都没法判断是「一个都没下」还是「只差最后一个」。
+                        let all = crate::loader_install::profile_library_names(&profile);
+                        let have = lib_paths.len();
+                        println!(
+                            "[launcher] 加载器依赖缺失 {} 个（已就绪 {} / 共 {}）",
+                            missing,
+                            have,
+                            have + missing
+                        );
+                        for name in all.iter().take(12) {
+                            println!("[launcher]   声明: {name}");
+                        }
+                        crate::util::log_line(&format!(
+                            "[launcher] 加载器依赖缺失 {missing} 个（已就绪 {have} / 共 {}），声明={:?}",
+                            have + missing,
+                            all
+                        ));
+                    }
+                    // ⚠️ 加载器的库必须**顶掉**原版里同 group:artifact 的库。
+                    //
+                    // 实测（1.21.8 + Fabric 0.20.0）：
+                    //   原版带 `org.ow2.asm:asm:9.6`，Fabric 带 `9.11`，
+                    //   两份都在 classpath 上 → KnotClient 初始化时直接报
+                    //     IllegalStateException: duplicate ASM classes found on classpath
+                    //   于是加载器一启动就死，看起来还是「装了没用」。
+                    //
+                    // 这里的规则：只要加载器 profile 提供了某个 artifact，
+                    // 原版那份就从 classpath 里剔除（版本以加载器为准，
+                    // 与桌面端 forge/fabric patch 的「子覆盖父」一致）。
+                    let ldr_names: Vec<String> = crate::loader_install::profile_library_names(&profile);
+                    if !ldr_names.is_empty() {
+                        let kept: Vec<&str> = classpath
+                            .split(':')
+                            .filter(|entry| {
+                                // 只对 libraries 下的条目做判断；游戏本体 jar 等一律保留
+                                if !entry.contains("/libraries/") {
+                                    return true;
+                                }
+                                !ldr_names
+                                    .iter()
+                                    .any(|name| {
+                                        crate::loader_install::path_matches_maven(entry, name)
+                                    })
+                            })
+                            .collect();
+                        classpath = kept.join(":");
+                    }
+                    for p in lib_paths {
+                        classpath.push_str(":");
+                        classpath.push_str(&p.to_string_lossy());
+                    }
+                } else {
+                    println!(
+                        "[launcher] 未找到 {} 的加载器 profile，将以原版启动（请先补全文件安装加载器）",
+                        loader_str
+                    );
+                }
+            }
+        }
 
         let mut jvm_args = build_jvm_args(&instance, &runtime, &vendor);
 
@@ -204,6 +318,58 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             vendor.lwjgl_natives.as_deref(),
             &vendor.extra_library_dirs,
         ));
+
+        // ── 加载器 profile 声明的参数（`arguments.jvm` / `arguments.game`）──
+        //
+        // ⚠️ 2026-10-19 补：之前只并了 classpath 和 mainClass，参数一条都没带。
+        // 对 Forge 1.17+ / NeoForge 是致命的 —— 它们的主类是
+        // `cpw.mods.bootstraplauncher.BootstrapLauncher`，必须靠 profile 里的
+        //   `-p <模块路径>`（bootstraplauncher / securejarhandler / JarJarFileSystems）
+        //   `--add-modules ALL-MODULE-PATH`
+        //   `--add-opens java.base/...=cpw.mods.securejarhandler`
+        // 才能把游戏拉起来。缺了这些，JVM 要么报 `Unrecognized option`，
+        // 要么找不到主类，表现就是「加载器装了但游戏起不来」。
+        //
+        // 注意顺序：加载器的 JVM 参数放在 Android 那批**之后**；
+        // 游戏参数**追加在原版之后**（与桌面端 forge_patch 一致 ——
+        // vanilla 的 `--username` / `--gameDir` 在前，加载器的
+        // `--launchTarget` / `--fml.*` 在后；FML 的参数解析会扫描全部参数）。
+        let mut game_args = game_args;
+        {
+            let loader_str = loader_name(&instance.loader);
+            if loader_str != "vanilla" {
+                let versions_dir = Path::new(&data_dir).join("versions");
+                if let Some(profile) = crate::loader_install::find_loader_profile(
+                    &versions_dir,
+                    &loader_str,
+                    &instance.mc_version,
+                ) {
+                    let libs_dir = Path::new(&data_dir).join("libraries");
+                    let ldr_args = crate::loader_install::profile_arguments(
+                        &profile,
+                        &libs_dir,
+                        &instance.mc_version,
+                        ":",
+                    );
+                    // 注意：这条 println 在 redirect_output **之前**，只会进 logcat。
+                    // 真正要落盘的那几条在 redirect_output 之后（见下方「加载器摘要」）。
+                    if !ldr_args.is_empty() {
+                        crate::util::log_line(&format!(
+                            "[launcher] 加载器参数：jvm {} 条 / game {} 条 / legacy {} 条",
+                            ldr_args.jvm.len(),
+                            ldr_args.game.len(),
+                            ldr_args.legacy.len()
+                        ));
+                    }
+                    jvm_args.extend(ldr_args.jvm);
+                    // 追加在 vanilla 之后（顺序与桌面端一致）
+                    game_args.extend(ldr_args.game);
+                    // 旧式 profile（1.12.2 等）只有 minecraftArguments：
+                    // 原版那边同样有，重复项由 Minecraft 自己忽略。
+                    game_args.extend(ldr_args.legacy);
+                }
+            }
+        }
 
         let mut env_map = HashMap::new();
         env_map.insert("JAVA_HOME".to_string(), runtime.path.clone());
@@ -412,8 +578,27 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             std::env::set_var(key, value);
         }
 
-        let main_class = version_info.main_class
-            .unwrap_or_else(|| "net.minecraft.client.main.Main".to_string());
+        // ⚠️ 2026-10-19 加：优先用加载器 profile 的 mainClass。
+        // 原版的 `net.minecraft.client.main.Main` 会直接跑原版 MC，
+        // Forge 要用 BootstrapLauncher、Fabric 要用 KnotClient ——
+        // 这是「加载器真正生效」的关键一步。
+        let loader_str2 = loader_name(&instance.loader);
+        let main_class = if loader_str2 != "vanilla" {
+            let versions_dir = Path::new(&data_dir).join("versions");
+            crate::loader_install::find_loader_profile(&versions_dir, &loader_str2, &instance.mc_version)
+                .and_then(|p| crate::loader_install::profile_main_class(&p))
+                .unwrap_or_else(|| {
+                    version_info
+                        .main_class
+                        .clone()
+                        .unwrap_or_else(|| "net.minecraft.client.main.Main".to_string())
+                })
+        } else {
+            version_info
+                .main_class
+                .clone()
+                .unwrap_or_else(|| "net.minecraft.client.main.Main".to_string())
+        };
 
         let jre_home = Path::new(&runtime.path);
 
@@ -466,6 +651,30 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
                 classpath.matches(':').count() + 1,
                 runtime.java_version,
                 runtime.path
+            );
+            // ── 加载器摘要（写进启动日志，2026-10-19 加）──────────────────
+            //
+            // 排查「加载器装了还是跑原版」时，这三行就够了：
+            //   · 用的是哪个加载器、有没有找到 profile
+            //   · 最终 mainClass 是不是加载器的（原版是 net.minecraft.client.main.Main）
+            //   · 加载器参数有没有真的并进 JVM 参数（Forge ≥1.17 靠 -p 才能起）
+            println!(
+                "[launcher] 加载器={} profile={} mainClass={}",
+                loader_name(&instance.loader),
+                crate::loader_install::find_loader_profile(
+                    &std::path::Path::new(&data_dir).join("versions"),
+                    &loader_name(&instance.loader),
+                    &instance.mc_version,
+                )
+                .map(|p| p.file_name().unwrap_or_default().to_string_lossy().to_string())
+                .unwrap_or_else(|| "<未找到>".to_string()),
+                main_class
+            );
+            println!(
+                "[launcher] JVM 参数 {} 条（含 -p {} 条 / --add-opens {} 条）",
+                jvm_args.len(),
+                jvm_args.iter().filter(|a| *a == "-p" || *a == "--module-path").count(),
+                jvm_args.iter().filter(|a| a.contains("--add-opens")).count()
             );
             // 把 classpath 里的 LWJGL 条目单独打出来：官方 3.3.3 jar 必须**不在**这里，
             // 否则会和 natives 里的 Pojav 原生库版本冲突（LWJGL 那句
@@ -529,14 +738,33 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         // 抢在库加载窗口里注册 native 会把 GLFW / MemoryUtil 的初始化撞坏（26.3 实测崩）。
         crate::gl_brand::spawn_installer(&game_dir);
 
-        let exit_code = JvmLauncher::launch(
+        // ⚠️ 2026-10-19 真机诊断：这两行是判断「JLI_Launch 到底有没有跑起来」
+        // 的唯一可靠依据。之前 Fabric 实例的日志里既没有 JVM 自己的输出、
+        // 也没有「JVM 已退出」那一行 —— 说明进程是在 JLI_Launch 内部被直接
+        // 终结的（而不是它返回了错误码）。有这两行就能区分三种情况：
+        //   · 只出现「准备调用」→ 卡在 JLI_Launch 里（原生层崩溃/被 kill）
+        //   · 两行都出现 + 退出码 → JVM 正常启停
+        //   · 都不出现 → 根本没走到这里
+        println!(
+            "[launcher] 准备调用 JLI_Launch：mainClass={main_class} argc={}",
+            jvm_args.len() + game_args.len() + 3
+        );
+
+        let launch_outcome = JvmLauncher::launch(
             jre_home,
             &jvm_args,
             &classpath,
             &main_class,
             &game_args,
             &game_dir,
-        )?;
+        );
+
+        match &launch_outcome {
+            Ok(code) => println!("[launcher] JLI_Launch 返回，退出码 {code}"),
+            Err(e) => println!("[launcher] JLI_Launch 失败：{e}"),
+        }
+
+        let exit_code = launch_outcome?;
 
         Ok::<i32, anyhow::Error>(exit_code)
     }.await;
@@ -1293,6 +1521,19 @@ fn build_android_jvm_args(
     // 老路径（None）时行为完全不变。
     if let Some(dir) = lwjgl_natives {
         args.push(format!("-Dorg.lwjgl.librarypath={}", dir.display()));
+    } else if !native_lib_dir.is_empty() {
+        // ⚠️ 2026-10-20 真机修：**老 LWJGL 路径也要显式指定**。
+        //
+        // 之前这里什么都不设，LWJGL 就去 `java.library.path` 里挨个找
+        // `liblwjgl.so` —— 而那个列表里还躺着 `natives_dir`（MC 官方 3.3.3 的
+        // 原生库解压缓存）。一旦先命中 3.3.3，与随包 Pojav 版 jar（3.4.0 的类）
+        // 对不上，就是真机实测到的：
+        //   [LWJGL] [ERROR] Incompatible Java and native library versions detected.
+        //   GLFW.<clinit> → NoClassDefFoundError → Minecraft has crashed!
+        // 26.3 之所以没事，正是因为它走了上面那条 `Some(dir)` 分支。
+        //
+        // `native_lib_dir` 是 APK 里那份与 jar 配套的 Pojav 版 so，指死它即可。
+        args.push(format!("-Dorg.lwjgl.librarypath={native_lib_dir}"));
     }
 
     // JNA：随包那份 jniLibs/libjnidispatch.so 曾是 6.1.6（老版本用的），而 MC 26.3 的
@@ -1389,6 +1630,20 @@ fn build_android_jvm_args(
 /// 而以前这里直接传 `instance.mc_version`（"1.18.2"），游戏于是去找
 /// `assets/indexes/1.18.2.json` —— 永远找不到（日志里那三条报错的来源）。
 /// 正确做法是读版本 JSON 里的 `assetIndex.id`。
+/// 把 [crate::models::Loader] 转成后端通用的小写名（"vanilla" / "fabric" …）。
+///
+/// `browse.rs` 里已有同义的 `loader_to_str`，但它不是 pub；
+/// 这里启动路径只需要一个轻量映射，避免为了复用到处改可见性。
+fn loader_name(loader: &crate::models::Loader) -> String {
+    match loader {
+        crate::models::Loader::Vanilla => "vanilla".to_string(),
+        crate::models::Loader::Fabric => "fabric".to_string(),
+        crate::models::Loader::Quilt => "quilt".to_string(),
+        crate::models::Loader::Forge => "forge".to_string(),
+        crate::models::Loader::NeoForge => "neoforge".to_string(),
+    }
+}
+
 fn asset_index_id(instance: &MinecraftProfile, data_dir: &str) -> String {
     let json_file = Path::new(data_dir)
         .join("versions")

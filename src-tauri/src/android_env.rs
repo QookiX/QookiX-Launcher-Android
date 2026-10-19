@@ -861,6 +861,27 @@ pub fn spawn_log_tail(log_path: PathBuf, instance_id: String) {
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
+        // ⚠️ 2026-10-20：把启动日志**同步镜像一份到外部存储**。
+        //
+        // JVM 的 stdout/stderr 被 dup2 到 /data/data/.../files/logs/ 下，
+        // 那是应用私有目录 —— `run-as` 对 release 包不可用（not debuggable），
+        // `adb pull` 也拿不到。排查「启动失败但日志页只显示前 200 行」时
+        // （比如 LWJGL 的异常链被挤在深处）完全够不着。
+        //
+        // 外部目录 /sdcard/Android/data/<pkg>/files/ 应用可直接写、adb 可直接读。
+        // 顺带也方便用户自己取日志反馈问题。
+        let mirror = {
+            let dir = std::path::Path::new("/sdcard/Android/data/com.zhayi.qookix/files/logs");
+            std::fs::create_dir_all(dir).ok();
+            dir.join(format!("launch-{instance_id}.log"))
+        };
+        let _ = std::fs::write(&mirror, "");
+        let mut mirror_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&mirror)
+            .ok();
+
         let started = std::time::Instant::now();
         let mut fatal_handled = false;
         // 命中的致命关键字（等日志停滞再动手）
@@ -882,6 +903,21 @@ pub fn spawn_log_tail(log_path: PathBuf, instance_id: String) {
                                 let text = line.trim_end_matches(['\n', '\r']);
                                 if !text.is_empty() {
                                     last_line_at = std::time::Instant::now();
+                                    // ⚠️ 2026-10-20：同时写一份进 logcat。
+                                    //
+                                    // JVM 的 stdout/stderr 被 dup2 到了启动日志文件，
+                                    // logcat 里一行都看不到 —— 排查「启动失败但日志页
+                                    // 只显示前 200 行」这类问题（比如 LWJGL 的
+                                    // `Incompatible Java and native library versions`
+                                    // 被挤在异常链深处）时完全够不着。
+                                    // 走 RustStdoutStderr 标签，用户用 `adb logcat` 也能取。
+                                    // 注意：fd 1/2 已被 dup2 到日志文件，所以 println!
+                                    // 其实**也进文件**、到不了 logcat。真正可取的只有镜像。
+                                    if let Some(f) = mirror_file.as_mut() {
+                                        use std::io::Write as _;
+                                        let _ = writeln!(f, "{text}");
+                                        let _ = f.flush();
+                                    }
                                     crate::progress::emit_launch_log(&instance_id, "out", text);
                                     if !fatal_handled
                                         && suspect.is_none()

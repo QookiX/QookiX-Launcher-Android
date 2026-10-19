@@ -211,12 +211,14 @@ pub async fn download_file_with_cancel(
     urls.push(url.to_string());
 
     // Check if file already exists and matches SHA1
-    if let Some(expected) = &expected_sha1 {
+    // （空 sha1 = 没有校验和，跳过「已存在且校验通过」的快速路径，
+    //   让下面按大小/续传的常规流程处理）
+    if let Some(expected) = expected_sha1.as_deref().filter(|s| !s.is_empty()) {
         if let Ok(content) = fs::read(dest).await {
             let mut hasher = Sha1::new();
             hasher.update(&content);
             let actual_sha1 = hasher.finalize();
-            if format!("{:x}", actual_sha1) == *expected {
+            if format!("{:x}", actual_sha1) == expected {
                 return Ok(DownloadProgress {
                     task_id: task_id.clone(),
                     progress: 100.0,
@@ -301,12 +303,18 @@ pub async fn download_file_with_cancel(
         match try_download_chunked(&client, candidate, &dest_path, len, threads, &cancels).await {
             Ok(true) => {
                 // 分片下完必须校验：并发写没法边写边算哈希
-                if let Some(expected) = &expected_sha1 {
+                //
+                // ⚠️ `Some("")` 等价于「没有校验和」（加载器 profile 的
+                // libraries 就没有 sha1 —— 官方 Meta 不下发）。不特判的话，
+                // 每个文件都会算出一个真实 SHA1 去和空串比，必然不匹配，
+                // 于是**下载成功也会被删掉**，报 "SHA1 mismatch expected ",
+                // 最终表现为「加载器依赖一个都下不来」。
+                if let Some(expected) = expected_sha1.as_deref().filter(|s| !s.is_empty()) {
                     match fs::read(&dest_path).await {
                         Ok(content) => {
                             let mut h = Sha1::new();
                             h.update(&content);
-                            if format!("{:x}", h.finalize()) != *expected {
+                            if format!("{:x}", h.finalize()) != expected {
                                 let _ = fs::remove_file(&dest_path).await;
                                 chunk_note = "single(bad-hash)".to_string();
                                 continue; // 校验不过，当作这个源失败，试下一个
@@ -423,6 +431,10 @@ pub async fn download_files_concurrent(
             {
                 failed_ref.fetch_add(1, Ordering::Relaxed);
                 tracing::warn!("并发下载失败 {url}: {e}");
+                // 同时落盘：并发下载的 warning 只走 tracing，而本项目 tracing
+                // **没有接到日志文件/logcat**，等于什么都没留下。
+                //（加载器依赖下载失败时，用户只看得到「装了但起不来」。）
+                crate::util::log_line(&format!("[download] 失败 {url} → {e}"));
             }
         }
     }))
@@ -624,7 +636,8 @@ async fn stream_to_file_once(
         .map_err(|e| StreamFail::Retry(anyhow::anyhow!("Failed to flush file: {e}")))?;
     drop(file);
 
-    if let Some(expected) = expected_sha1 {
+    // 空串 sha1 = 没有校验和（加载器 profile 就是这种情况），跳过校验
+    if let Some(expected) = expected_sha1.filter(|s| !s.is_empty()) {
         let actual = format!("{:x}", hasher.finalize());
         if actual != expected {
             // 删的是 `.part`：目标文件此刻还不存在（下完才改名）
@@ -742,6 +755,11 @@ pub async fn download_libraries(
 /// 读不到文件时返回 false（当作需要重下）。只在校验库文件时调用，
 /// 文件不大（几 MB），整file 读进来算哈希足够快。
 fn file_sha1_matches(path: &Path, expected_sha1: &str) -> bool {
+    // 没有校验和时，「匹配」按 true 处理（文件存在即可）——
+    // 否则加载器依赖会因为 sha1 为空而被反复判成「已损坏」重下。
+    if expected_sha1.is_empty() {
+        return path.exists();
+    }
     let Ok(content) = std::fs::read(path) else {
         return false;
     };

@@ -333,13 +333,33 @@ pub(crate) fn read_main_class(jar: &Path) -> Option<String> {
     let mut mf = zip.by_name("META-INF/MANIFEST.MF").ok()?;
     let mut text = String::new();
     mf.read_to_string(&mut text).ok()?;
+
+    // ⚠️ 2026-10-19：必须处理 manifest 的**续行**。
+    //
+    // MANIFEST 规范规定每行最多 72 字节，超长值会被拆成多行，
+    // 续行以单个空格开头。`net.fabricmc.loader.impl.launch.knot.KnotServer`
+    // 这类全限定名很容易超过阈值。原来的实现只取 `Main-Class:` 那一行，
+    // 拿到的是**被截断的类名** —— 提交给 JLI 后必然 ClassNotFoundException。
+    //（注释里写了"续行"，但代码从来没拼过。）
+    let mut collecting: Option<String> = None;
     for line in text.lines() {
-        // manifest 规范：长行以空格开头续行
-        if let Some(v) = line.strip_prefix("Main-Class:") {
-            return Some(v.trim().to_string());
-        }
+        let Some(v) = line.strip_prefix("Main-Class:") else {
+            // 正在收集时，遇到以空格开头的行就当作续行拼接
+            if let Some(buf) = collecting.as_mut() {
+                if line.starts_with(' ') {
+                    buf.push_str(line.trim_start());
+                    continue;
+                }
+            }
+            // 非续行：结束收集
+            if collecting.is_some() {
+                break;
+            }
+            continue;
+        };
+        collecting = Some(v.trim().to_string());
     }
-    None
+    collecting.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 // ── 极简 IPC HTTP ─────────────────────────────────────────────────────
@@ -599,14 +619,51 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
         let _ = IPC_DEBUG.set(work.join("ipc-debug.log"));
         dbg_log(&format!("nativeStart: {} / {}", spec.id, spec.jar));
 
-        let main_class = match read_main_class(Path::new(&spec.jar)) {
+        // 落盘诊断：`tracing::error!` 在本项目**没有接到日志文件/logcat**，
+        // 所以 rc=-3 这类失败在真机上完全无迹可寻。这里改用 log_line 落盘。
+        let jar_path = Path::new(&spec.jar);
+        // 双通道：log_line 落文件 + println 进 logcat
+        //（`:server` 进程的 tracing 没接到 logcat，只能靠 println!）
+        let diag = format!(
+            "[server] nativeStart: id={} jar={} 存在={} 大小={}",
+            spec.id,
+            spec.jar,
+            jar_path.exists(),
+            std::fs::metadata(jar_path).map(|m| m.len()).unwrap_or(0)
+        );
+        crate::util::log_line(&diag);
+        println!("{diag}");
+
+        let main_class = match read_main_class(jar_path) {
             Some(m) => m,
             None => {
-                tracing::error!("[server] jar 里没有 Main-Class: {}", spec.jar);
+                // 把目录里实际有哪些 jar 一并记下来，方便判断是不是核心没装对
+                let mut siblings: Vec<String> = std::fs::read_dir(&work)
+                    .map(|rd| {
+                        rd.flatten()
+                            .filter(|e| {
+                                e.file_name()
+                                    .to_string_lossy()
+                                    .to_ascii_lowercase()
+                                    .ends_with(".jar")
+                            })
+                            .map(|e| e.file_name().to_string_lossy().to_string())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                siblings.sort();
+                let msg = format!(
+                    "[server] jar 里没有 Main-Class: {}（同目录 jar: {:?}）",
+                    spec.jar, siblings
+                );
+                crate::util::log_line(&msg);
+                println!("{msg}");
                 return -3;
             }
         };
-        tracing::info!("[server] 主类 = {main_class}");
+        let mc_msg = format!("[server] 主类 = {main_class}");
+        crate::util::log_line(&mc_msg);
+        println!("{mc_msg}");
 
         let stop_flag = running_flag();
         stop_flag.store(false, Ordering::Release);

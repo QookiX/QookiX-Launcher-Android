@@ -3137,6 +3137,23 @@ private fun InstanceDetailRoute(
         if (!bridgeReady) return@LaunchedEffect
         repo.loadInfo(instanceId) { r ->
             r.onSuccess { (name, sub) -> state = state.copy(name = name, subtitle = sub) }
+            // ⚠️ 2026-10-19 补：失败**必须**记录。
+            // 原来这里是空的 —— `get_instance` 一旦失败（实例 JSON 损坏、
+            // 命令异常等），`state.name` 就永远是空串；而顶栏「启动游戏」
+            // 按钮是 `enabled = state.name.isNotBlank()`，于是按钮永久灰掉、
+            // 点了没反应，界面上没有任何解释。
+            r.onFailure { e ->
+                android.util.Log.w(
+                    "PageHost",
+                    "读取实例基本信息失败（$instanceId）: ${e.message}",
+                )
+                state = state.copy(
+                    error = context.getString(
+                        R.string.load_failed,
+                        friendlyError(context, e.message),
+                    ),
+                )
+            }
         }
     }
 
@@ -3328,7 +3345,14 @@ private fun InstanceDetailRoute(
             InstanceDetailToolbar(
                 name = state.name,
                 subtitle = state.subtitle,
-                canLaunch = state.name.isNotBlank(),
+                // ⚠️ 2026-10-19 修：原来这里是 `state.name.isNotBlank()` ——
+                // 拿「实例名有没有加载出来」决定「能不能启动」，是错的。
+                // `get_instance` 一旦失败（实例 JSON 损坏、IPC 抖动），
+                // `state.name` 为空 → 启动按钮永久 `enabled=false`，
+                // 用户看到的是「按钮点不动」，而不是「读取失败」。
+                // 现在只避开「正在补全文件」这一个明确不该启动的时刻，
+                // 其余情况都允许点 —— 真正的失败由 onClick 报出来。
+                canLaunch = !repairing,
                 repairing = repairing,
                 onLaunch = launchAction,
                 onRepair = repairAction,

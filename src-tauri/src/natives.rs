@@ -207,6 +207,31 @@ impl NativesExtractor {
             "libzink.so",
             "libfmod.so",
             "libfmodstudio.so",
+            // ⚠️ 2026-10-20 真机修：**不要解压 Minecraft 自带的 LWJGL 原生库**。
+            //
+            // 安卓端的 LWJGL 走 Pojav 定制版：`assets/lwjgl/lwjgl-glfw-classes.jar`
+            // 里的类是 3.4.0，配套的 `liblwjgl*.so` 随 APK 的 jniLibs 分发。
+            // 而 MC 的 `libraries/org/lwjgl/**/natives-linux` 里是**官方 3.3.3**。
+            //
+            // 两边同时进 `java.library.path` 时，先命中的那份决定结果。实测
+            // （OnePlus 8 / 1.21.8 + Fabric）解压出来的 3.3.3 抢先，于是：
+            //   [LWJGL] [ERROR] Incompatible Java and native library versions detected.
+            //   ... GLFW.<clinit> -> NoClassDefFoundError
+            //   Minecraft has crashed!
+            // 而 26.3 因为走 3.4.1 组件集（native 目录排在 path 最前）没暴露。
+            "liblwjgl.so",
+            "liblwjgl_opengl.so",
+            "liblwjgl_openal.so",
+            "liblwjgl_stb.so",
+            "liblwjgl_tinyfd.so",
+            "liblwjgl_nanovg.so",
+            "liblwjgl_shaderc.so",
+            "liblwjgl_spvc.so",
+            "liblwjgl_spng.so",
+            "liblwjgl_vma.so",
+            "liblwjgl_vulkan.so",
+            "liblwjgl_freetype.so",
+            "liblwjgl_sdl.so",
         ]
     }
 }

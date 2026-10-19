@@ -129,7 +129,15 @@ fun GeneralPane(
 
             SettingsRow(
                 title = stringResource(R.string.settings_current_mirror),
-                subtitle = state.mirror.ifBlank { stringResource(R.string.settings_mirror_official) },
+                // ⚠️ 必须显示**中文名**而不是 raw id。
+                // 原来直接 `state.mirror`，界面上写的是 "official" / "bmclapi" ——
+                // 用户看不出这是「已经切过去了」还是「没生效」，
+                // 于是报「下载镜像源无法切换」（2026-10-19 实测：点击其实是生效的，
+                // settings.json 里的 mirror 确实变了，纯粹是反馈误导）。
+                subtitle = MirrorPreset.entries
+                    .firstOrNull { it.id == state.mirror }
+                    ?.let { stringResource(it.labelRes) }
+                    ?: stringResource(R.string.settings_mirror_official),
                 showDivider = false,
             ) {
                 Text(

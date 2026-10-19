@@ -127,6 +127,8 @@ class ServerService : Service() {
                     nm.cancel(NOTIF_ID)
                     stopForeground(true)
                     stopSelf()
+                    // 见 killProcessAfterStop 的说明：必须连进程一起结束
+                    killProcessAfterStop(800L)
                 }
             }
         }
@@ -152,6 +154,10 @@ class ServerService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        // 有新的启动请求了：先撤掉「停服后杀进程」的待执行任务，
+        // 否则用户在停服后一两秒内重新启动时，新进程会被它顺手杀掉。
+        cancelPendingKill()
 
         // 立刻发通知：Android 8+ 要求 startForegroundService 后 5 秒内 startForeground，
         // 否则系统直接 ANR 掉这个服务。
@@ -268,6 +274,49 @@ class ServerService : Service() {
         }
     }
 
+    /**
+     * 停服后**彻底结束 :server 进程**。
+     *
+     * ## 为什么必须这么做（2026-10-19 修「服务端只能启动一次」）
+     *
+     * `nativeStart` 最终调 `JvmLauncher::launch` → `JLI_Launch`，而
+     * **JLI_Launch 在同一个进程里只能成功创建一次 JVM**。
+     *
+     * 停服时如果只 `stopSelf()`（撤通知），`:server` 进程往往还活着
+     * （前台服务停了，进程要等系统回收）。用户再点「启动」时：
+     *   - `startForegroundService` 把新 Service 实例拉起来
+     *   - `nativeStart` 第二次调 `JLI_Launch` → **必然失败**
+     *   - 失败信息只写进 launch-error.txt，界面看不到
+     * 表现就是「关服后再也起不来，连日志都不输出」。
+     *
+     * 所以停服路径必须把进程一起干掉，让下次启动是**全新进程**。
+     */
+    private fun killProcessAfterStop(delayMs: Long = 1500L) {
+        // ⚠️ 必须**可取消**：停服与「立刻又点启动」之间只有一两秒。
+        // 如果延迟里的 killProcess 无条件执行，用户手快再点一次时，
+        // 新起的服务会在这个延迟到点时被顺手杀掉 —— 表现又是一次「点了没反应」。
+        // 因此 onStartCommand 一旦发现新的启动请求，就把这个待杀任务撤销。
+        pendingKill?.let { runCatching { killHandler.removeCallbacks(it) } }
+        val r = Runnable {
+            Log.i(TAG, "结束 :server 进程（下次启动需要全新进程才能再建 JVM）")
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
+        pendingKill = r
+        killHandler.postDelayed(r, delayMs)
+    }
+
+    private val killHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingKill: Runnable? = null
+
+    /** 收到新的启动请求：撤销「停服后杀进程」的待执行任务。 */
+    private fun cancelPendingKill() {
+        pendingKill?.let {
+            runCatching { killHandler.removeCallbacks(it) }
+            pendingKill = null
+            Log.i(TAG, "收到新的启动请求，已撤销待执行的进程结束任务")
+        }
+    }
+
     private fun stopping(reason: String) {
         try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -292,6 +341,13 @@ class ServerService : Service() {
         }
         starting.set(false)
         currentServerId = null
+        // ⚠️ 服务销毁后**必须把进程也结束掉**，否则下一次启动会在
+        // 同一个进程里第二次调 `JLI_Launch` —— 那是必然失败的，
+        // 表现为「关服后再也起不来、连日志都不输出」（2026-10-19 修）。
+        //
+        // 这条兜底覆盖 `force_stop_server`（`stopService`）那条路：
+        // 它不广播 ACTION_STOPPED，只走 onDestroy。
+        killProcessAfterStop(1200L)
         super.onDestroy()
     }
 }
