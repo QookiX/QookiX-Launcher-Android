@@ -1089,8 +1089,38 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
     // ⚠️ 2026-10-19 修：原来这里是 `return Ok(())` —— 但那样 profile 已存在时
     // 依赖库永远不会被下载（新实例直接复用旧 profile），启动必然缺类。
     // 现在只跳过「生成 profile」，依赖校验无论如何都要走。
-    let profile_exists =
+    //
+    // ⚠️ 2026-10-20 再修（更严重的一条）：**「文件存在」不等于「内容可用」**。
+    //
+    // 真机实测：设备上留着早期版本生成的 profile（libraries 里没有 `sha1` 字段），
+    // 于是每轮都走「已存在 → 跳过生成」→ 旧文件永远不被修好 →
+    // `profile_libraries` 里 7 条全部 `missing field sha1` → 依赖解析 0 个 →
+    // `download_libraries` 无事可做 → 启动「加载器依赖缺失 7 个」→ 闪退。
+    // 这是典型的「坏缓存自锁」：问题数据本身成了「不必修复」的证据。
+    //
+    // 现在对 Fabric / Quilt 追加一道内容校验：能解析出至少一个库才算可用，
+    // 否则当作不存在、重新生成。
+    let mut profile_exists =
         crate::loader_install::find_loader_profile(&versions_dir, loader, mc_version).is_some();
+    if profile_exists && matches!(loader, "fabric" | "quilt") {
+        let usable = crate::loader_install::find_loader_profile(&versions_dir, loader, mc_version)
+            .map(|p| !crate::loader_install::profile_libraries(&p).is_empty())
+            .unwrap_or(false);
+        if !usable {
+            crate::util::log_line(
+                "[loader] 已有 profile 的 libraries 解析为空（多半是旧版本留下的缺字段文件），重新生成",
+            );
+            println!("[install] profile 不可用，删除后重新生成");
+            if let Some(p) = crate::loader_install::find_loader_profile(
+                &versions_dir,
+                loader,
+                mc_version,
+            ) {
+                let _ = std::fs::remove_dir_all(&p);
+            }
+            profile_exists = false;
+        }
+    }
     if profile_exists {
         tracing::info!("加载器 profile 已存在，跳过生成（仍会校验依赖）");
         crate::util::log_line("[loader] profile 已存在，跳过生成，继续校验依赖");
@@ -1446,23 +1476,62 @@ async fn write_simple_loader_profile(
     // `util::http_client()` 会读 settings.json 的 proxy_mode / proxy 并套用，
     // 是全局唯一入口；所有新代码都应该用它。
     let client = crate::util::http_client().await;
-    crate::util::log_line(&format!("[loader] 拉取 profile: {url}"));
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .with_context(|| {
-            // 把底层原因（DNS / TLS / 超时 / 代理拒绝）一并带出来，
-            // 否则用户只看到「请求 profile 失败」，完全无从下手。
-            format!("请求 {loader} profile 失败（{url}）")
-        })?;
-    if !resp.status().is_success() {
-        return Err(anyhow!(
-            "{loader} profile 接口返回 {}（版本 {mc_version} / {loader_version} 可能不存在）",
-            resp.status()
-        ));
+
+    // ⚠️ 2026-10-20 真机修：**官方 + 内置镜像并行**，别再单等官方。
+    //
+    // 真机实测（OnePlus 8 / 26.3）：
+    //   官方 meta.fabricmc.net/.../profile/json → Connect 超时（经常拉不到）
+    //   镜像 bmclapi2.bangbang93.com/fabric-meta/... → 0.7 秒
+    // 只请求官方时，删除坏 profile 后**重新拉取直接失败**，等于修不好。
+    let mut candidates: Vec<String> = Vec::new();
+    let mirrored = crate::mirror::map(crate::mirror::BMCLAPI_BASE, &url);
+    if !mirrored.is_empty() && mirrored != url {
+        candidates.push(mirrored);
     }
-    let text = resp.text().await.context("读取 profile 内容失败")?;
+    candidates.push(url.clone());
+
+    let per_try = std::time::Duration::from_secs(30);
+    let mut tasks = Vec::new();
+    for u in candidates {
+        let client = client.clone();
+        tasks.push(async move {
+            let r = tokio::time::timeout(per_try, client.get(&u).send()).await;
+            match r {
+                Ok(Ok(resp)) if resp.status().is_success() => {
+                    match tokio::time::timeout(per_try, resp.text()).await {
+                        Ok(Ok(t)) => (u, Ok(t)),
+                        Ok(Err(e)) => (u.clone(), Err(format!("{u} 读取失败：{e}"))),
+                        Err(_) => (u.clone(), Err(format!("{u} 读取超时"))),
+                    }
+                }
+                Ok(Ok(resp)) => (u.clone(), Err(format!("{u} 返回 {}", resp.status()))),
+                Ok(Err(e)) => (u.clone(), Err(format!("{u} 请求失败：{e}"))),
+                Err(_) => (u.clone(), Err(format!("{u} 连接超时"))),
+            }
+        });
+    }
+    let results = futures::future::join_all(tasks).await;
+    let mut text: Option<String> = None;
+    let mut last_err = String::new();
+    for (u, r) in results {
+        match r {
+            Ok(t) => {
+                crate::util::log_line(&format!("[loader] 拉取 profile 成功: {u}"));
+                println!("[install] 拉取 profile 成功: {u}");
+                text = Some(t);
+                break;
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    let text = match text {
+        Some(t) => t,
+        None => {
+            return Err(anyhow!(
+                "请求 {loader} profile 失败（官方与镜像都没拉到）：{last_err}"
+            ))
+        }
+    };
     let profile: serde_json::Value =
         serde_json::from_str(&text).context("解析 profile JSON 失败")?;
 

@@ -440,10 +440,19 @@ class RustBridge(private val activity: Activity) {
                 val timeoutMs = when {
                     // 插件安装：要联网下包，给 5 分钟
                     cmd.contains("plugin", ignoreCase = true) -> 300_000L
-                    // 加载器/核心安装、文件检查：可能遍历大量文件
+                    // ⚠️ 2026-10-20 真机修：**安装/补全要给足时间**。
+                    //
+                    // 原来 `install` / `repair` 只给 120 秒，而实测一次「补全游戏文件」
+                    // 要做：拉版本清单 → 下客户端 jar → 下 114 个原版库 →
+                    // 拉加载器 profile → 下 7 个加载器库。真机（移动网络）跑一遍
+                    // 轻松超过 120 秒，于是前端先报「命令超时：repair_instance_files」，
+                    // 而 **Rust 侧其实还在正常下载** —— 用户看到失败、重试、再次超时，
+                    // 依赖永远补不齐，表现就是「加载界面闪退」。
+                    // 给 10 分钟：比最坏情况宽，又不会无限挂着。
                     cmd.contains("install", ignoreCase = true) ||
-                        cmd.contains("repair", ignoreCase = true) ||
-                        cmd.contains("check", ignoreCase = true) -> 120_000L
+                        cmd.contains("repair", ignoreCase = true) -> 600_000L
+                    // 完整性检查只遍历本地文件，2 分钟足够
+                    cmd.contains("check", ignoreCase = true) -> 120_000L
                     // ⚠️ 2026-10-20 修：**凡是联网拉元数据的命令，8 秒根本不够**。
                     //
                     // 实测（OnePlus 8 / 移动网络）：新建实例页选 Fabric 时报

@@ -238,19 +238,30 @@ pub fn profile_library_paths(
 pub fn profile_libraries(profile_dir: &Path) -> Vec<crate::version::Library> {
     let mut out = Vec::new();
     let Some(name) = profile_dir.file_name().map(|n| n.to_string_lossy().to_string()) else {
+        println!("[install] profile_libraries: 取不到目录名");
         return out;
     };
     let json = profile_dir.join(format!("{name}.json"));
     let Ok(text) = std::fs::read_to_string(&json) else {
+        println!("[install] profile_libraries: 读不到 {}", json.display());
         return out;
     };
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        println!("[install] profile_libraries: JSON 解析失败 {}", json.display());
         return out;
     };
     let Some(libs) = v.get("libraries").and_then(|l| l.as_array()) else {
+        // ⚠️ 2026-10-20：这条分支以前完全无声。真机上「依赖 0 个」的
+        // 两种原因（libraries 字段缺失 vs 每个条目解析失败）必须能区分开，
+        // 否则只能靠猜。
+        println!(
+            "[install] profile_libraries: libraries 字段缺失或不是数组（{}）",
+            json.display()
+        );
         return out;
     };
     let libs_len = libs.len();
+    println!("[install] profile_libraries: libraries 共 {libs_len} 条");
     for lib in libs {
         match serde_json::from_value::<crate::version::Library>(lib.clone()) {
             Ok(parsed) => out.push(parsed),
@@ -265,6 +276,10 @@ pub fn profile_libraries(profile_dir: &Path) -> Vec<crate::version::Library> {
                 crate::util::log_line(&format!(
                     "[loader] 库条目解析失败（{name}）：{e}"
                 ));
+                // 双通道：`log_line` 只落文件，真机上根本取不到。
+                // 2026-10-20 实测 `profile_libraries` 返回 0 个时，
+                // 就是因为所有条目都解析失败而**没有任何可见痕迹**。
+                println!("[install] 库条目解析失败（{name}）：{e}");
             }
         }
     }
