@@ -206,6 +206,7 @@
     <string name="instance_detail_reload">重新读取</string>
     <string name="instance_detail_log_lines">共 %1$d 行</string>
     <string name="instance_detail_refresh">刷新</string>
+    <string name="instance_detail_export_log">导出</string>
     <string name="instance_detail_crash_analysis">崩溃分析</string>
 <string name="instance_detail_no_crashes">暂无崩溃报告</string>
 <string name="instance_detail_no_crashes_desc">游戏正常退出时不会生成崩溃报告</string>
@@ -300,6 +301,8 @@
     <string name="multiplayer_frp_open_rooms">XTCP 联机房间</string>
     <string name="multiplayer_frp_rooms_desc">房主-访问者模式：双方都要跑 frpc。房主启动房间后，客人「加入并连接」，在游戏里连提示的 127.0.0.1:&lt;端口&gt; 即可</string>
     <string name="multiplayer_new_server">创建服务器</string>
+    <string name="multiplayer_search_servers">搜索服务器</string>
+    <string name="multiplayer_search_no_result">没有匹配的服务器</string>
     <string name="multiplayer_empty_servers_title">还没有服务器</string>
     <string name="multiplayer_empty_servers_desc">创建一个，和朋友一起玩</string>
     <string name="multiplayer_start">启动</string>
@@ -719,6 +722,9 @@
     <string name="server_detail_untitled">服务器</string>
     <string name="server_detail_running">运行中</string>
     <string name="server_detail_stopped">未运行</string>
+    <string name="server_detail_connect_address">局域网连接地址</string>
+    <string name="server_detail_copy_address">复制</string>
+    <string name="server_detail_address_copied">已复制</string>
     <string name="server_detail_installing">正在下载核心…</string>
     <string name="server_detail_install_core">下载核心</string>
     <string name="server_detail_stop">停止</string>

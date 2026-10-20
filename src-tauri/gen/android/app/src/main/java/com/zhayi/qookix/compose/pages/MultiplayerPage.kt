@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -190,13 +191,34 @@ private fun ServersTab(
     onOpenServer: (String) -> Unit,
     onCreateServer: () -> Unit,
 ) {
+    // ⚠️ 2026-10-21 真机修：用户反馈「UI 更新前这个界面有个搜索栏」。
+    // 旧 Vue 版多人页顶部有搜索框，Compose 版漏了。服务器多了没法找，
+    // 现在补回来：按名称过滤（大小写不敏感）。
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(state.servers, query) {
+        if (query.isBlank()) state.servers
+        else state.servers.filter { it.name.contains(query, ignoreCase = true) }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text(stringResource(R.string.multiplayer_search_servers)) },
+                singleLine = true,
+                shape = MaterialTheme.shapes.extraLarge,
+                leadingIcon = {
+                    Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+            )
+            Spacer(Modifier.width(8.dp))
             FilledTonalButton(onClick = onCreateServer) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
@@ -206,22 +228,26 @@ private fun ServersTab(
 
         when {
             state.loading -> SkeletonList(rows = 3, rowHeight = 96.dp)
-            state.servers.isEmpty() -> Box(
+            filtered.isEmpty() -> Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = stringResource(R.string.multiplayer_empty_servers_title),
+                        text = if (query.isNotBlank() && state.servers.isNotEmpty())
+                            stringResource(R.string.multiplayer_search_no_result)
+                        else stringResource(R.string.multiplayer_empty_servers_title),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = stringResource(R.string.multiplayer_empty_servers_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (query.isBlank()) {
+                        Text(
+                            text = stringResource(R.string.multiplayer_empty_servers_desc),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             else -> LazyColumn(
@@ -229,7 +255,7 @@ private fun ServersTab(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(state.servers, key = { it.id }) { s ->
+                items(filtered, key = { it.id }) { s ->
                     ServerCard(
                         server = s,
                         onStart = { onStartServer(s.id) },

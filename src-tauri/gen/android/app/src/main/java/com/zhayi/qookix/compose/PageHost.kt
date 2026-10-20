@@ -3486,7 +3486,22 @@ private fun InstanceDetailRoute(
             }
             pollControlImport()
         },
-        onToggleContent = { c, enabled -> api.toggleContentEnabled(instanceId, state.contentKind, c.rel, enabled) },
+        // ⚠️ 2026-10-21 真机修：以前只调 API、不更新 state.content，
+        // 开关 UI 靠 state.content[i].enabled 驱动 → 点了没反应，
+        // 要切走再切回（重新 loadContent）才看到变化。
+        // 现在乐观更新本地 state，失败时回滚并提示。
+        onToggleContent = { c, enabled ->
+            val prev = c.enabled
+            state = state.copy(content = state.content.map { if (it.rel == c.rel) it.copy(enabled = enabled) else it })
+            api.toggleContentEnabled(instanceId, state.contentKind, c.rel, enabled) { r ->
+                r.onFailure { e ->
+                    state = state.copy(
+                        content = state.content.map { if (it.rel == c.rel) it.copy(enabled = prev) else it },
+                        error = context.getString(R.string.update_failed, e.message),
+                    )
+                }
+            }
+        },
         // 切换内容分类（2026-10-17 修审计 H-2）。
         //
         // 原来 FilterChip 的 onClick 是空 lambda，注释谎称「由外层处理」——
@@ -3506,7 +3521,21 @@ private fun InstanceDetailRoute(
                 title = context.getString(R.string.content_uninstall_title, c.name),
                 message = context.getString(R.string.content_uninstall_msg),
                 confirmText = context.getString(R.string.common_uninstall),
-                action = { api.uninstallContent(instanceId, state.contentKind, c.rel) },
+                // ⚠️ 2026-10-21 真机修：以前只调 API、不从 state.content 移除，
+                // 列表不变 → 要切走再切回才看到删除生效。
+                // 现在乐观移除该行，失败时重载整个分类兜底。
+                action = {
+                    val removed = state.content
+                    state = state.copy(content = state.content.filterNot { it.rel == c.rel })
+                    api.uninstallContent(instanceId, state.contentKind, c.rel) { r ->
+                        r.onFailure { e ->
+                            state = state.copy(
+                                content = removed,
+                                error = context.getString(R.string.update_failed, e.message),
+                            )
+                        }
+                    }
+                },
             )
         },
         //
@@ -3620,6 +3649,9 @@ private fun InstanceDetailRoute(
             if (newId.isBlank()) {
                 state = state.copy(error = context.getString(R.string.update_none_for, c.name))
             } else {
+                // ⚠️ 2026-10-21 真机修：以前成功后只弹一句提示，不刷新列表 →
+                // 该行 updatable 仍为 true、「更新」按钮还在，且看不到版本号变化。
+                // 现在成功后重载该分类内容，让新版本号/状态即时反映。
                 api.applyUpdate(
                     instanceId = instanceId,
                     kind = state.contentKind,
@@ -3629,7 +3661,15 @@ private fun InstanceDetailRoute(
                     newVersionId = newId,
                 ) { r ->
                     r.fold(
-                        onSuccess = { state = state.copy(error = context.getString(R.string.update_done_for, c.name)) },
+                        onSuccess = {
+                            state = state.copy(error = context.getString(R.string.update_done_for, c.name))
+                            repo.loadContent(state.contentKind, instanceId) { lr ->
+                                state = lr.fold(
+                                    onSuccess = { state.copy(content = it, loading = false) },
+                                    onFailure = { state.copy(loading = false) },
+                                )
+                            }
+                        },
                         onFailure = { e -> state = state.copy(error = context.getString(R.string.update_failed, e.message)) },
                     )
                 }
@@ -3639,6 +3679,13 @@ private fun InstanceDetailRoute(
             api.readInstanceLog(instanceId) { r ->
                 r.onSuccess { text ->
                     state = state.copy(logs = text.lines().takeLast(3000))
+                }
+            }
+        },
+        onExportLog = {
+            api.exportInstanceLogs(instanceId) { r ->
+                r.onFailure { e ->
+                    state = state.copy(error = context.getString(R.string.update_failed, e.message))
                 }
             }
         },

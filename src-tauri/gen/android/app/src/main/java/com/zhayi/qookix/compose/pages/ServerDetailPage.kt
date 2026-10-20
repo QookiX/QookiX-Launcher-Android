@@ -321,6 +321,13 @@ private fun ConsoleTab(
     onRefreshLogs: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    // ⚠️ 2026-10-21 真机修：用户反馈「开服务器连着 WiFi 的话，有个连接地址，
+    // 更新后找不到连接地址在哪」。原来地址只在 toolbar 的小字里、且仅运行时显示，
+    // 字小又不起眼。现在在控制台顶部放一张显眼的地址卡片，无论运行与否都显示，
+    // 并带复制按钮 —— 朋友要连的就是这个地址。
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var copied by remember { mutableStateOf(false) }
 
     // 新日志到达时自动滚到底（控制台的基本要求）
     LaunchedEffect(state.logs.size) {
@@ -330,6 +337,56 @@ private fun ConsoleTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // ── 连接地址卡片 ──────────────────────────────────────────────
+        if (state.address.isNotBlank()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                shape = MaterialTheme.shapes.medium,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.server_detail_connect_address),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(
+                            text = state.address,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    TextButton(onClick = {
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(state.address))
+                        copied = true
+                    }) {
+                        Text(
+                            if (copied) stringResource(R.string.server_detail_address_copied)
+                            else stringResource(R.string.server_detail_copy_address),
+                        )
+                    }
+                }
+            }
+        }
+
         // 陶瓦联机已移到「服务器设置」tab（2026-10-18）：
         // 用户要求「对外开放陶瓦联机的这四个给它放到服务器设置里，而不是这儿」。
 

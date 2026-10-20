@@ -169,6 +169,7 @@ fun InstanceDetailPage(
     sharedUsage: SharedUsageUi? = null,
     onApplyUpdate: (ContentUi) -> Unit,
     onLoadLog: () -> Unit,
+    onExportLog: () -> Unit = {},
     onLoadCrashes: () -> Unit,
     onAnalyzeCrash: (String) -> Unit,
     // 实例设置 tab
@@ -404,7 +405,7 @@ fun InstanceDetailPage(
                     onOpenSystemFiles = onOpenFiles,
                     usage = sharedUsage,
                 )
-                InstanceTab.Logs -> LogsTab(state, onLoadLog)
+                InstanceTab.Logs -> LogsTab(state, onLoadLog, onExportLog)
                 InstanceTab.Crash -> CrashTab(state, onLoadCrashes, onAnalyzeCrash, onCopyCrashText)
             }
         }
@@ -969,7 +970,7 @@ private fun SettingsTabStub() =
  * 客户端日志在游戏退出后才完整，所以是「读一次」而不是流式。
  */
 @Composable
-private fun LogsTab(state: InstanceDetailUiState, onLoadLog: () -> Unit) {
+private fun LogsTab(state: InstanceDetailUiState, onLoadLog: () -> Unit, onExportLog: () -> Unit = {}) {
     // 进 tab 时自动读一次
     LaunchedEffect(Unit) { onLoadLog() }
 
@@ -1007,6 +1008,11 @@ private fun LogsTab(state: InstanceDetailUiState, onLoadLog: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
+            // ⚠️ 2026-10-21 真机修：用户反馈「上面更新日志说增加了启动器日志导出，
+            // 的导出到哪儿了？」—— exportInstanceLogs 一直存在但界面从未调用，
+            // 所以用户找不到入口。现在在日志 tab 加「导出」按钮。
+            // 导出走系统分享 Intent（share_logs_zip），用户可存到任意应用/文件管理器。
+            TextButton(onClick = onExportLog) { Text(stringResource(R.string.instance_detail_export_log)) }
             TextButton(onClick = onLoadLog) { Text(stringResource(R.string.instance_detail_refresh)) }
         }
         LazyColumn(
