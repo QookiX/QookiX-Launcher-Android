@@ -726,8 +726,24 @@ where
     let mut tasks = Vec::new();
     for u in urls {
         let client = client.clone();
+        // ⚠️ 2026-10-20 真机实测：**BMCLAPI 对自定义 UA 直接返回 302 空响应**。
+        //
+        // 设备上同一 URL 的对照测试：
+        //   curl -A 'QookiX-Launcher-Android' → 302，0 字节（拿不到内容）
+        //   curl 不带 UA                     → 200，59308 字节（正常）
+        // 而 `util::http_client()` 全局设了 `user_agent("QookiX-Launcher-Android")`，
+        // 于是**所有走镜像的元数据请求都被静默拦掉** —— NeoForge 版本列表因此
+        // 永远获取失败（官方源又慢到超时），用户看到的就是
+        // 「加载器版本获取失败：获取 NeoForge 版本列表失败」。
+        //
+        // 镜像请求改用中性 UA；官方请求仍带我们自己的 UA。
+        let is_mirror = u.contains("bangbang93.com");
         tasks.push(async move {
-            match tokio::time::timeout(per_req, client.get(&u).send()).await {
+            let mut req = client.get(&u);
+            if is_mirror {
+                req = req.header(reqwest::header::USER_AGENT, "Mozilla/5.0");
+            }
+            match tokio::time::timeout(per_req, req.send()).await {
                 Ok(Ok(r)) if r.status().is_success() => {
                     match tokio::time::timeout(per_req, r.text()).await {
                         Ok(Ok(t)) => (u, Ok(t)),
@@ -745,24 +761,31 @@ where
 
     let (mut out, mut got_any, mut last): (Vec<String>, bool, String) =
         (Vec::new(), false, String::new());
+    // 记录**每个**候选的失败原因：只留最后一个的话，「镜像也失败了」这种情况
+    // 会被官方那条覆盖，看日志会误以为镜像压根没试过。
+    let mut all_errs: Vec<String> = Vec::new();
     for (_, r) in results {
         match r {
             Ok(t) => {
                 got_any = true;
                 out.extend(parse(&t));
             }
-            Err(e) => last = e,
+            Err(e) => {
+                all_errs.push(e.clone());
+                last = e;
+            }
         }
     }
     // 全都拿不到才算失败；拿到了但确实没有对应版本时返回空表，交给调用方提示「换版本」
     if !got_any && !last.is_empty() {
-        // ⚠️ 2026-10-20：失败必须落盘。
-        //
-        // 真机上这一步失败的表现是界面一句「加载器版本获取失败」，
-        // 而 `last` 里到底带了什么（DNS 失败？TLS 失败？404？）**没有任何记录** ——
-        // 排查时只能干瞪眼。`tracing` 在本项目没接文件/logcat，所以用 log_line。
-        crate::util::log_line(&format!("[meta] 版本列表拉取失败 url={url} 原因={last}"));
-        return Err(anyhow::anyhow!("{last}"));
+        let detail = if all_errs.is_empty() {
+            last.clone()
+        } else {
+            all_errs.join(" | ")
+        };
+        crate::util::log_line(&format!("[meta] 版本列表拉取失败 url={url} 原因={detail}"));
+        println!("[meta] 版本列表拉取失败 url={url} 原因={detail}");
+        return Err(anyhow::anyhow!("{detail}"));
     }
     Ok(sorted_desc(out))
 }
@@ -1494,8 +1517,14 @@ async fn write_simple_loader_profile(
     let mut tasks = Vec::new();
     for u in candidates {
         let client = client.clone();
+        // 同 `fetch_list_mirrored`：镜像对自定义 UA 返回 302 空响应，改用中性 UA。
+        let is_mirror = u.contains("bangbang93.com");
         tasks.push(async move {
-            let r = tokio::time::timeout(per_try, client.get(&u).send()).await;
+            let mut req = client.get(&u);
+            if is_mirror {
+                req = req.header(reqwest::header::USER_AGENT, "Mozilla/5.0");
+            }
+            let r = tokio::time::timeout(per_try, req.send()).await;
             match r {
                 Ok(Ok(resp)) if resp.status().is_success() => {
                     match tokio::time::timeout(per_try, resp.text()).await {
