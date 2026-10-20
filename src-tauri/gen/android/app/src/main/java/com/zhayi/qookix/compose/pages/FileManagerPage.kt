@@ -23,10 +23,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -132,6 +134,22 @@ fun FileManagerPage(
                 Icon(Icons.Filled.ArrowUpward, contentDescription = stringResource(R.string.file_up_level))
             }
 
+            // ⚠️ 2026-10-20 真机反馈修：**补上「退出文件浏览」按钮**。
+            //
+            // `onBack` 参数一直是存在的（见上面 2026-10-17 的注释，当时就发现
+            // 「独立文件浏览页没有返回入口」），但**顶栏从来没有渲染过它** ——
+            // 只放了一个「上一级」按钮，而那是在目录树里往上走，不是退出本页。
+            // 用户反馈：「点进去之后，这个服务器我就没找到退出这个服务器文件的办法，
+            // 偏右上角那三个点，我点了没有交互」——说的就是这里。
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.file_close),
+                    )
+                }
+            }
+
             // 面包屑：横向可滚（路径深时不会挤爆）
             Row(
                 modifier = Modifier
@@ -160,8 +178,13 @@ fun FileManagerPage(
             IconButton(onClick = { createAsDir = false; showCreate = true }) {
                 Icon(Icons.Filled.NoteAdd, contentDescription = stringResource(R.string.file_new_file))
             }
+            // ⚠️ 2026-10-20 修：这里原来画的是「三点」（`MoreVert`），
+            // 但实际动作是刷新（`onRefresh`），无障碍描述也是「刷新」。
+            // 用户看到三点会以为能弹菜单，点下去只是重载列表 —— 于是反馈
+            // 「右上角那三个点点了没有交互，应该是个没有交互的按钮」。
+            // 换成真正的刷新图标，图标语义与行为一致。
             IconButton(onClick = onRefresh) {
-                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.file_refresh))
+                Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.file_refresh))
             }
         }
 

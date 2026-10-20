@@ -752,6 +752,7 @@
     <string name="file_new_folder">新建文件夹</string>
     <string name="file_new_file">新建文件</string>
     <string name="file_refresh">刷新</string>
+    <string name="file_close">退出文件浏览</string>
     <string name="file_empty_hint">这个文件夹是空的</string>
     <string name="file_create">确定</string>
     <string name="file_rename">重命名</string>
@@ -1009,6 +1010,7 @@
     <string name="import_failed">导入失败：%1$s</string>
     <string name="version_manifest_failed">版本清单加载失败：%1$s</string>
     <string name="create_failed">创建失败：%1$s</string>
+    <string name="create_install_failed">实例已创建，但游戏文件安装失败：%1$s。可在实例详情点「补全游戏文件」重试</string>
     <string name="version_load_failed">版本加载失败：%1$s</string>
     <string name="search_failed">搜索失败：%1$s</string>
     <string name="load_more_failed">加载更多失败：%1$s</string>

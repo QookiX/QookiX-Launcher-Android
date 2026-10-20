@@ -689,25 +689,79 @@ where
             urls.push(mapped);
         }
     }
+    // ⚠️ 2026-10-20 真机修：**用户没配镜像时，也要挂上内置镜像作为候选**。
+    //
+    // 以前这里只在 `base`（用户选的镜像）非空时才加镜像地址，选了「官方」就
+    // 只请求官方。可官方 Fabric meta 对某些 MC 版本慢得离谱 —— 真机实测
+    // （OnePlus 8 / 26.3）：
+    //   官方 https://meta.fabricmc.net/v2/versions/loader/26.3   → 9~30 秒，经常超时
+    //   镜像 https://bmclapi2.bangbang93.com/fabric-meta/...     → 0.71 秒
+    // 结果就是创建实例时「加载器版本获取失败」，用户建不出可用的实例。
+    // 既然镜像只是**候选**（并行发、谁先回用谁），多挂一个纯赚。
+    let mirrored_default = crate::mirror::map(crate::mirror::BMCLAPI_BASE, url);
+    if !mirrored_default.is_empty() && mirrored_default != url && !urls.contains(&mirrored_default) {
+        urls.push(mirrored_default);
+    }
     urls.push(url.to_string());
+
+    // ⚠️ 2026-10-20 真机修：**改串行为并行**。
+    //
+    // 原来是「先试镜像，失败/超时后再试官方」串行两轮。而 `util::http_client`
+    // 的 connect_timeout 是 15 秒、整体 timeout 600 秒 —— 移动网络下光连接就可能
+    // 吃满 15 秒，两轮串起来轻松超过界面给的 60 秒，用户看到的就是
+    //   「加载器版本获取失败：命令超时：get_loader_versions」
+    // （真机实测：ping meta.fabricmc.net 单程 1106ms，取版本列表必然超时）。
+    //
+    // 现在几个候选 URL **同时发**，谁先成功用谁；总耗时由最快的那个决定。
+    // 每个请求的硬超时。
+    //
+    // ⚠️ 2026-10-20 真机实测：Fabric 官方 meta 对某些 MC 版本（例如 26.3）
+    // 的查询**非常慢** —— 设备上 curl 直接跑：
+    //   /v2/versions/loader        → 200，4.0 / 4.8 / 8.4 秒
+    //   /v2/versions/loader/26.3   → **30 秒超时失败**
+    // 而创建实例必须用带版本号的那个接口，所以 20 秒的窗口不够，
+    // 表现为「加载器版本获取失败」→ 建不出可用的实例 → 启动闪退。
+    // 放到 45 秒：比实测最坏情况（30s+）留出余量，又不至于让用户干等太久。
+    let per_req = std::time::Duration::from_secs(45);
+    let mut tasks = Vec::new();
+    for u in urls {
+        let client = client.clone();
+        tasks.push(async move {
+            match tokio::time::timeout(per_req, client.get(&u).send()).await {
+                Ok(Ok(r)) if r.status().is_success() => {
+                    match tokio::time::timeout(per_req, r.text()).await {
+                        Ok(Ok(t)) => (u, Ok(t)),
+                        Ok(Err(e)) => (u.clone(), Err(format!("{u} 读取失败：{e}"))),
+                        Err(_) => (u.clone(), Err(format!("{u} 读取超时"))),
+                    }
+                }
+                Ok(Ok(r)) => (u.clone(), Err(format!("{u} 返回 {}", r.status()))),
+                Ok(Err(e)) => (u.clone(), Err(format!("{u} 请求失败：{e}"))),
+                Err(_) => (u.clone(), Err(format!("{u} 请求超时"))),
+            }
+        });
+    }
+    let results = futures::future::join_all(tasks).await;
 
     let (mut out, mut got_any, mut last): (Vec<String>, bool, String) =
         (Vec::new(), false, String::new());
-    for u in &urls {
-        match client.get(u).send().await {
-            Ok(r) if r.status().is_success() => match r.text().await {
-                Ok(t) => {
-                    got_any = true;
-                    out.extend(parse(&t));
-                }
-                Err(e) => last = format!("{u} 读取失败：{e}"),
-            },
-            Ok(r) => last = format!("{u} 返回 {}", r.status()),
-            Err(e) => last = format!("{u} 请求失败：{e}"),
+    for (_, r) in results {
+        match r {
+            Ok(t) => {
+                got_any = true;
+                out.extend(parse(&t));
+            }
+            Err(e) => last = e,
         }
     }
-    // 两份都拿不到才算失败；都拿到了但确实没有对应版本时返回空表，交给调用方提示「换版本」
+    // 全都拿不到才算失败；拿到了但确实没有对应版本时返回空表，交给调用方提示「换版本」
     if !got_any && !last.is_empty() {
+        // ⚠️ 2026-10-20：失败必须落盘。
+        //
+        // 真机上这一步失败的表现是界面一句「加载器版本获取失败」，
+        // 而 `last` 里到底带了什么（DNS 失败？TLS 失败？404？）**没有任何记录** ——
+        // 排查时只能干瞪眼。`tracing` 在本项目没接文件/logcat，所以用 log_line。
+        crate::util::log_line(&format!("[meta] 版本列表拉取失败 url={url} 原因={last}"));
         return Err(anyhow::anyhow!("{last}"));
     }
     Ok(sorted_desc(out))
@@ -783,13 +837,50 @@ fn sorted_desc(mut list: Vec<String>) -> Vec<String> {
 
 /// 从 `maven-metadata.xml` 抠 `<version>` 列表。格式固定，按标签扫一遍即可，
 /// 只为这一处引 XML 库不划算；扫不出来返回空表，不会误判成「没有版本」以外的结论。
+///
+/// ⚠️ 2026-10-20 修：**必须自己排序**。
+///
+/// Maven 的 `maven-metadata.xml` 只是按写入顺序罗列，**并不保证升序**。
+/// 真机抓到的 NeoForge 列表尾部是：
+///   … 26.3.0.92, 21.1.263, 21.1.264, 26.3.0.93, 26.3.0.94, 26.3.0.95
+/// 交叉混着，前端若取 `first()` / `last()` 当「最新」，拿到的版本号就是错的
+/// （用户反馈「NeoForge 版本号是不是错了」）。
+/// 这里统一按数字段降序排列，最新的排最前，与其它加载器接口的行为一致。
 fn xml_versions(xml: &str) -> Vec<String> {
-    xml.split("<version>")
+    let mut out: Vec<String> = xml
+        .split("<version>")
         .skip(1)
         .filter_map(|s| s.split("</version>").next())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .collect()
+        .collect();
+    out.sort_by(|a, b| cmp_version_desc(a, b));
+    out
+}
+
+/// 按「数字段逐个比较」的方式降序：`26.3.0.95` > `26.3.0.93` > `21.1.264`。
+///
+/// 不能直接字符串比较（"9" > "10"），也不能整体 parse 成数字（版本是点分的）。
+/// 遇到非数字段就退回字符串比较，保证不 panic、顺序稳定。
+fn cmp_version_desc(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let seg = |s: &str| -> Vec<u64> {
+        s.split(|c: char| !c.is_ascii_digit())
+            .filter(|p| !p.is_empty())
+            .filter_map(|p| p.parse::<u64>().ok())
+            .collect()
+    };
+    let (sa, sb) = (seg(a), seg(b));
+    for i in 0..sa.len().max(sb.len()) {
+        let x = sa.get(i).copied().unwrap_or(0);
+        let y = sb.get(i).copied().unwrap_or(0);
+        match y.cmp(&x) {
+            Ordering::Equal => continue,
+            other => return other,
+        }
+    }
+    // 数字段完全一致（如 1.21.1 与 1.21.1-beta）时，退回字符串降序
+    b.cmp(a)
 }
 
 pub async fn get_loader_versions(loader: String, mc_version: String) -> Result<Vec<String>> {
@@ -863,11 +954,17 @@ pub async fn get_loader_versions(loader: String, mc_version: String) -> Result<V
 // ==================== Install Game ====================
 
 pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
+    // ⚠️ 2026-10-20 真机排查：这条入口日志是判断「创建实例后到底有没有自动装」
+    // 的唯一可靠依据 —— 之前它一行都不打，于是「实例建出来依赖 0/7、
+    // 下载页也看不到任务」时完全无从下手。
+    println!("[install] install_game 开始 instance={instance_id}");
+    crate::util::log_line(&format!("[install] install_game 开始 instance={instance_id}"));
     crate::fsutil::validate_id(instance_id, "实例").map_err(|e| anyhow::anyhow!(e))?;
     let instance_path = settings::instance_dir(instance_id).await?;
     let instance_json = instance_path.join("instance.json");
 
     if !instance_json.exists() {
+        println!("[install] 失败：instance.json 不存在 ({})", instance_json.display());
         return Err(anyhow::anyhow!("Instance not found"));
     }
 
@@ -898,6 +995,7 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
         // Install loader if needed
         if loader != "vanilla" {
             let mut loader_version = instance["loader_version"].as_str().unwrap_or("").to_string();
+            println!("[install] 加载器分支: loader={loader} 版本参数='{loader_version}'");
             // 老实例（以及创建时没让用户选版本的那批）`loader_version` 是空的：
             // 这里补一次「取最新」并写回 instance.json，否则加载器装不上，
             // 「补全文件」也会因为拿不到版本号而判成修不了。
@@ -914,7 +1012,32 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
             }
             if !loader_version.is_empty() {
                 crate::progress::emit_install(&ctx, "loader", "正在安装加载器…", 2, 3);
-                install_loader(&loader, &mc_version, &loader_version, &instance_path).await?;
+                println!("[install] 调用 install_loader: {loader} {mc_version} {loader_version}");
+                match install_loader(&loader, &mc_version, &loader_version, &instance_path).await {
+                    Ok(()) => println!("[install] install_loader 完成"),
+                    Err(e) => {
+                        println!("[install] install_loader 失败: {e:#}");
+                        return Err(e);
+                    }
+                }
+            } else {
+                // ⚠️⚠️ 2026-10-20 真机修（阻断性缺陷）。
+                //
+                // 以前这里是**静默跳过**：`loader_version` 为空就什么都不装，
+                // 接着往下把实例标记成 `installed = true`。真机实测后果：
+                //   1. 弱网下 `get_loader_versions` 失败（meta.fabricmc.net 单程 1.1s）
+                //   2. loader_version 取不到 → 跳过安装
+                //   3. 实例显示「已安装」，实际一个加载器库都没有
+                //   4. 启动 → `加载器依赖缺失 7 个（已就绪 0 / 共 7）` → 加载界面闪退
+                // 也就是用户报的「Fabric 26.3 在加载界面会闪退」。
+                //
+                // 现在明确失败：宁可让用户看到「装不上」，也不能给一个注定闪退的实例。
+                crate::util::log_line(&format!(
+                    "[launcher] 加载器版本号为空，拒绝把 {loader} {mc_version} 标记为已安装"
+                ));
+                return Err(anyhow::anyhow!(
+                    "拿不到 {loader} 的版本号，加载器没装成。请检查网络后重新点「补全游戏文件」"
+                ));
             }
         }
 
@@ -1012,6 +1135,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
     {
         crate::util::log_line("[loader] profile 就绪，开始解析依赖");
         let libs = crate::loader_install::profile_libraries(&profile);
+        println!("[install] profile={} 依赖 {} 个", profile.display(), libs.len());
         if !libs.is_empty() {
             crate::util::log_line(&format!("[loader] 开始下载 {} 个依赖库", libs.len()));
             // ⚠️ 2026-10-19 真机修：这段原来没有超时保护。
@@ -1027,6 +1151,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
             {
                 Ok(Ok(())) => {
                     crate::util::log_line("[loader] 依赖库下载完成");
+                    println!("[install] 依赖库下载调用返回 OK");
                     // 校验：download_libraries 内部会跳过「已存在且校验通过」的文件，
                     // 但弱网下它可能报成功却有文件没落盘（重试耗尽后不再抛错）。
                     // 这里再点一遍，把真正还缺的文件列出来，用户点「补全」才有方向。

@@ -854,6 +854,32 @@ const FATAL_STALL_SECS: u64 = 10;
 /// 「回到启动器」那条检查路径，不在这里越权动手杀游戏。
 const FATAL_WINDOW_SECS: u64 = 300;
 
+/// 由私有日志路径推出「应用专属外部目录」里的镜像路径。
+///
+/// 输入形如 `/data/data/<pkg>/files/logs/launch-x.log`，
+/// 输出形如 `/storage/emulated/0/Android/data/<pkg>/files/logs/launch-x.log`。
+///
+/// 为什么不用 `/sdcard/...` 直接拼：`/sdcard` 在部分机型/多用户下不是主卷，
+/// 而且包名写死会在升级改包名时留下孤儿目录（用户反馈「卸载后残留空文件夹」）。
+/// 这里只做纯字符串推导 —— 外部目录就是私有目录在 `/storage/emulated/0`
+/// 那一侧的镜像，系统会在卸载时连同 `Android/data/<pkg>` 一起清掉。
+fn mirror_log_path(log_path: &Path, instance_id: &str) -> Option<PathBuf> {
+    let s = log_path.to_string_lossy();
+    let rest = s.strip_prefix("/data/data/")?;
+    let mut it = rest.splitn(2, '/');
+    let pkg = it.next()?;
+    let tail = it.next()?;
+    if pkg.is_empty() || tail.is_empty() {
+        return None;
+    }
+    Some(
+        Path::new("/storage/emulated/0/Android/data")
+            .join(pkg)
+            .join(tail)
+            .with_file_name(format!("launch-{instance_id}.log")),
+    )
+}
+
 /// 后台跟随日志文件，把新增行通过 `launch://log` 推给前端日志面板，
 /// 顺带做「游戏已死」的快判（见 [`FATAL_LAUNCH_MARKERS`]）。
 pub fn spawn_log_tail(log_path: PathBuf, instance_id: String) {
@@ -868,19 +894,24 @@ pub fn spawn_log_tail(log_path: PathBuf, instance_id: String) {
         // `adb pull` 也拿不到。排查「启动失败但日志页只显示前 200 行」时
         // （比如 LWJGL 的异常链被挤在深处）完全够不着。
         //
-        // 外部目录 /sdcard/Android/data/<pkg>/files/ 应用可直接写、adb 可直接读。
-        // 顺带也方便用户自己取日志反馈问题。
-        let mirror = {
-            let dir = std::path::Path::new("/sdcard/Android/data/com.zhayi.qookix/files/logs");
-            std::fs::create_dir_all(dir).ok();
-            dir.join(format!("launch-{instance_id}.log"))
-        };
-        let _ = std::fs::write(&mirror, "");
-        let mut mirror_file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&mirror)
-            .ok();
+        // ⚠️ 2026-10-20 修：**不要硬编码 `/sdcard/Android/data/<包名>`**。
+        // 那条路径贴在 `/sdcard` 根上，卸载后系统清不掉，用户用 MT 管理器
+        // 会看到一堆空文件夹（真机反馈「卸载后文件清不干净」）。
+        // 改成从 `log_path` 反推：`/data/data/<pkg>/files/logs/x.log`
+        //   → `/storage/emulated/0/Android/data/<pkg>/files/logs/x.log`
+        // 这样它落在系统托管的「应用专属外部目录」里，卸载时随包一起清。
+        let mirror = mirror_log_path(&log_path, &instance_id);
+        let mut mirror_file = mirror.as_ref().and_then(|p| {
+            if let Some(dir) = p.parent() {
+                std::fs::create_dir_all(dir).ok();
+            }
+            let _ = std::fs::write(p, "");
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()
+        });
 
         let started = std::time::Instant::now();
         let mut fatal_handled = false;

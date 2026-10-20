@@ -4099,7 +4099,27 @@ private fun CreateRoute(
                         val instId = runCatching { JSONObject(json).optString("id") }
                             .getOrDefault("")
                         if (instId.isNotBlank()) {
-                            api.installGame(instId)
+                            // ⚠️ 2026-10-20 真机修：**必须接结果**。
+                            //
+                            // 原来这里 `api.installGame(instId)` 不带回调 ——
+                            // 安装失败时（弱网、meta 拉不到、磁盘满）**一点痕迹都没有**：
+                            // 下载页显示「暂无进行中的任务」，实例详情显示「依赖 0/7」，
+                            // 用户完全不知道为什么，只能看到游戏一启动就闪退。
+                            // 真机实测的「Fabric 26.3 加载界面闪退」就是这么来的。
+                            api.installGame(instId) { r ->
+                                r.onFailure { e ->
+                                    android.util.Log.w(
+                                        "PageHost",
+                                        "自动安装实例 $instId 失败: ${e.message}",
+                                    )
+                                    state = state.copy(
+                                        error = context.getString(
+                                            R.string.create_install_failed,
+                                            e.message ?: "",
+                                        ),
+                                    )
+                                }
+                            }
                         }
                         state = state.copy(creating = false)
                         onCreated()

@@ -1650,6 +1650,13 @@ pub async fn stop_hosted_server(id: String) -> Result<String, String> {
             // 真正的 stopService —— 它会触发 `onDestroy` → `killProcessAfterStop`。
             let _ = crate::android_bridge::notify_server_stopped(&id);
             let _ = crate::android_bridge::force_stop_server(&id);
+            // ⚠️ 2026-10-20 修：**停服必须把 stage 清掉**。
+            //
+            // `emit_server_stage` 有 6 处会写入阶段文案，但停止路径一处都不清。
+            // 于是停服后前端仍显示最后一条「正在启动服务端进程…」——
+            // 用户看到按钮写着「正在启动服务端进程」，以为没停成功（真机反馈）。
+            // 空串表示「没有进行中的阶段」，前端据此回落到「未运行」。
+            crate::progress::emit_server_stage(&id, "");
             crate::util::log_line("[server] 停服完成，已请求结束 :server 进程");
             Ok(msg)
         }
@@ -1657,6 +1664,9 @@ pub async fn stop_hosted_server(id: String) -> Result<String, String> {
             tracing::warn!("[server] 优雅停服失败（{e}），退回强制停止");
             // 兜底：直接让 :server 进程里的 JVM 退出
             let forced = crate::android_bridge::force_stop_server(&id);
+            // 同上：无论成功与否都清掉阶段文案，否则界面会一直卡在
+            // 「正在启动服务端进程…」/「正在停止…」这种过时状态上。
+            crate::progress::emit_server_stage(&id, "");
             match forced {
                 Ok(()) => Ok(format!("{e}；已强制停止（世界可能未存盘）")),
                 Err(e2) => Err(format!("{e}；强制停止也失败：{e2}")),

@@ -444,6 +444,28 @@ class RustBridge(private val activity: Activity) {
                     cmd.contains("install", ignoreCase = true) ||
                         cmd.contains("repair", ignoreCase = true) ||
                         cmd.contains("check", ignoreCase = true) -> 120_000L
+                    // ⚠️ 2026-10-20 修：**凡是联网拉元数据的命令，8 秒根本不够**。
+                    //
+                    // 实测（OnePlus 8 / 移动网络）：新建实例页选 Fabric 时报
+                    //   「加载器版本获取失败：命令超时：get_loader_versions」
+                    // 因为 `get_loader_versions` 不在上面任何一条规则里，掉进了
+                    // 默认 8 秒；而它要请求 meta.fabricmc.net（可能还带镜像回退与
+                    // 多次重试），弱网下十几秒很常见。用户看到的就是「选不了加载器
+                    // 版本」，直接卡在创建实例这一步。
+                    //
+                    // 同理还有版本清单、加载器列表、整合包元数据这些纯查询命令。
+                    //
+                    // 90 秒的来历（真机实测）：Fabric 官方 meta 查某些 MC 版本
+                    // （26.3）单次就要 30 秒以上，Rust 侧每个候选 URL 允许 45 秒。
+                    // 这里必须比它**明显宽**，否则前端先超时、Rust 还在跑，
+                    // 用户看到「获取失败」但后台其实成功了。
+                    cmd.contains("versions", ignoreCase = true) ||
+                        cmd.contains("loader", ignoreCase = true) ||
+                        cmd.contains("manifest", ignoreCase = true) ||
+                        cmd.contains("meta", ignoreCase = true) ||
+                        cmd.contains("news", ignoreCase = true) ||
+                        cmd.contains("search", ignoreCase = true) ||
+                        cmd.contains("resolve", ignoreCase = true) -> 90_000L
                     else -> 8_000L
                 }
                 wv.postDelayed({

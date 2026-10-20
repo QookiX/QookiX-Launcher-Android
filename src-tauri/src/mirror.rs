@@ -10,6 +10,13 @@ pub const OFFICIAL: &str = "official";
 /// 自定义镜像 id（使用 `mirror_custom` 里的根地址）
 pub const CUSTOM: &str = "custom";
 
+/// 内置镜像根地址。
+///
+/// 用途只有一个：当用户明明选了「官方源」、而官方接口又慢到不可用时，
+/// 把它作为**并行候选**兜底（见 `browse::fetch_list_mirrored`）。
+/// 它不代表用户偏好，也不会改设置 —— 只是「多挂一个更快的源」。
+pub const BMCLAPI_BASE: &str = "https://bmclapi2.bangbang93.com";
+
 /// 官方版本清单地址
 pub const OFFICIAL_MANIFEST: &str =
     "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";

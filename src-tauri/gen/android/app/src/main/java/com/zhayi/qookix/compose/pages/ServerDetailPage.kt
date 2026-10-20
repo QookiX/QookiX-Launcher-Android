@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
@@ -456,7 +458,22 @@ private fun SettingsTab(
             ),
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // ⚠️ 2026-10-20 真机反馈修：整行都要能点。
+                //
+                // 原来只有最右侧那个 `Switch` 可点，卡片主体（标题和说明文字）
+                // 完全不可交互 —— 用户反馈「EULA 那玩意无法打开」，
+                // 因为绝大多数人第一反应是点那行字，而不是去精确命中开关。
+                // 现在整行 `toggleable`，点哪儿都能切换（无障碍语义也对齐）。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = state.eulaAgreed,
+                            onValueChange = onSetEula,
+                            role = Role.Switch,
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = stringResource(R.string.server_settings_eula_title),
@@ -478,7 +495,8 @@ private fun SettingsTab(
                     Spacer(Modifier.width(12.dp))
                     Switch(
                         checked = state.eulaAgreed,
-                        onCheckedChange = onSetEula,
+                        // 开关自身不再持有回调：点击已被整行吞掉，避免重复触发
+                        onCheckedChange = null,
                     )
                 }
             }

@@ -425,7 +425,20 @@ pub async fn install_version_tracked(
     version_id: &str,
     ctx: Option<&crate::progress::TaskCtx>,
 ) -> Result<()> {
-    let version_info = get_version_info(version_id).await?;
+    // ⚠️ 2026-10-20 真机排查：这里是 `install_game` 的第一步，也是最容易
+    // 无声卡死的地方（拉版本清单）。之前整条链路一行日志都没有，
+    // 真机上表现为「创建实例后依赖 0/7、下载页无任务」，完全无法定位。
+    println!("[install] 获取版本清单: {version_id}");
+    let version_info = match get_version_info(version_id).await {
+        Ok(v) => {
+            println!("[install] 版本清单 OK: {version_id}");
+            v
+        }
+        Err(e) => {
+            println!("[install] 版本清单失败: {version_id} → {e:#}");
+            return Err(e);
+        }
+    };
     let data_dir = get_data_dir().await?;
     let version_dir = Path::new(&data_dir)
         .join("versions")
@@ -483,6 +496,7 @@ pub async fn install_version_tracked(
     // Download client JAR
     if let Some(client) = client_artifact {
         let jar_path = version_dir.join(format!("{}.jar", version_id));
+        println!("[install] 下载客户端 jar: {}", client.url);
         crate::download::download_file_with_cancel(
             &client.url,
             &jar_path.to_string_lossy(),
@@ -491,6 +505,7 @@ pub async fn install_version_tracked(
         )
         .await
         .map_err(|e| cancelled_or(e, ctx, "下载客户端 jar"))?;
+        println!("[install] 客户端 jar 完成");
         counter.tick(&format!("{}.jar", version_id), client.size.max(0) as u64);
     }
 
@@ -513,9 +528,11 @@ pub async fn install_version_tracked(
                 ))
             })
             .collect();
+        println!("[install] 下载依赖库 {} 个（并发 {concurrency}）", jobs.len());
         crate::download::download_files_concurrent(&jobs, concurrency, install_cancel.clone())
             .await
             .map_err(|e| cancelled_or(e, ctx, "下载依赖库"))?;
+        println!("[install] 依赖库完成");
         for lib in libraries {
             if let Some(a) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
                 counter.tick(&lib.name, a.size.max(0) as u64);
