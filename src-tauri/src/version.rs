@@ -172,34 +172,98 @@ pub async fn fetch_manifest() -> Result<VersionList> {
     let client = crate::util::http_client().await;
     // 把 URL 与底层 reqwest 错误一起带出来：以前只留一句 context，
     // 排查时既不知道请求的是哪个地址、也不知道是超时/TLS/DNS 哪种失败。
-    let response = match client.get(&url).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            // 走一遍 source 链：reqwest 的 Display 只有一句「error sending request」，
-            // 真正的原因（DNS / connect / TLS / 超时）在 source 里。
-            let mut chain = vec![e.to_string()];
-            let mut src: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(&e);
-            while let Some(s) = src {
-                chain.push(s.to_string());
-                src = s.source();
+    //
+    // ⚠️ 2026-10-20 真机修：**官方 + 内置镜像并行**，并加硬超时。
+    //
+    // 真机实测（OnePlus 8 / 正式签名包 / 首次启动）：
+    //   `get_version_manifest` 卡满 90 秒前端超时，界面报「版本列表加载失败」，
+    //   用户**根本没法创建实例**。而同一时刻设备上 curl 官方只要 1.0 秒、
+    //   镜像 0.5 秒 —— 说明单请求路径会卡在 TLS/连接建立上（首启尤其明显）。
+    // 这里改成两个候选并行发、各 30 秒硬超时，谁先回用谁。
+    let mut candidates: Vec<String> = Vec::new();
+    let mirrored = crate::mirror::manifest_url(crate::mirror::BMCLAPI_BASE);
+    if !mirrored.is_empty() && mirrored != url {
+        candidates.push(mirrored);
+    }
+    candidates.push(url.clone());
+
+    let per_try = std::time::Duration::from_secs(30);
+    let mut tasks = Vec::new();
+    for u in candidates {
+        let client = client.clone();
+        // 镜像对自定义 UA 返回 302 空响应（见 browse.rs 的同款注释），改中性 UA。
+        let is_mirror = u.contains("bangbang93.com");
+        tasks.push(Box::pin(async move {
+            let mut req = client.get(&u);
+            if is_mirror {
+                req = req.header(reqwest::header::USER_AGENT, "Mozilla/5.0");
             }
+            match tokio::time::timeout(per_try, req.send()).await {
+                Ok(Ok(resp)) => match tokio::time::timeout(per_try, resp.text()).await {
+                    Ok(Ok(t)) => (u, Ok(t)),
+                    Ok(Err(e)) => (u.clone(), Err(format!("{u} 读取失败: {e}"))),
+                    Err(_) => (u.clone(), Err(format!("{u} 读取超时"))),
+                },
+                Ok(Err(e)) => {
+                    // 走一遍 source 链：reqwest 的 Display 只有一句
+                    // 「error sending request」，真正原因（DNS / connect / TLS / 超时）
+                    // 在 source 里。
+                    let mut chain = vec![e.to_string()];
+                    let mut src: Option<&(dyn std::error::Error + 'static)> =
+                        std::error::Error::source(&e);
+                    while let Some(s) = src {
+                        chain.push(s.to_string());
+                        src = s.source();
+                    }
+                    (u.clone(), Err(format!("{u} -> {}", chain.join(" | "))))
+                }
+                Err(_) => (u.clone(), Err(format!("{u} 连接超时"))),
+            }
+        }));
+    }
+    // ⚠️ 必须「谁先成功用谁」，不能用 `join_all` 等所有任务收尾。
+    //
+    // 真机实测：镜像 `bmclapi2/mc/game/version_manifest_v2.json` 会 302 到
+    // `8.749333.xyz:443/download/...`，而那个下载域名**连不上** —— 请求会一直
+    // 挂到 30 秒超时。`join_all` 会把官方的 0.98 秒成功也一起拖到 30 秒后，
+    // 叠加首启开销就超过前端窗口，界面报「版本列表加载失败」。
+    // 用 `select_all`：官方 1 秒回就立刻用，镜像慢慢失败也不影响。
+    let mut pending = futures::future::select_all(tasks);
+    let mut content: Option<String> = None;
+    let mut errs: Vec<String> = Vec::new();
+    loop {
+        let (r, _idx, rest) = pending.await;
+        match r {
+            (u, Ok(t)) => {
+                crate::util::log_line(&format!("[manifest] 拉取成功: {u}"));
+                println!("[manifest] 拉取成功: {u}");
+                content = Some(t);
+                break;
+            }
+            (_, Err(e)) => errs.push(e),
+        }
+        if rest.is_empty() {
+            break;
+        }
+        pending = futures::future::select_all(rest);
+    }
+    let content = match content {
+        Some(c) => c,
+        None => {
+            let detail = errs.join(" | ");
+            println!("[manifest] 拉取失败: {detail}");
             return Err(anyhow::anyhow!(
-                "Failed to fetch version manifest: {url} -> {}",
-                chain.join(" | ")
+                "Failed to fetch version manifest: {detail}"
             ));
         }
     };
-
-    let status = response.status();
-    let content = response.text().await
-        .context("Failed to read response")?;
     let version_list: VersionList = match serde_json::from_str(&content) {
         Ok(v) => v,
         Err(e) => {
-            // 把 HTTP 状态码、长度与内容前缀一起报出来：解析失败最常见的原因是
+            // 把长度与内容前缀一起报出来：解析失败最常见的原因是
             // 代理/镜像返回了一个错误页或限流页，而不是清单本身有问题。
             return Err(anyhow::anyhow!(
-                "Failed to parse version manifest: status={status} len={} err={e} head={}",
+                "Failed to parse version manifest: len={} err={e} head={}",
                 content.len(),
                 content.chars().take(160).collect::<String>()
             ));

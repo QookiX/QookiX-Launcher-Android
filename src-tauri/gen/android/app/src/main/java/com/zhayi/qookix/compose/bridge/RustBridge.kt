@@ -440,17 +440,20 @@ class RustBridge(private val activity: Activity) {
                 val timeoutMs = when {
                     // 插件安装：要联网下包，给 5 分钟
                     cmd.contains("plugin", ignoreCase = true) -> 300_000L
-                    // ⚠️ 2026-10-20 真机修：**安装/补全要给足时间**。
+                    // ⚠️ 2026-10-20 真机修：**安装 / 补全不设超时**（0 = 永不超时）。
                     //
-                    // 原来 `install` / `repair` 只给 120 秒，而实测一次「补全游戏文件」
-                    // 要做：拉版本清单 → 下客户端 jar → 下 114 个原版库 →
-                    // 拉加载器 profile → 下 7 个加载器库。真机（移动网络）跑一遍
-                    // 轻松超过 120 秒，于是前端先报「命令超时：repair_instance_files」，
-                    // 而 **Rust 侧其实还在正常下载** —— 用户看到失败、重试、再次超时，
-                    // 依赖永远补不齐，表现就是「加载界面闪退」。
-                    // 给 10 分钟：比最坏情况宽，又不会无限挂着。
+                    // 这类命令的耗时完全由网络和包大小决定，给多少都可能不够：
+                    // 实测 OnePlus 8 上「创建 Fabric 26.3 实例」光下 114 个原版库
+                    // 就花了 6 分 9 秒，再叠加拉版本清单 43 秒、客户端 jar、加载器
+                    // 7 个库，600 秒照样打满 —— 于是前端报
+                    //   「自动安装实例 xxx 失败: 命令超时：install_game」
+                    // 而 Rust 侧还在正常下载，用户重试又从头来，永远装不完。
+                    //
+                    // 这类命令**本来就有自己的进度事件**（install://progress），
+                    // 用户能看进度、能取消，不需要靠「前端超时」兜底。
+                    // 取消/失败的信号由任务系统负责，比盲猜一个秒数可靠。
                     cmd.contains("install", ignoreCase = true) ||
-                        cmd.contains("repair", ignoreCase = true) -> 600_000L
+                        cmd.contains("repair", ignoreCase = true) -> 0L
                     // 完整性检查只遍历本地文件，2 分钟足够
                     cmd.contains("check", ignoreCase = true) -> 120_000L
                     // ⚠️ 2026-10-20 修：**凡是联网拉元数据的命令，8 秒根本不够**。
@@ -477,13 +480,18 @@ class RustBridge(private val activity: Activity) {
                         cmd.contains("resolve", ignoreCase = true) -> 90_000L
                     else -> 8_000L
                 }
-                wv.postDelayed({
-                    val cb = pending.remove(id) ?: return@postDelayed
-                    Log.w(TAG, "命令超时无响应：$cmd（${timeoutMs / 1000}s）")
-                    activity.runOnUiThread {
-                        cb(Result.failure(IllegalStateException("命令超时：$cmd")))
-                    }
-                }, timeoutMs)
+                // timeoutMs <= 0 表示「不设超时」：安装/补全这类命令的耗时完全
+                // 由网络决定，靠前端猜秒数只会误伤（见上面的注释）。
+                // 注意不能真的 `postDelayed(0)` —— 那会立刻触发超时。
+                if (timeoutMs > 0L) {
+                    wv.postDelayed({
+                        val cb = pending.remove(id) ?: return@postDelayed
+                        Log.w(TAG, "命令超时无响应：$cmd（${timeoutMs / 1000}s）")
+                        activity.runOnUiThread {
+                            cb(Result.failure(IllegalStateException("命令超时：$cmd")))
+                        }
+                    }, timeoutMs)
+                }
                 return@evaluateJavascript
             }
             // 只有 'no-bridge' 才是真的没注入上：清掉 pending，短暂重试

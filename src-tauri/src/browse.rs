@@ -738,7 +738,7 @@ where
         //
         // 镜像请求改用中性 UA；官方请求仍带我们自己的 UA。
         let is_mirror = u.contains("bangbang93.com");
-        tasks.push(async move {
+        tasks.push(Box::pin(async move {
             let mut req = client.get(&u);
             if is_mirror {
                 req = req.header(reqwest::header::USER_AGENT, "Mozilla/5.0");
@@ -755,26 +755,35 @@ where
                 Ok(Err(e)) => (u.clone(), Err(format!("{u} 请求失败：{e}"))),
                 Err(_) => (u.clone(), Err(format!("{u} 请求超时"))),
             }
-        });
+        }));
     }
-    let results = futures::future::join_all(tasks).await;
-
+    // ⚠️ 用 `select_all` 而不是 `join_all`：**谁先成功用谁**。
+    // 镜像可能 302 到一个连不上的下载域名、挂满 45 秒；`join_all` 会把官方
+    // 1 秒的成功一起拖到 45 秒后，叠加首启开销就超过前端窗口，
+    // 用户看到「加载器版本获取失败」（真机实测）。
     let (mut out, mut got_any, mut last): (Vec<String>, bool, String) =
         (Vec::new(), false, String::new());
     // 记录**每个**候选的失败原因：只留最后一个的话，「镜像也失败了」这种情况
     // 会被官方那条覆盖，看日志会误以为镜像压根没试过。
     let mut all_errs: Vec<String> = Vec::new();
-    for (_, r) in results {
+    let mut pending = futures::future::select_all(tasks);
+    loop {
+        let (r, _idx, rest) = pending.await;
         match r {
-            Ok(t) => {
+            (_, Ok(t)) => {
                 got_any = true;
                 out.extend(parse(&t));
+                break;
             }
-            Err(e) => {
-                all_errs.push(e.clone());
-                last = e;
+            (_, Err(e)) => {
+                last = e.clone();
+                all_errs.push(e);
             }
         }
+        if rest.is_empty() {
+            break;
+        }
+        pending = futures::future::select_all(rest);
     }
     // 全都拿不到才算失败；拿到了但确实没有对应版本时返回空表，交给调用方提示「换版本」
     if !got_any && !last.is_empty() {
@@ -1519,7 +1528,7 @@ async fn write_simple_loader_profile(
         let client = client.clone();
         // 同 `fetch_list_mirrored`：镜像对自定义 UA 返回 302 空响应，改用中性 UA。
         let is_mirror = u.contains("bangbang93.com");
-        tasks.push(async move {
+        tasks.push(Box::pin(async move {
             let mut req = client.get(&u);
             if is_mirror {
                 req = req.header(reqwest::header::USER_AGENT, "Mozilla/5.0");
@@ -1537,21 +1546,27 @@ async fn write_simple_loader_profile(
                 Ok(Err(e)) => (u.clone(), Err(format!("{u} 请求失败：{e}"))),
                 Err(_) => (u.clone(), Err(format!("{u} 连接超时"))),
             }
-        });
+        }));
     }
-    let results = futures::future::join_all(tasks).await;
+    // 同 `fetch_list_mirrored`：谁先成功用谁，别让镜像的慢拖住官方的快。
     let mut text: Option<String> = None;
     let mut last_err = String::new();
-    for (u, r) in results {
+    let mut pending = futures::future::select_all(tasks);
+    loop {
+        let (r, _idx, rest) = pending.await;
         match r {
-            Ok(t) => {
+            (u, Ok(t)) => {
                 crate::util::log_line(&format!("[loader] 拉取 profile 成功: {u}"));
                 println!("[install] 拉取 profile 成功: {u}");
                 text = Some(t);
                 break;
             }
-            Err(e) => last_err = e,
+            (_, Err(e)) => last_err = e,
         }
+        if rest.is_empty() {
+            break;
+        }
+        pending = futures::future::select_all(rest);
     }
     let text = match text {
         Some(t) => t,
