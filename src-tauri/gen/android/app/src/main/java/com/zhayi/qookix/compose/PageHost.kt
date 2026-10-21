@@ -824,7 +824,13 @@ fun PageHost(
             onTogglePin = { id ->
                 val newPins = if (id in pinnedIds) pinnedIds.filterNot { it == id } else pinnedIds + id
                 val arr = org.json.JSONArray()
-                newPins.forEach { arr.put(org.json.JSONObject().put("id", it)) }
+                newPins.forEach { pid ->
+                    arr.put(org.json.JSONObject()
+                        .put("id", pid)
+                        .put("type", "instance")
+                        .put("target", "home")
+                        .put("instance_id", pid))
+                }
                 QookixApi(bridge).setPins(arr) { r ->
                     r.onSuccess { pinnedIds = newPins }
                 }
@@ -3949,13 +3955,14 @@ private fun MultiplayerRoute(
             QookixApi(bridge).pingMcServer(address) { r ->
                 r.fold(
                     onSuccess = { o ->
-                        val latency = o.optInt("latency", -1)
-                        val online = o.optInt("online", 0)
-                        val max = o.optInt("max", 0)
-                        if (latency >= 0) {
+                        val isOnline = o.optBoolean("online", false)
+                        if (isOnline) {
+                            val latency = o.optInt("latency_ms", 0)
+                            val online = o.optInt("players_online", 0)
+                            val max = o.optInt("players_max", 0)
                             onResult(Result.success(context.getString(R.string.multiplayer_ping_ok, latency, online, max)))
                         } else {
-                            onResult(Result.failure(Exception()))
+                            onResult(Result.failure(Exception(o.optString("error", "无法连接"))))
                         }
                     },
                     onFailure = { onResult(Result.failure(it)) },
@@ -4108,7 +4115,7 @@ private fun CreateRoute(
         } else {
             api.estimateDownload(state.version) { r ->
                 r.onSuccess { o ->
-                    val bytes = o.optLong("totalSize", 0)
+                    val bytes = o.optLong("download_bytes", 0)
                     if (bytes > 0) state = state.copy(estimatedDownloadMb = bytes / 1_000_000)
                 }
             }
