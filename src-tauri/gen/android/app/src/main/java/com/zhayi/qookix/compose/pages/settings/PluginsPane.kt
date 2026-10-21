@@ -11,18 +11,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -53,6 +61,9 @@ fun PluginsPane(
     state: PluginsUiState,
     onRefresh: () -> Unit,
     onInstallRecommended: () -> Unit,
+    onTogglePlugin: (PluginUi, Boolean) -> Unit = { _, _ -> },
+    onUninstallPlugin: (PluginUi) -> Unit = {},
+    onSaveManifestUrl: (String) -> Unit = {},
 ) {
     SettingsPane(title = stringResource(R.string.plugins_title)) {
         // ── 初始化状态 ────────────────────────────────────────────────
@@ -153,7 +164,12 @@ fun PluginsPane(
                 }
 
                 else -> state.plugins.forEachIndexed { i, p ->
-                    PluginRow(p, showDivider = i != state.plugins.lastIndex)
+                    PluginRow(
+                        p,
+                        showDivider = i != state.plugins.lastIndex,
+                        onToggle = { enabled -> onTogglePlugin(p, enabled) },
+                        onUninstall = { onUninstallPlugin(p) },
+                    )
                 }
             }
         }
@@ -165,6 +181,28 @@ fun PluginsPane(
                     Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(stringResource(R.string.plugins_check_updates))
+                }
+            }
+        }
+
+        // ── 插件清单源（2026-10-21 补：后端 get/set_plugin_manifest_url 一直没 UI）───
+        Spacer(Modifier.height(16.dp))
+        var manifestUrl by remember(state.manifestUrl) { mutableStateOf(state.manifestUrl) }
+        SettingsGroup(stringResource(R.string.plugins_manifest_url)) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                OutlinedTextField(
+                    value = manifestUrl,
+                    onValueChange = { manifestUrl = it },
+                    label = { Text(stringResource(R.string.plugins_manifest_url_hint)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    onClick = { onSaveManifestUrl(manifestUrl.trim()) },
+                    enabled = manifestUrl.trim() != state.manifestUrl,
+                ) {
+                    Text(stringResource(R.string.plugins_save_manifest_url))
                 }
             }
         }
@@ -190,7 +228,12 @@ fun PluginsPane(
 }
 
 @Composable
-private fun PluginRow(p: PluginUi, showDivider: Boolean) {
+private fun PluginRow(
+    p: PluginUi,
+    showDivider: Boolean,
+    onToggle: (Boolean) -> Unit = {},
+    onUninstall: () -> Unit = {},
+) {
     SettingsRow(
         title = p.name,
         subtitle = buildString {
@@ -203,18 +246,19 @@ private fun PluginRow(p: PluginUi, showDivider: Boolean) {
         showDivider = showDivider,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (p.enabled) {
+            // 启停开关（2026-10-21 补：set_plugin_enabled 一直没 UI）
+            Switch(
+                checked = p.enabled,
+                onCheckedChange = onToggle,
+            )
+            Spacer(Modifier.width(4.dp))
+            // 卸载按钮（2026-10-21 补：uninstall_plugin 一直没 UI）
+            IconButton(onClick = onUninstall) {
                 Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = stringResource(R.string.plugins_enabled),
-                    tint = MaterialTheme.colorScheme.primary,
+                    Icons.Filled.DeleteOutline,
+                    contentDescription = stringResource(R.string.plugins_uninstall),
+                    tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(20.dp),
-                )
-            } else {
-                Text(
-                    text = stringResource(R.string.plugins_disabled),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
                 )
             }
         }
@@ -236,6 +280,7 @@ data class PluginsUiState(
     val loading: Boolean = false,
     val busy: Boolean = false,
     val plugins: List<PluginUi> = emptyList(),
+    val manifestUrl: String = "",
     val error: String? = null,
     /**
      * 正在安装的插件名与进度（2026-10-17 补，审计 H-6）。

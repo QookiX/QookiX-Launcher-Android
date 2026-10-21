@@ -29,11 +29,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,10 +99,23 @@ fun InstancesPage(
     onOpen: (String) -> Unit,
     /** 删除实例（长按卡片触发菜单后调用）。 */
     onDelete: (InstanceUi) -> Unit = {},
+    /** 分组管理（2026-10-21 补：后端命令一直没 UI）。 */
+    onCreateGroup: (String) -> Unit = {},
+    onRenameGroup: (String, String) -> Unit = { _, _ -> },
+    onDeleteGroup: (String) -> Unit = {},
+    onMoveGroup: (Int, Int) -> Unit = { _, _ -> }, // (fromIndex, toIndex)
+    pinnedIds: Set<String> = emptySet(),
+    onTogglePin: (String) -> Unit = {},
 ) {
     // 长按选中的实例（非空 = 弹出操作菜单）
     var menuTarget by remember { mutableStateOf<InstanceUi?>(null) }
     var deleteTarget by remember { mutableStateOf<InstanceUi?>(null) }
+    // 分组管理对话框（2026-10-21 补）
+    var showNewGroupDialog by remember { mutableStateOf(false) }
+    var renameGroup by remember { mutableStateOf<Pair<String, String>?>(null) } // (id, oldName)
+    var deleteGroupId by remember { mutableStateOf<String?>(null) }
+    // 真实分组（排除 all / __ungrouped__）的 key 列表，用于判断 SectionHeader 是否显示管理按钮
+    val realGroupKeys = state.sections.map { it.key }.filter { it != "all" && it != "__ungrouped__" }
     Column(modifier = Modifier.fillMaxSize()) {
         // 新建按钮：右对齐放在内容区顶部（与旧实现的位置语义一致）
         // ⚠️ 2026-10-18 改：原来「新建实例」按钮占页面内容区一整行（横屏 384dp
@@ -129,9 +150,28 @@ fun InstancesPage(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            state.sections.forEach { section ->
+            // 新建分组按钮（2026-10-21 补）
+            item(key = "new-group") {
+                TextButton(onClick = { showNewGroupDialog = true }) {
+                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.instances_group_new))
+                }
+            }
+            state.sections.forEachIndexed { sIdx, section ->
+                val isRealGroup = section.key != "all" && section.key != "__ungrouped__"
                 item(key = "h-${section.key}") {
-                    SectionHeader(section.name, section.items.size)
+                    SectionHeader(
+                        name = section.name,
+                        count = section.items.size,
+                        canManage = isRealGroup,
+                        canMoveUp = isRealGroup && sIdx > 0,
+                        canMoveDown = isRealGroup && sIdx < state.sections.lastIndex,
+                        onRename = { renameGroup = section.key to section.name },
+                        onDelete = { deleteGroupId = section.key },
+                        onMoveUp = { onMoveGroup(sIdx, sIdx - 1) },
+                        onMoveDown = { onMoveGroup(sIdx, sIdx + 1) },
+                    )
                 }
                 items(section.items, key = { it.id }) { inst ->
                     InstanceCard(
@@ -164,10 +204,21 @@ fun InstancesPage(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    menuTarget = null
-                    onOpen(target.id)
-                }) { Text(stringResource(R.string.instances_open)) }
+                Row {
+                    TextButton(onClick = {
+                        menuTarget = null
+                        onTogglePin(target.id)
+                    }) {
+                        Text(
+                            if (target.id in pinnedIds) stringResource(R.string.instances_unpin)
+                            else stringResource(R.string.instances_pin)
+                        )
+                    }
+                    TextButton(onClick = {
+                        menuTarget = null
+                        onOpen(target.id)
+                    }) { Text(stringResource(R.string.instances_open)) }
+                }
             },
             dismissButton = {
                 TextButton(onClick = {
@@ -205,10 +256,88 @@ fun InstancesPage(
             },
         )
     }
+
+    // ── 分组管理对话框（2026-10-21 补）──────────────────────────────
+    if (showNewGroupDialog) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showNewGroupDialog = false },
+            title = { Text(stringResource(R.string.instances_group_new)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.instances_group_name_hint)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (name.isNotBlank()) onCreateGroup(name.trim())
+                    showNewGroupDialog = false
+                }) { Text(stringResource(R.string.instances_group_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewGroupDialog = false }) { Text(stringResource(R.string.instances_group_cancel)) }
+            },
+        )
+    }
+    renameGroup?.let { pair ->
+        val id = pair.first
+        val oldName = pair.second
+        var name by remember(oldName) { mutableStateOf(oldName) }
+        AlertDialog(
+            onDismissRequest = { renameGroup = null },
+            title = { Text(stringResource(R.string.instances_group_rename)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.instances_group_name_hint)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (name.isNotBlank()) onRenameGroup(id, name.trim())
+                    renameGroup = null
+                }) { Text(stringResource(R.string.instances_group_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameGroup = null }) { Text(stringResource(R.string.instances_group_cancel)) }
+            },
+        )
+    }
+    deleteGroupId?.let { id ->
+        AlertDialog(
+            onDismissRequest = { deleteGroupId = null },
+            title = { Text(stringResource(R.string.instances_group_delete)) },
+            text = { Text(stringResource(R.string.instances_group_delete)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteGroup(id)
+                    deleteGroupId = null
+                }) { Text(stringResource(R.string.instances_group_delete), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteGroupId = null }) { Text(stringResource(R.string.instances_group_cancel)) }
+            },
+        )
+    }
 }
 
 @Composable
-private fun SectionHeader(name: String, count: Int) {
+private fun SectionHeader(
+    name: String,
+    count: Int,
+    canManage: Boolean = false,
+    canMoveUp: Boolean = false,
+    canMoveDown: Boolean = false,
+    onRename: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -226,6 +355,25 @@ private fun SectionHeader(name: String, count: Int) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.outline,
         )
+        if (canManage) {
+            Spacer(Modifier.weight(1f))
+            if (canMoveUp) {
+                IconButton(onClick = onMoveUp, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Filled.KeyboardArrowUp, null, modifier = Modifier.size(18.dp))
+                }
+            }
+            if (canMoveDown) {
+                IconButton(onClick = onMoveDown, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Filled.KeyboardArrowDown, null, modifier = Modifier.size(18.dp))
+                }
+            }
+            IconButton(onClick = onRename, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Filled.Edit, null, modifier = Modifier.size(16.dp))
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Filled.DeleteOutline, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }
 

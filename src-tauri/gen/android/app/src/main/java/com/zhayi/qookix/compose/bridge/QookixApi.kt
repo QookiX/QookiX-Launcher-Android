@@ -304,6 +304,22 @@ class QookixApi(private val bridge: RustBridge) {
         callObj("project_versions", p, onResult)
     }
 
+    /** 取项目完整信息（描述/正文/作者/下载量等）。 */
+    fun projectInfo(provider: String, projectId: String, onResult: (Result<JSONObject>) -> Unit) =
+        callObj("project_info", JSONObject().put("provider", provider).put("projectId", projectId), onResult)
+
+    /** CurseForge 分类列表（筛选用）。 */
+    fun curseforgeCategories(onResult: (Result<JSONArray>) -> Unit) =
+        callArr("curseforge_categories", null, onResult)
+
+    /** 预估某 MC 版本原版下载体积（返回 {totalSize, fileCount}）。 */
+    fun estimateDownload(mcVersion: String, onResult: (Result<JSONObject>) -> Unit) =
+        callObj("estimate_download", JSONObject().put("mcVersion", mcVersion), onResult)
+
+    /** 预估导入模组包体积。 */
+    fun estimateImport(source: String, rawIds: List<String>, onResult: (Result<JSONObject>) -> Unit) =
+        callObj("estimate_import", JSONObject().put("source", source).put("rawIds", JSONArray().also { rawIds.forEach { id -> it.put(id) } }), onResult)
+
     /**
      * 版本清单（Minecraft 各版本列表）。
      *
@@ -466,6 +482,10 @@ class QookixApi(private val bridge: RustBridge) {
      */
     fun requestBatteryUnrestricted(onResult: (Result<String>) -> Unit = {}) =
         call("request_battery_unrestricted", null, onResult)
+
+    /** 服务器内存建议（返回 {minMemoryMb, maxMemoryMb}）。 */
+    fun suggestServerMemory(onResult: (Result<JSONObject>) -> Unit) =
+        callObj("suggest_server_memory", null, onResult)
 
     // ── 文件管理（实例 + 服务器，命令名核对自 src/api.ts）────────────────────
 

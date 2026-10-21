@@ -103,6 +103,15 @@ fun ServerDetailRoute(
                 }
             }
         }
+        // 服务器内存建议（2026-10-21 补：suggestServerMemory 一直没 UI）
+        api.suggestServerMemory { r ->
+            r.onSuccess { o ->
+                state = state.copy(
+                    suggestedMemMin = o.optInt("minMemoryMb", 0),
+                    suggestedMemMax = o.optInt("maxMemoryMb", 0),
+                )
+            }
+        }
     }
 
     /** 刷新日志（手动按钮与轮询走同一条路，保证行为一致）。 */
@@ -485,6 +494,14 @@ fun ServerDetailRoute(
         onRefreshLogs = {
             refreshLogs()
             state = state.copy(notice = ctx.getString(R.string.server_detail_logs_refreshed))
+        },
+        onRequestBatteryUnrestricted = {
+            api.requestBatteryUnrestricted { r ->
+                r.fold(
+                    onSuccess = { state = state.copy(notice = ctx.getString(R.string.server_detail_request_battery)) },
+                    onFailure = { state = state.copy(error = it.message) },
+                )
+            }
         },
         onSetMemory = { maxMb, minMb ->
             // 先纠正「最小 > 最大」（JVM 会直接拒绝启动），再交给后端钳制

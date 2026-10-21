@@ -221,6 +221,14 @@ fun CreateInstancePage(
                         MaterialTheme.colorScheme.primary
                     },
                 )
+                // 预估下载体积（2026-10-21 补：estimateDownload 一直没 UI）
+                state.estimatedDownloadMb?.let { mb ->
+                    Text(
+                        text = stringResource(R.string.create_instance_estimated_download, mb),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
 
                 QkFieldLabel(stringResource(R.string.create_instance_loader))
                 // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
@@ -554,6 +562,8 @@ data class CreateUiState(
     val loadingVersions: Boolean = false,
     val creating: Boolean = false,
     val error: String? = null,
+    /** 预估下载体积（MB，2026-10-21 补：estimateDownload 一直没 UI）。 */
+    val estimatedDownloadMb: Long? = null,
 )
 
 

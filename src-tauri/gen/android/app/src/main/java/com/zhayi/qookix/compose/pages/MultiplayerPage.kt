@@ -35,8 +35,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -90,6 +92,8 @@ fun MultiplayerPage(
     onOpenFrpRooms: () -> Unit = {},
     /** 进入 FRP 隧道页（MohuaFrp 主入口）。 */
     onOpenFrp: () -> Unit = {},
+    /** 直接连接服务器并测试（2026-10-21 补）。 */
+    onPingServer: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = state.tab.ordinal) {
@@ -120,6 +124,7 @@ fun MultiplayerPage(
                 onStopServer = onStopServer,
                 onOpenServer = onOpenServer,
                 onCreateServer = onCreateServer,
+                onPingServer = onPingServer,
             )
             MultiplayerTab.Tunnel -> TunnelTab(
                 state = state,
@@ -190,6 +195,7 @@ private fun ServersTab(
     onStopServer: (String) -> Unit,
     onOpenServer: (String) -> Unit,
     onCreateServer: () -> Unit,
+    onPingServer: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
 ) {
     // ⚠️ 2026-10-21 真机修：用户反馈「UI 更新前这个界面有个搜索栏」。
     // 旧 Vue 版多人页顶部有搜索框，Compose 版漏了。服务器多了没法找，
@@ -224,6 +230,67 @@ private fun ServersTab(
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.multiplayer_new_server))
             }
+        }
+
+        // 直接连接（2026-10-21 补：pingMcServer 一直没 UI）
+        var showDirectConnect by remember { mutableStateOf(false) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = { showDirectConnect = true }) {
+                Text(stringResource(R.string.multiplayer_direct_connect))
+            }
+        }
+        if (showDirectConnect) {
+            var address by remember { mutableStateOf("") }
+            var pingResult by remember { mutableStateOf<String?>(null) }
+            var pinging by remember { mutableStateOf(false) }
+            val pingTesting = stringResource(R.string.multiplayer_ping_testing)
+            val pingFail = stringResource(R.string.multiplayer_ping_fail)
+            AlertDialog(
+                onDismissRequest = { showDirectConnect = false },
+                title = { Text(stringResource(R.string.multiplayer_direct_connect)) },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = address,
+                            onValueChange = { address = it; pingResult = null },
+                            label = { Text(stringResource(R.string.multiplayer_direct_connect_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        pingResult?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Text(it, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                },
+                confirmButton = {
+                    Row {
+                        TextButton(
+                            onClick = {
+                                if (address.isBlank()) return@TextButton
+                                pinging = true
+                                pingResult = pingTesting
+                                onPingServer(address.trim()) { r ->
+                                    pinging = false
+                                    pingResult = r.fold(
+                                        onSuccess = { it },
+                                        onFailure = { _ -> pingFail },
+                                    )
+                                }
+                            },
+                            enabled = !pinging && address.isNotBlank(),
+                        ) { Text(stringResource(R.string.multiplayer_ping)) }
+                        TextButton(onClick = { showDirectConnect = false }) {
+                            Text(stringResource(R.string.instances_group_cancel))
+                        }
+                    }
+                },
+            )
         }
 
         when {

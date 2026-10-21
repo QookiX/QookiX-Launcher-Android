@@ -105,6 +105,9 @@
 
     <!-- ── 首页 ── -->
     <string name="home_recent_instances">最近游玩</string>
+    <string name="home_pinned">置顶</string>
+    <string name="instances_pin">置顶</string>
+    <string name="instances_unpin">取消置顶</string>
     <string name="home_in_progress">进行中</string>
     <string name="home_latest_news">新闻</string>
     <string name="home_view_all">更多</string>
@@ -213,6 +216,8 @@
 <string name="instance_detail_recheck">重新分析</string>
     <string name="instance_detail_analyze_hint">点「分析」看可能的原因</string>
 <string name="instance_detail_analyze">分析此崩溃报告</string>
+    <string name="instance_detail_view_raw">查看原文</string>
+    <string name="instance_detail_loading">加载中…</string>
     <string name="instance_detail_close">关闭</string>
     <string name="instance_detail_tab_content">内容</string>
     <string name="instance_detail_tab_saves">存档</string>
@@ -302,6 +307,12 @@
     <string name="multiplayer_frp_rooms_desc">房主-访问者模式：双方都要跑 frpc。房主启动房间后，客人「加入并连接」，在游戏里连提示的 127.0.0.1:&lt;端口&gt; 即可</string>
     <string name="multiplayer_new_server">创建服务器</string>
     <string name="multiplayer_search_servers">搜索服务器</string>
+    <string name="multiplayer_direct_connect">直接连接</string>
+    <string name="multiplayer_direct_connect_hint">输入服务器地址（IP:端口）</string>
+    <string name="multiplayer_ping">测试</string>
+    <string name="multiplayer_ping_ok">延迟 %1$d ms · 在线 %2$d/%3$d</string>
+    <string name="multiplayer_ping_fail">无法连接</string>
+    <string name="multiplayer_ping_testing">测试中…</string>
     <string name="multiplayer_search_no_result">没有匹配的服务器</string>
     <string name="multiplayer_empty_servers_title">还没有服务器</string>
     <string name="multiplayer_empty_servers_desc">创建一个，和朋友一起玩</string>
@@ -723,6 +734,9 @@
     <string name="server_detail_running">运行中</string>
     <string name="server_detail_stopped">未运行</string>
     <string name="server_detail_connect_address">局域网连接地址</string>
+    <string name="server_detail_setup_help">开服辅助</string>
+    <string name="server_detail_suggested_memory">建议分配内存：%1$d ~ %2$d MB</string>
+    <string name="server_detail_request_battery">申请电池优化白名单（防止息屏后服务被杀）</string>
     <string name="server_detail_copy_address">复制</string>
     <string name="server_detail_address_copied">已复制</string>
     <string name="server_detail_installing">正在下载核心…</string>
@@ -922,6 +936,7 @@
 <string name="create_instance_name_placeholder">留空则自动用版本号命名</string>
     <string name="create_instance_game_version">游戏版本</string>
 <string name="create_instance_pick_from_right">请先在右侧选择游戏版本</string>
+    <string name="create_instance_estimated_download">预计下载体积约 %1$d MB</string>
     <string name="create_instance_loader">加载器</string>
 <string name="create_instance_loader_version">选择加载器版本</string>
     <string name="create_instance_loading">加载中…</string>
@@ -950,6 +965,12 @@
     <!-- ── PageHost 续（错误消息 / FRP / 账号 / 皮肤）── -->
     <string name="instances_section_all">全部</string>
     <string name="instances_section_ungrouped">未分组</string>
+    <string name="instances_group_new">新建分组</string>
+    <string name="instances_group_rename">重命名</string>
+    <string name="instances_group_delete">删除分组</string>
+    <string name="instances_group_name_hint">分组名称</string>
+    <string name="instances_group_confirm">确定</string>
+    <string name="instances_group_cancel">取消</string>
     <string name="renderer_hint_current">当前：%1$s  →  建议：%2$s</string>
     <string name="frp_read_failed">读取 FRP 状态失败</string>
     <string name="selfcheck_passed">frpc 可用：%1$s</string>
@@ -971,6 +992,11 @@
     <string name="launch_checking_files">检查游戏文件…</string>
     <string name="plugins_read_failed">读取插件失败：%1$s</string>
     <string name="plugins_install_failed">安装失败：%1$s</string>
+    <string name="plugins_uninstall">卸载</string>
+    <string name="plugins_uninstall_confirm">确定卸载这个插件吗？</string>
+    <string name="plugins_manifest_url">插件清单地址</string>
+    <string name="plugins_manifest_url_hint">插件从该地址的清单下载</string>
+    <string name="plugins_save_manifest_url">保存</string>
     <string name="skin_lib_read_failed">读取皮肤库失败：%1$s</string>
     <string name="skin_image_read_failed">读皮肤图片失败：%1$s</string>
     <string name="skin_3d_render_failed">3D 渲染失败：%1</string>

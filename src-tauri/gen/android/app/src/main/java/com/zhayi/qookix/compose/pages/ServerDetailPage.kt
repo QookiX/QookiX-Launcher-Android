@@ -130,6 +130,8 @@ fun ServerDetailPage(
     // ── 日志 / 内存 / 删除（缺陷 3）─────────────────────────────────────
     /** 手动刷新日志。 */
     onRefreshLogs: () -> Unit = {},
+    /** 申请电池优化白名单（2026-10-21 补）。 */
+    onRequestBatteryUnrestricted: () -> Unit = {},
     /** 改服务器内存。 */
     onSetMemory: (Int, Int) -> Unit = { _, _ -> },
     /** 删除整台服务器（危险操作，需二次确认）。 */
@@ -259,6 +261,7 @@ fun ServerDetailPage(
                 onToggleShare = onToggleShare,
                 onCopyRoom = onCopyRoom,
                 onRefreshLogs = onRefreshLogs,
+                onRequestBatteryUnrestricted = onRequestBatteryUnrestricted,
             )
             ServerTab.Files -> FilesTab(
                 state = state,
@@ -319,6 +322,7 @@ private fun ConsoleTab(
     onToggleShare: (Boolean) -> Unit,
     onCopyRoom: (String) -> Unit,
     onRefreshLogs: () -> Unit,
+    onRequestBatteryUnrestricted: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     // ⚠️ 2026-10-21 真机修：用户反馈「开服务器连着 WiFi 的话，有个连接地址，
@@ -382,6 +386,33 @@ private fun ConsoleTab(
                             if (copied) stringResource(R.string.server_detail_address_copied)
                             else stringResource(R.string.server_detail_copy_address),
                         )
+                    }
+                }
+            }
+        }
+
+        // ── 开服辅助（2026-10-21 补：suggestServerMemory/requestBatteryUnrestricted 一直没 UI）───
+        if (state.suggestedMemMax > 0) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                shape = MaterialTheme.shapes.medium,
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = stringResource(R.string.server_detail_setup_help),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.server_detail_suggested_memory, state.suggestedMemMin, state.suggestedMemMax),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onRequestBatteryUnrestricted) {
+                        Text(stringResource(R.string.server_detail_request_battery))
                     }
                 }
             }
@@ -1262,6 +1293,8 @@ data class ServerDetailUiState(
      */
     val exitNote: String? = null,
     val address: String = "",
+    val suggestedMemMin: Int = 0,
+    val suggestedMemMax: Int = 0,
     val tab: ServerTab = ServerTab.Console,
     val logs: List<String> = emptyList(),
     val commandInput: String = "",

@@ -271,6 +271,19 @@ fun PageHost(
     // 复用同一机制能避免「初始加载」与「手动刷新」两套代码。
     var instances by remember { mutableStateOf<List<InstanceUi>>(emptyList()) }
     var instancesReloadKey by remember { mutableStateOf(0) }
+    // 置顶实例 id 列表（2026-10-21 补：getPins/setPins 一直没 UI）
+    var pinnedIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(bridgeReady, instancesReloadKey) {
+        if (!bridgeReady) return@LaunchedEffect
+        QookixApi(bridge).getPins { r ->
+            r.onSuccess { arr ->
+                pinnedIds = (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i)
+                    o?.optString("id")?.takeIf { it.isNotBlank() }
+                }
+            }
+        }
+    }
 
     // 启动器自更新状态 —— 放在 PageHost 层（2026-10-18）。
     //
@@ -621,6 +634,7 @@ fun PageHost(
                     onSelectedInstanceIdChange(id)
                     onNavigate(NavDestination.InstanceDetail)
                 },
+                pinnedIds = pinnedIds,
             )
 
             NavDestination.Browse -> BrowseRoute(
@@ -775,6 +789,44 @@ fun PageHost(
                 QookixApi(bridge).deleteInstance(target.id) { r ->
                     r.onSuccess { instancesReloadKey++ }
                     // 失败时列表不变，用户可以重试
+                }
+            },
+            // 分组管理（2026-10-21 补：后端命令一直没 UI）
+            onCreateGroup = { name ->
+                QookixApi(bridge).createInstanceGroup(name, null) { r ->
+                    r.onSuccess { instancesReloadKey++ }
+                }
+            },
+            onRenameGroup = { id, newName ->
+                QookixApi(bridge).renameInstanceGroup(id, newName, null) { r ->
+                    r.onSuccess { instancesReloadKey++ }
+                }
+            },
+            onDeleteGroup = { id ->
+                QookixApi(bridge).deleteInstanceGroup(id) { r ->
+                    r.onSuccess { instancesReloadKey++ }
+                }
+            },
+            onMoveGroup = { fromIdx, toIdx ->
+                // 交换两个真实分组的位置，重排后调 reorderInstanceGroups
+                val currentOrder = groups.map { it.first }
+                if (fromIdx in currentOrder.indices && toIdx in currentOrder.indices) {
+                    val swapped = currentOrder.toMutableList()
+                    val tmp = swapped[fromIdx]
+                    swapped[fromIdx] = swapped[toIdx]
+                    swapped[toIdx] = tmp
+                    QookixApi(bridge).reorderInstanceGroups(swapped) { r ->
+                        r.onSuccess { instancesReloadKey++ }
+                    }
+                }
+            },
+            pinnedIds = pinnedIds.toSet(),
+            onTogglePin = { id ->
+                val newPins = if (id in pinnedIds) pinnedIds.filterNot { it == id } else pinnedIds + id
+                val arr = org.json.JSONArray()
+                newPins.forEach { arr.put(org.json.JSONObject().put("id", it)) }
+                QookixApi(bridge).setPins(arr) { r ->
+                    r.onSuccess { pinnedIds = newPins }
                 }
             },
         )
@@ -1551,6 +1603,7 @@ private fun HomeRoute(
     // 再导航到详情页 —— 这个状态定义在 PageHost 的作用域（L333），
     // HomeRoute 自己拿不到，必须走回调（2026-10-17 修「点了没反应」）。
     onOpenInstance: (String) -> Unit,
+    pinnedIds: List<String> = emptyList(),
 ) {
     // i18n（2026-10-17）：本函数内的错误消息需要 Context
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1592,6 +1645,7 @@ private fun HomeRoute(
         state = HomeUiState(
             current = instances.firstOrNull(),
             recent = instances.drop(1).take(8),
+            pinned = instances.filter { it.id in pinnedIds },
             tasks = tasks,
             news = news,
         ),
@@ -1717,6 +1771,10 @@ private fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
                 onFailure = { state.copy(loading = false, error = context.getString(R.string.plugins_read_failed, friendlyError(context, it.message))) },
             )
         }
+        // 插件清单地址（2026-10-21 补：get_plugin_manifest_url 一直没 UI）
+        api.getPluginManifestUrl { r ->
+            r.onSuccess { state = state.copy(manifestUrl = it) }
+        }
     }
 
     // ── 监听 plugin://progress（2026-10-17 补，审计 H-6）─────────────
@@ -1762,6 +1820,30 @@ private fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
                     onFailure = { state.copy(busy = false, error = context.getString(R.string.plugins_install_failed, friendlyError(context, it.message))) },
                 )
                 reload()
+            }
+        },
+        onTogglePlugin = { p, enabled ->
+            // 乐观更新，失败回滚
+            val prev = p.enabled
+            state = state.copy(plugins = state.plugins.map { if (it.id == p.id) it.copy(enabled = enabled) else it })
+            api.setPluginEnabled(p.id, enabled) { r ->
+                r.onFailure { state = state.copy(plugins = state.plugins.map { if (it.id == p.id) it.copy(enabled = prev) else it }) }
+            }
+        },
+        onUninstallPlugin = { p ->
+            api.uninstallPlugin(p.id) { r ->
+                r.fold(
+                    onSuccess = { state = state.copy(plugins = state.plugins.filterNot { it.id == p.id }) },
+                    onFailure = { state = state.copy(error = context.getString(R.string.plugins_install_failed, friendlyError(context, it.message))) },
+                )
+            }
+        },
+        onSaveManifestUrl = { url ->
+            api.setPluginManifestUrl(url) { r ->
+                r.fold(
+                    onSuccess = { state = state.copy(manifestUrl = url) },
+                    onFailure = { state = state.copy(error = context.getString(R.string.plugins_install_failed, friendlyError(context, it.message))) },
+                )
             }
         },
     )
@@ -3378,6 +3460,9 @@ private fun InstanceDetailRoute(
             // 复制到剪贴板（写走 Rust 的 writeClipboardText 桥）
             QookixApi(bridge).writeClipboard(text) { _ -> }
         },
+        onViewCrashRaw = { filename, onResult ->
+            api.getCrashReportContent(instanceId, filename, onResult)
+        },
         onRepair = repairAction,
         onLaunchWorld = { world ->
             launchingWorld = world
@@ -3860,6 +3945,23 @@ private fun MultiplayerRoute(
         // 2026-10-18：从弹窗改成独立页面（用户反馈「对话框不合适，
         // 像新建实例那样做成页面会好一点」）。见 ServerCreatePage.kt。
         onCreateServer = { onNavigate(NavDestination.ServerCreate) },
+        onPingServer = { address, onResult ->
+            QookixApi(bridge).pingMcServer(address) { r ->
+                r.fold(
+                    onSuccess = { o ->
+                        val latency = o.optInt("latency", -1)
+                        val online = o.optInt("online", 0)
+                        val max = o.optInt("max", 0)
+                        if (latency >= 0) {
+                            onResult(Result.success(context.getString(R.string.multiplayer_ping_ok, latency, online, max)))
+                        } else {
+                            onResult(Result.failure(Exception()))
+                        }
+                    },
+                    onFailure = { onResult(Result.failure(it)) },
+                )
+            }
+        },
         onOpenFrp = { onNavigate(NavDestination.Frp) },
         onOpenFrpRooms = { onNavigate(NavDestination.FrpRooms) },
         tunnelBusy = tunnelBusy,
@@ -3998,6 +4100,20 @@ private fun CreateRoute(
     val repo = remember(api) { CreateRepo(api) }
 
     var state by remember { mutableStateOf(CreateUiState(loadingVersions = true)) }
+
+    // 预估下载体积（2026-10-21 补：estimateDownload 一直没 UI）
+    LaunchedEffect(bridgeReady, state.version) {
+        if (!bridgeReady || state.version.isBlank()) {
+            state = state.copy(estimatedDownloadMb = null)
+        } else {
+            api.estimateDownload(state.version) { r ->
+                r.onSuccess { o ->
+                    val bytes = o.optLong("totalSize", 0)
+                    if (bytes > 0) state = state.copy(estimatedDownloadMb = bytes / 1_000_000)
+                }
+            }
+        }
+    }
 
     // ── 加载器版本（非 vanilla 必填）────────────────────────────────────
     //
@@ -4199,6 +4315,10 @@ private fun BrowseRoute(
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
     val repo = remember(api) { BrowseRepo(api) }
+
+    // 项目详情对话框（2026-10-21 补：projectInfo 一直没 UI，原来只跳浏览器）
+    var projectDetail by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var projectDetailLoading by remember { mutableStateOf(false) }
 
     // 初始化时读上次的紧凑模式偏好（2026-10-17：记住用户选择）
     var state by remember {
@@ -4460,21 +4580,13 @@ private fun BrowseRoute(
         // 紧凑模式切换：只改 UI，不重新请求（同一批数据换种排布）
         onCompactChange = { state = state.copy(compact = it) },
         onOpenProject = { p ->
-            // 在系统浏览器打开项目页。
-            //
-            // 不做应用内详情页：Modrinth/CurseForge 的项目页信息量很大
-            // （截图、更新日志、依赖关系、各版本下载），自建一个只会更差；
-            // 而「安装」走的是内容中心自己的流程，不需要详情页中转。
-            //
-            // provider 决定 URL 形状 —— 两个平台的 id 体系完全不同：
-            //   Modrinth   用 slug/base62 id  → /project/<slug>
-            //   CurseForge 用纯数字 id        → /minecraft/mc-mods/<slug>
-            val url = if (p.provider.equals("curseforge", ignoreCase = true)) {
-                "https://www.curseforge.com/minecraft/search?search=${p.title}"
-            } else {
-                "https://modrinth.com/project/${p.id}"
+            // 应用内项目详情（2026-10-21 补：projectInfo 一直没 UI，原来只跳浏览器）
+            projectDetailLoading = true
+            projectDetail = null
+            QookixApi(bridge).projectInfo(p.provider, p.id) { r ->
+                projectDetailLoading = false
+                r.onSuccess { projectDetail = it }
             }
-            openUrl?.invoke(url)
         },
         onInstall = { p ->
             // ── 打开安装对话框 ────────────────────────────────────────
@@ -4699,6 +4811,46 @@ private fun BrowseRoute(
         // 插件（Hangar）没有加载器维度
         hideLoader = state.type == BrowseType.Plugin.id,
     )
+
+    // 项目详情对话框（2026-10-21 补）
+    projectDetail?.let { info ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { projectDetail = null },
+            title = { androidx.compose.material3.Text(info.optString("title")) },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    val author = info.optString("author")
+                    if (author.isNotBlank()) {
+                        androidx.compose.material3.Text("作者：$author", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                    }
+                    val downloads = info.optLong("downloads", 0)
+                    if (downloads > 0) {
+                        androidx.compose.material3.Text("下载量：$downloads", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                    }
+                    val desc = info.optString("description")
+                    if (desc.isNotBlank()) {
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
+                        androidx.compose.material3.Text(desc, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                    }
+                    val body = info.optString("body")
+                    if (body.isNotBlank()) {
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
+                        androidx.compose.material3.Text(
+                            body.take(500) + if (body.length > 500) "…" else "",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            maxLines = 10,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { projectDetail = null }) {
+                    androidx.compose.material3.Text(context.getString(R.string.instances_group_cancel))
+                }
+            },
+        )
+    }
 }
 
 /** 新闻页 + 数据加载。这是 Phase 1 的桥验证点。 */

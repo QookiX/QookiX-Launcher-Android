@@ -47,6 +47,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -127,6 +128,8 @@ fun InstanceDetailPage(
     onCancelTask: (() -> Unit)? = null,
     /** 复制文本到剪贴板（崩溃报告等求助内容）。 */
     onCopyCrashText: ((String) -> Unit)? = null,
+    /** 查看崩溃报告原文（2026-10-21 补）。 */
+    onViewCrashRaw: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
     /** 文件操作实现（实例侧）—— 由外层构造，因为它需要 instanceId。 */
     fileOps: FileOps,
     // 存档
@@ -406,7 +409,7 @@ fun InstanceDetailPage(
                     usage = sharedUsage,
                 )
                 InstanceTab.Logs -> LogsTab(state, onLoadLog, onExportLog)
-                InstanceTab.Crash -> CrashTab(state, onLoadCrashes, onAnalyzeCrash, onCopyCrashText)
+                InstanceTab.Crash -> CrashTab(state, onLoadCrashes, onAnalyzeCrash, onCopyCrashText, onViewCrashRaw)
             }
         }
         }   // ← Box
@@ -1055,6 +1058,8 @@ private fun CrashTab(
     onAnalyze: (String) -> Unit,
     /** 复制崩溃报告正文（拿去求助用）。 */
     onCopyCrashText: ((String) -> Unit)? = null,
+    /** 查看崩溃报告原文（2026-10-21 补：getCrashReportContent 一直没 UI）。 */
+    onViewRaw: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
 ) {
     LaunchedEffect(Unit) { onLoadCrashes() }
 
@@ -1095,6 +1100,18 @@ private fun CrashTab(
         return
     }
 
+    // 查看原文对话框（2026-10-21 补）
+    var rawFilename by remember { mutableStateOf<String?>(null) }
+    var rawContent by remember { mutableStateOf<String?>(null) }
+    rawFilename?.let { fname ->
+        CrashReportDialog(
+            title = fname,
+            body = rawContent ?: stringResource(R.string.instance_detail_loading),
+            onDismiss = { rawFilename = null; rawContent = null },
+            onCopy = onCopyCrashText?.let { cb -> { cb(rawContent ?: "") } },
+        )
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -1130,6 +1147,17 @@ private fun CrashTab(
                     }
                     FilledTonalButton(onClick = { onAnalyze(name) }) {
                         Text(stringResource(R.string.instance_detail_analyze))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = {
+                        rawFilename = name
+                        rawContent = null
+                        onViewRaw(name) { r ->
+                            r.onSuccess { rawContent = it }
+                            r.onFailure { rawContent = it.message ?: "读取失败" }
+                        }
+                    }) {
+                        Text(stringResource(R.string.instance_detail_view_raw))
                     }
                 }
             }

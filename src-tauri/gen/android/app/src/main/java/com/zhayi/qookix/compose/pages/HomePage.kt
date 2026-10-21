@@ -136,6 +136,15 @@ fun HomePage(
                     .padding(start = 4.dp, end = 20.dp, top = 20.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
+                // 置顶实例（2026-10-21 补：getPins/setPins 一直没 UI）
+                if (state.pinned.isNotEmpty()) {
+                    SectionTitle(stringResource(R.string.home_pinned))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        itemsIndexed(state.pinned, key = { _, it -> it.id }) { index, inst ->
+                            RecentInstanceCard(inst) { onOpenInstance(inst.id) }
+                        }
+                    }
+                }
                 // 横屏时「最近实例」用横向滚动更省纵向空间
                 if (state.recent.isNotEmpty()) {
                     SectionTitle(stringResource(R.string.home_recent_instances))
@@ -215,6 +224,13 @@ private fun HomeSecondaryContent(
     onOpenInstance: (String) -> Unit,
     onOpenNews: () -> Unit,
 ) {
+    if (state.pinned.isNotEmpty()) {
+        SectionTitle(stringResource(R.string.home_pinned))
+        state.pinned.forEach { inst ->
+            RecentInstanceCard(inst) { onOpenInstance(inst.id) }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
     if (state.recent.isNotEmpty()) {
         SectionTitle(stringResource(R.string.home_recent_instances))
         // 横屏时用横向滚动更省纵向空间；窄屏用纵向列表更易读。
@@ -536,6 +552,7 @@ private fun NewsRow(n: NewsItemUi) {
 data class HomeUiState(
     val current: InstanceUi? = null,
     val recent: List<InstanceUi> = emptyList(),
+    val pinned: List<InstanceUi> = emptyList(),
     val tasks: List<TaskUi> = emptyList(),
     val news: List<NewsItemUi> = emptyList(),
     val launching: Boolean = false,
