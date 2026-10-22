@@ -13,6 +13,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 
@@ -31,6 +32,10 @@ import androidx.compose.ui.unit.dp
 fun GeneralPane(
     state: SettingsUiState,
     onChange: (SettingsPatch) -> Unit,
+    /** 设备可用内存（MB）。0 = 还没探测到（或读不到 /proc/meminfo）。 */
+    availableMemoryMb: Int = 0,
+    /** 重新探测设备内存。 */
+    onRefreshMemory: () -> Unit = {},
 ) {
     SettingsPane(title = stringResource(R.string.settings_general)) {
         SettingsGroup(stringResource(R.string.settings_launch_group)) {
@@ -145,6 +150,32 @@ fun GeneralPane(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
+            }
+        }
+
+        // ── 设备信息（D8）───────────────────────────────────────────────
+        //
+        // 开服时服务端的 `-Xmx` 会被后端钳到「可用内存的 60%」，
+        // 不给用户看这个数，他填 4G 实际只跑 1G 时完全不知道该调哪个旋钮。
+        // 读的是 /proc/meminfo 的 MemAvailable（真能分配的量），不是总内存。
+        SettingsGroup(stringResource(R.string.settings_device_group)) {
+            SettingsRow(
+                title = stringResource(R.string.settings_device_memory_available),
+                subtitle = stringResource(R.string.settings_device_memory_available_desc),
+                showDivider = false,
+            ) {
+                Text(
+                    text = if (availableMemoryMb > 0) {
+                        stringResource(R.string.settings_device_memory_value, availableMemoryMb)
+                    } else {
+                        stringResource(R.string.settings_device_memory_unknown)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onRefreshMemory) {
+                    Text(stringResource(R.string.settings_game_detect))
+                }
             }
         }
     }

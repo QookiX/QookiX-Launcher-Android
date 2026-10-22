@@ -115,10 +115,15 @@ fun ServerDetailRoute(
     }
 
     /** 刷新日志（手动按钮与轮询走同一条路，保证行为一致）。 */
-    fun refreshLogs() {
+    fun refreshLogs(onComplete: (Boolean) -> Unit = {}) {
         repo.loadLogs(serverId) { r ->
-            // 只保留最近 2000 行：控制台不需要全量，且越长重组越慢
-            r.onSuccess { logs -> state = state.copy(logs = logs.takeLast(2000)) }
+            r.fold(
+                onSuccess = { logs ->
+                    state = state.copy(logs = logs.takeLast(2000))
+                    onComplete(true)
+                },
+                onFailure = { onComplete(false) },
+            )
         }
     }
 
@@ -349,6 +354,14 @@ fun ServerDetailRoute(
                 state = state.copy(commandInput = "")
             }
         },
+        // 快捷命令（list / save-all）：跳过输入框直接下发。
+        onQuickCommand = { cmd ->
+            repo.sendCommand(serverId, cmd) { r ->
+                r.onFailure { e ->
+                    state = state.copy(error = ctx.getString(R.string.server_detail_send_failed, e.message ?: ""))
+                }
+            }
+        },
         onInstallCore = installCoreAction,
         onOpenDirectory = { repo.openDirectory(serverId) { } },
         onOpenFiles = onOpenFiles,
@@ -381,14 +394,28 @@ fun ServerDetailRoute(
                 // 顺序有讲究：先停广播，再让 Terracotta 回到等待 ——
                 // `/waiting` 里也会顺手停广播，但先停一次能保证「立刻」
                 // 不再对外宣称有台服务器。
-                repo.stopShare { }
-                state = state.copy(
-                    shareOn = false,
-                    shareRoom = "",
-                    shareBusy = false,
-                    shareMessage = "",
-                    notice = ctx.getString(R.string.server_detail_share_stopped),
-                )
+                repo.stopShare { r ->
+                    r.fold(
+                        onSuccess = {
+                            state = state.copy(
+                                shareOn = false,
+                                shareRoom = "",
+                                shareBusy = false,
+                                shareMessage = "",
+                                notice = ctx.getString(R.string.server_detail_share_stopped),
+                            )
+                        },
+                        onFailure = { e ->
+                            state = state.copy(
+                                shareBusy = false,
+                                error = ctx.getString(
+                                    R.string.server_detail_share_stop_failed,
+                                    e.message ?: ctx.getString(R.string.server_detail_unknown_error),
+                                ),
+                            )
+                        },
+                    )
+                }
                 return@ServerDetailPage
             }
 
@@ -492,8 +519,9 @@ fun ServerDetailRoute(
 
         // ── 缺陷 3：日志 / 内存 / 删除 ──────────────────────────────────
         onRefreshLogs = {
-            refreshLogs()
-            state = state.copy(notice = ctx.getString(R.string.server_detail_logs_refreshed))
+            refreshLogs { ok ->
+                state = state.copy(notice = if (ok) ctx.getString(R.string.server_detail_logs_refreshed) else ctx.getString(R.string.server_detail_logs_refresh_failed))
+            }
         },
         onRequestBatteryUnrestricted = {
             api.requestBatteryUnrestricted { r ->

@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
@@ -99,6 +100,7 @@ import com.zhayi.qookix.compose.pages.InstanceDetailToolbar
 import com.zhayi.qookix.compose.pages.FileReportUi
 import com.zhayi.qookix.compose.pages.MissingItemUi
 import com.zhayi.qookix.compose.pages.InstanceDetailUiState
+import com.zhayi.qookix.compose.pages.ControlButtonUi
 import com.zhayi.qookix.compose.pages.SharedUsageUi
 import com.zhayi.qookix.compose.pages.InstanceSettingsUiState
 import com.zhayi.qookix.compose.pages.InstanceSettingsPatch
@@ -169,6 +171,14 @@ import com.zhayi.qookix.compose.pages.settings.SettingsTab
 import com.zhayi.qookix.compose.pages.settings.SettingsUiState
 import com.zhayi.qookix.compose.pages.settings.StoragePane
 import com.zhayi.qookix.compose.shell.NavDestination
+
+/**
+ * 冷启动的「渲染器健康检查」是否已跑过。
+ *
+ * 进程级（不是 remember）：横竖屏重建会把组合整个丢掉，
+ * 用 remember 的话旋转一次就会再查一次、再弹一次提示。
+ */
+private var coldRendererCheckDone = false
 
 /**
  * 页面路由：按当前导航目标渲染对应页面。
@@ -474,12 +484,34 @@ fun PageHost(
             // 迟到回调：页面可能已经不在了，别写它的状态
             if (!alive) return@checkRendererHealth
             r.onSuccess { o ->
-                // 后端返回 null 表示健康（没有可报的问题）
-                if (o != null && o.optString("instance_id").isNotBlank()) {
+                // 后端返回 null 表示健康 —— 桥会把 JSON null 当成空对象，
+                // 所以判断依据是 instance_id 是否为空
+                if (o.optString("instance_id").isNotBlank()) {
                     rendererIssue = o
                 }
             }
             // 检查失败不打扰用户（旧 UI：`checkRendererHealth` 抛错时静默）
+        }
+    }
+
+    // ── 冷启动静默检查一次渲染器（D9）──────────────────────────────────
+    //
+    // 触发时机：启动器起来后查一次「最近一次启动」的日志。之前出现过
+    // 某次更新后渲染器配置悄悄失效、用户进游戏才白屏（等几十秒被系统收掉），
+    // 完全不知道该换哪个渲染器。
+    //
+    // 每次进程只查一次（`coldRendererCheckDone` 是进程级的，不用 remember —
+    // 否则横竖屏重建组合会再查一次、再弹一次），不阻塞首屏：
+    // 失败完全静默，有问题才复用上面那个 rendererIssue 弹窗。
+    LaunchedEffect(bridgeReady) {
+        if (!bridgeReady || coldRendererCheckDone) return@LaunchedEffect
+        coldRendererCheckDone = true
+        QookixApi(bridge).checkRendererHealthLatest { r ->
+            r.onSuccess { o ->
+                if (o.optString("instance_id").isNotBlank() && rendererIssue == null) {
+                    rendererIssue = o
+                }
+            }
         }
     }
 
@@ -491,8 +523,11 @@ fun PageHost(
         // 命令名是 `update_instance`（不是 update_instance_settings），
         // 且 patch 里必须带 `id` —— patch 对象本身就是参数。
         val patch = org.json.JSONObject().put("id", id).put("renderer", rec)
-        QookixApi(bridge).updateInstance(patch) {
-            rendererIssue = null
+        QookixApi(bridge).updateInstance(patch) { r ->
+            r.fold(
+                onSuccess = { rendererIssue = null },
+                onFailure = { android.util.Log.w("QkRenderer", "切换渲染器失败", it) },
+            )
         }
     }
 
@@ -629,6 +664,7 @@ fun PageHost(
                 bridgeReady = bridgeReady,
                 instances = instances,
                 tasks = tasksState.active,
+                runningInstanceId = tasksRepo.runningInstanceId,
                 onNavigate = onNavigate,
                 onOpenInstance = { id ->
                     onSelectedInstanceIdChange(id)
@@ -675,6 +711,7 @@ fun PageHost(
         NavDestination.Multiplayer -> MultiplayerRoute(
             bridge = bridge,
             bridgeReady = bridgeReady,
+            activity = activity,
             onOpenServer = { id ->
                 onSelectedServerIdChange(id)
                 onNavigate(NavDestination.ServerDetail)
@@ -738,6 +775,7 @@ fun PageHost(
                     bridge = bridge,
                     bridgeReady = bridgeReady,
                     instanceId = id,
+                    activity = activity,
                     onBack = { onNavigate(NavDestination.Instances) },
                     onOpenFiles = { fileBrowserTarget = FileTarget.Instance },
                     tasksRepo = tasksRepo,
@@ -746,6 +784,8 @@ fun PageHost(
                     onTaskQuery = { taskQueryInstanceId = it },
                     // 把实例信息注册到顶栏（替换掉「实例详情」那个标题）
                     onRegisterToolbar = onRegisterToolbar,
+                    // 换图标后要让实例列表重载（D3）
+                    onInstanceChanged = { instancesReloadKey++ },
                 )
             }
         }
@@ -782,6 +822,9 @@ fun PageHost(
             onOpen = { id ->
                 onSelectedInstanceIdChange(id)
                 onNavigate(NavDestination.InstanceDetail)
+            },
+            onLaunch = { id ->
+                QookixApi(bridge).launchGame(id, null) { }
             },
             onDelete = { target ->
                 // 删完必须刷新列表（与创建同理 —— 否则列表还显示已删的项）。
@@ -1207,6 +1250,7 @@ private fun FrpRoute(
             }
         },
         onOpenRooms = onOpenRooms,
+        onCopyAddress = { addr -> activity?.copyToClipboard(context.getString(R.string.frp_tunnel_address), addr) },
     )
 
     if (login.visible) {
@@ -1353,6 +1397,22 @@ private fun FrpRoomsRoute(
                 }
             }
         },
+        onEnterWithPassword = { room, pwd ->
+            state = state.copy(busy = true, error = null)
+            api.frpRoomJoin(room.id, pwd) { r ->
+                state = r.fold(
+                    onSuccess = { o ->
+                        val connect = o.optString("connect")
+                        state.copy(
+                            busy = false,
+                            connectAddress = connect.ifBlank { null },
+                            notes = state.notes + (room.id to context.getString(R.string.frp_room_joined)),
+                        )
+                    },
+                    onFailure = { e -> state.copy(busy = false, error = context.getString(R.string.frp_room_join_failed, e.message)) },
+                )
+            }
+        },
         onExit = { room ->
             state = state.copy(busy = true, error = null)
             val afterPrimary: (Result<org.json.JSONObject>) -> Unit = {
@@ -1366,6 +1426,15 @@ private fun FrpRoomsRoute(
         },
         onOpenConnect = { addr ->
             activity?.copyToClipboard(context.getString(R.string.multiplayer_address), addr)
+        },
+        // D5b：密码框的「粘贴」走 Rust 的 read_clipboard 命令
+        // （它内部回调宿主读原生剪贴板）——绕开 Compose 输入框
+        // 长按菜单在 WebView 混合壳里弹不出来的问题。
+        // 读不到（空/失败）时回调 null，页面静默收场。
+        onReadClipboard = { cb ->
+            api.readClipboard { r ->
+                cb(r.getOrNull())
+            }
         },
     )
 }
@@ -1610,6 +1679,7 @@ private fun HomeRoute(
     // HomeRoute 自己拿不到，必须走回调（2026-10-17 修「点了没反应」）。
     onOpenInstance: (String) -> Unit,
     pinnedIds: List<String> = emptyList(),
+    runningInstanceId: String? = null,
 ) {
     // i18n（2026-10-17）：本函数内的错误消息需要 Context
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1628,11 +1698,17 @@ private fun HomeRoute(
     // 与其让用户看到一句技术性错误，不如提前拦住并引导去添加。
     var accounts by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
 
+    // 游玩总时长（B3）：首页统计卡用。失败静默（不该影响首页可用性）。
+    var playtimeSeconds by remember { mutableStateOf(0L) }
+
     LaunchedEffect(bridgeReady) {
         if (bridgeReady) {
             bridge.invoke("fetch_news", "{}") { r ->
                 r.onSuccess { news = parseNews(it) }
                 // 失败静默：新闻不该影响首页可用性
+            }
+            api.playtimeStats { r ->
+                r.onSuccess { o -> playtimeSeconds = o.optLong("totalSeconds", 0L) }
             }
             api.listAccounts { r ->
                 r.onSuccess { arr ->
@@ -1654,6 +1730,8 @@ private fun HomeRoute(
             pinned = instances.filter { it.id in pinnedIds },
             tasks = tasks,
             news = news,
+            runningInstanceId = runningInstanceId,
+            playtimeSeconds = playtimeSeconds,
         ),
         onLaunch = {
               android.util.Log.i("QkLaunch", "click instances=" + instances.size + " accounts=" + accounts.size)
@@ -1728,6 +1806,7 @@ private fun HomeRoute(
             }
         },
         onOpenNews = { onNavigate(NavDestination.News) },
+        onCancelTask = { taskId -> api.cancelInstall(taskId) { } },
     )
 
     // 提示对话框（统一出口：没有实例 / 没有账号 / 启动失败）
@@ -2351,9 +2430,56 @@ private fun SettingsRoute(
     // 清翻译缓存（返回释放字节数）
     var clearingTranslation by remember { mutableStateOf(false) }
     var clearTranslationHint by remember { mutableStateOf<String?>(null) }
+    // 翻译 API 连通性测试（D1）
+    var testingTranslate by remember { mutableStateOf(false) }
+    var translateTestHint by remember { mutableStateOf<String?>(null) }
 
-    // 设备内存探测结果（游戏子页用）
+    // 设备内存探测结果（游戏子页 + 常规页的「设备可用内存」共用）
     var memoryInfo by remember { mutableStateOf<MemoryInfoUi?>(null) }
+
+    // D8：设备可用内存（MB）。0 = 还没探测到。
+    //
+    // 用的是 `device_available_memory_mb`（后端另有同名的 `deviceAvailableMemoryMb` 包装）——
+    // 它读 /proc/meminfo 的 MemAvailable，只返回「真正能分配的量」，
+    // 而 auto_detect_memory 还要算推荐区间。两者数据同源，展示用前者即可。
+    var deviceAvailableMb by remember { mutableStateOf(0L) }
+
+    /** 探测设备可用内存（D8）。失败不打扰 —— 行里显示「未知」。 */
+    fun detectDeviceMemory() {
+        api.deviceAvailableMemoryMb { r ->
+            r.onSuccess { mb ->
+                deviceAvailableMb = mb
+            }
+        }
+    }
+
+    /** 探测设备内存：游戏子页的「探测」按钮和常规页的刷新都用这一份。 */
+    fun detectMemory() {
+        api.autoDetectMemory { r ->
+            r.fold(
+                onSuccess = { o ->
+                    memoryInfo = MemoryInfoUi(
+                        totalMb = o.optInt("total_mb", 0),
+                        usedMb = o.optInt("used_mb", 0),
+                        availableMb = o.optInt("available_mb", 0),
+                        maxMb = o.optInt("max_mb", 2048),
+                        minMb = o.optInt("min_mb", 512),
+                    )
+                },
+                onFailure = { e ->
+                    state = state.copy(error = context.getString(R.string.memory_probe_failed, e.message))
+                },
+            )
+        }
+    }
+
+    // 进设置页后台探一次内存（D8）：常规页常驻显示「可用内存」，
+    // 开服的人据此判断能给 JVM 分多少。失败不打扰（行里显示「未知」）。
+    LaunchedEffect(bridgeReady) {
+        if (!bridgeReady) return@LaunchedEffect
+        if (memoryInfo == null) detectMemory()
+        if (deviceAvailableMb <= 0L) detectDeviceMemory()
+    }
 
     // 渲染器（存在 Pojav 偏好里，不在 settings.json）
     var renderer by remember { mutableStateOf("opengles2") }
@@ -2387,7 +2513,10 @@ private fun SettingsRoute(
     var proxyError by remember { mutableStateOf<String?>(null) }
     val appVersion = currentAppVersion(androidx.compose.ui.platform.LocalContext.current)
 
-    LaunchedEffect(bridgeReady) {
+    // 外部改了设置（如「存储」子页切换游戏目录）后，靠这个 key 触发重拉
+    var settingsReloadKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(bridgeReady, settingsReloadKey) {
         if (!bridgeReady) return@LaunchedEffect
         repo.load { r ->
             state = r.fold(
@@ -2509,7 +2638,21 @@ private fun SettingsRoute(
         onTabChange = { tab = it },
         content = { t ->
             when (t) {
-                SettingsTab.General -> GeneralPane(state) { apply(it) }
+                SettingsTab.General -> GeneralPane(
+                    state = state,
+                    onChange = { apply(it) },
+                    // D8：优先用 device_available_memory_mb 的结果，
+                    // 探不到时退回 auto_detect_memory 的 available_mb（同源）。
+                    availableMemoryMb = if (deviceAvailableMb > 0L) {
+                        deviceAvailableMb.toInt()
+                    } else {
+                        memoryInfo?.availableMb ?: 0
+                    },
+                    onRefreshMemory = {
+                        detectMemory()
+                        detectDeviceMemory()
+                    },
+                )
                 SettingsTab.Appearance -> AppearancePane(
                     state = state,
                     onChange = { apply(it) },
@@ -2703,24 +2846,7 @@ private fun SettingsRoute(
                 }
             },
                     onChange = { apply(it) },
-                    onDetectMemory = {
-                        api.autoDetectMemory { r ->
-                            r.fold(
-                                onSuccess = { o ->
-                                    memoryInfo = MemoryInfoUi(
-                                        totalMb = o.optInt("total_mb", 0),
-                                        usedMb = o.optInt("used_mb", 0),
-                                        availableMb = o.optInt("available_mb", 0),
-                                        maxMb = o.optInt("max_mb", 2048),
-                                        minMb = o.optInt("min_mb", 512),
-                                    )
-                                },
-                                onFailure = { e ->
-                                    state = state.copy(error = context.getString(R.string.memory_probe_failed, e.message))
-                                },
-                            )
-                        }
-                    },
+                    onDetectMemory = { detectMemory() },
                     memoryInfo = memoryInfo,
                     onDismissMemoryInfo = { memoryInfo = null },
                 )
@@ -2728,6 +2854,7 @@ private fun SettingsRoute(
                     state = state,
                     onChange = { apply(it) },
                     bridge = bridge,
+                    onReloadSettings = { settingsReloadKey++ },
                 )
                 SettingsTab.ContentServices -> ContentServicesPane(
                     state = state,
@@ -2758,6 +2885,43 @@ private fun SettingsRoute(
                     },
                     clearingTranslation = clearingTranslation,
                     clearTranslationHint = clearTranslationHint,
+                    onTestTranslateApi = {
+                        if (testingTranslate) return@ContentServicesPane
+                        testingTranslate = true
+                        translateTestHint = null
+                        api.testTranslateApi(
+                            base = state.translateApiBase,
+                            key = state.translateApiKey,
+                            model = state.translateApiModel,
+                        ) { r ->
+                            testingTranslate = false
+                            r.fold(
+                                onSuccess = { o ->
+                                    // 容错：不同版本可能给 message / error / detail
+                                    val ok = o.optBoolean("ok", false)
+                                    val msg = sequenceOf("message", "error", "detail", "result")
+                                        .map { o.optString(it) }
+                                        .firstOrNull { it.isNotBlank() }
+                                    translateTestHint = if (ok) {
+                                        context.getString(R.string.content_services_test_ok)
+                                    } else {
+                                        context.getString(
+                                            R.string.content_services_test_failed,
+                                            msg ?: context.getString(R.string.server_detail_unknown_error),
+                                        )
+                                    }
+                                },
+                                onFailure = { e ->
+                                    translateTestHint = context.getString(
+                                        R.string.content_services_test_failed,
+                                        e.message ?: "",
+                                    )
+                                },
+                            )
+                        }
+                    },
+                    testingTranslate = testingTranslate,
+                    translateTestHint = translateTestHint,
                 )
                 SettingsTab.About -> AboutPane(
                     state = state,
@@ -3063,6 +3227,8 @@ private fun InstanceDetailRoute(
     bridge: RustBridge,
     bridgeReady: Boolean,
     instanceId: String,
+    /** 宿主 Activity：日志「另存为」与「导入文件」都要弹系统选择器。 */
+    activity: ComposeMainActivity? = null,
     onBack: () -> Unit,
     onOpenFiles: () -> Unit,
     /** 任务仓库：判断该实例是否已有进行中的下载（防止重复开任务）。 */
@@ -3080,6 +3246,13 @@ private fun InstanceDetailRoute(
     onTaskQuery: (String) -> Unit,
     /** 向顶栏注册实例信息（名字/版本/加载器/按钮）。 */
     onRegisterToolbar: ((@Composable () -> Unit)?) -> Unit = {},
+    /**
+     * 实例元数据变了（换图标等）—— 通知外层刷新实例列表。
+     *
+     * 列表数据由 PageHost 持有（`instancesReloadKey`），详情页改不到，
+     * 只能靠这个回调触发一次重载，否则回到列表还是旧图标。
+     */
+    onInstanceChanged: () -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
@@ -3154,6 +3327,60 @@ private fun InstanceDetailRoute(
             onDispose { bridge.unlisten("content::identified") }
         }
     }
+
+    // 后台更新完成事件（A1）：`apply_update` 是后台跑的，完成后后端 emit
+    // `content://update-finished`（payload：{filename, ok, error?}）。
+    // 不监听的话用户点「更新」后要退出再进才知道成没成。
+    DisposableEffect(bridgeReady, instanceId) {
+        if (!bridgeReady) {
+            onDispose { }
+        } else {
+            bridge.listen("content://update-finished") { payload ->
+                runCatching {
+                    val o = org.json.JSONObject(payload)
+                    val ok = o.optBoolean("ok", false)
+                    val filename = o.optString("filename")
+                    state = state.copy(
+                        error = if (ok) {
+                            context.getString(R.string.update_done_for, filename)
+                        } else {
+                            context.getString(R.string.update_failed, o.optString("error"))
+                        },
+                    )
+                    // 重新拉当前分类，让新版本号/状态即时反映
+                    repo.loadContent(state.contentKind, instanceId) { lr ->
+                        state = lr.fold(
+                            onSuccess = { state.copy(content = it, loading = false) },
+                            onFailure = { state.copy(loading = false) },
+                        )
+                    }
+                }.onFailure { android.util.Log.w("InstanceDetail", "解析 content://update-finished 失败", it) }
+            }
+            onDispose { bridge.unlisten("content://update-finished") }
+        }
+    }
+
+    // 游戏运行时实时日志（A2）：后端后台跟随日志文件，新增行通过
+    // `launch://log` 推送（payload：{instanceId, stream, line}）。
+    // 不监听的话日志面板只有启动那一刻的快照，看不到游戏运行中的输出。
+    DisposableEffect(bridgeReady, instanceId) {
+        if (!bridgeReady) {
+            onDispose { }
+        } else {
+            bridge.listen("launch://log") { payload ->
+                runCatching {
+                    val o = org.json.JSONObject(payload)
+                    if (o.optString("instanceId") != instanceId) return@runCatching
+                    val line = o.optString("line")
+                    if (line.isNotEmpty()) {
+                        // 只保留最近 2000 行，避免长跑游戏把内存吃光
+                        state = state.copy(logs = (state.logs + line).takeLast(2000))
+                    }
+                }.onFailure { android.util.Log.w("InstanceDetail", "解析 launch://log 失败", it) }
+            }
+            onDispose { bridge.unlisten("launch://log") }
+        }
+    }
     var launchingWorld by remember(instanceId) { mutableStateOf<String?>(null) }
 
     // ── 实例设置 tab 的状态 ────────────────────────────────────────────
@@ -3171,6 +3398,10 @@ private fun InstanceDetailRoute(
     var duplicateTarget by remember(instanceId) { mutableStateOf<String?>(null) }
     // 布局操作（复制/删除）的错误提示
     var layoutError by remember(instanceId) { mutableStateOf<String?>(null) }
+    // 换图标面板（D3）：游戏素材图标 + 本地图片导入
+    var showIconPicker by remember(instanceId) { mutableStateOf(false) }
+    var gameIcons by remember(instanceId) { mutableStateOf<List<org.json.JSONObject>>(emptyList()) }
+    var gameIconsLoading by remember(instanceId) { mutableStateOf(false) }
     // ⚠️ 危险操作的二次确认（2026-10-17 加，真机/审查发现 5 处直接执行）。
     //
     // 原来这些操作点一下就执行、**没有任何确认**：
@@ -3216,6 +3447,18 @@ private fun InstanceDetailRoute(
                         },
                     )
                 }
+            }
+        }
+    }
+
+    // 换图标面板（D3）：打开时才去拉游戏素材图标列表
+    LaunchedEffect(showIconPicker, instanceId) {
+        if (!showIconPicker) return@LaunchedEffect
+        gameIconsLoading = true
+        api.extractGameIcons(instanceId) { r ->
+            gameIconsLoading = false
+            r.onSuccess { arr ->
+                gameIcons = (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i) }
             }
         }
     }
@@ -3308,9 +3551,11 @@ private fun InstanceDetailRoute(
                 api.renameControlLayout(
                     target.removeSuffix(".json"),
                     newName.removeSuffix(".json"),
-                ) {
-                    // 触发按键 tab 重新加载
-                    state = state.copy(tab = InstanceTab.Keys)
+                ) { r ->
+                    r.fold(
+                        onSuccess = { state = state.copy(tab = InstanceTab.Keys) },
+                        onFailure = { e -> state = state.copy(error = context.getString(R.string.layout_rename_failed, e.message ?: "")) },
+                    )
                 }
             },
         )
@@ -3344,6 +3589,107 @@ private fun InstanceDetailRoute(
                             layoutError = context.getString(R.string.layout_copy_failed, friendlyError(context, e.message))
                         },
                     )
+                }
+            },
+        )
+    }
+
+    // ── 换图标面板（D3）───────────────────────────────────────────────
+    //
+    // `extract_game_icons`（从游戏素材抽图标）+ `import_instance_image`
+    // （导入本地图片）两个后端能力一直零调用 —— 实例只有首字母色块。
+    if (showIconPicker) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showIconPicker = false },
+            title = { androidx.compose.material3.Text(context.getString(R.string.instance_detail_change_icon)) },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    if (gameIconsLoading) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else if (gameIcons.isEmpty()) {
+                        androidx.compose.material3.Text(
+                            context.getString(R.string.instance_detail_icon_no_game_icons),
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                            columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(minSize = 64.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                        ) {
+                            items(gameIcons.size) { i ->
+                                val ic = gameIcons[i]
+                                androidx.compose.material3.TextButton(onClick = {
+                                    val p = ic.optString("path")
+                                    if (p.isNotBlank()) {
+                                        api.updateInstance(
+                                            org.json.JSONObject().put("id", instanceId).put("icon", p)
+                                        ) { r ->
+                                            r.fold(
+                                                onSuccess = {
+                                                    showIconPicker = false
+                                                    state = state.copy(error = context.getString(R.string.instance_detail_icon_set))
+                                                    onInstanceChanged()
+                                                },
+                                                onFailure = { e ->
+                                                    state = state.copy(error = context.getString(R.string.instance_detail_icon_set_failed, e.message ?: ""))
+                                                },
+                                            )
+                                        }
+                                    }
+                                }) {
+                                    androidx.compose.material3.Text(
+                                        text = ic.optString("label").ifBlank { ic.optString("name") },
+                                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    // 从本地选一张图片导入
+                    activity?.pickImage { path ->
+                        if (path.isNullOrBlank()) return@pickImage
+                        api.importInstanceImage(path) { r ->
+                            r.fold(
+                                onSuccess = { dest ->
+                                    api.updateInstance(
+                                        org.json.JSONObject().put("id", instanceId).put("icon", dest)
+                                    ) { ur ->
+                                        ur.fold(
+                                            onSuccess = {
+                                                showIconPicker = false
+                                                state = state.copy(error = context.getString(R.string.instance_detail_icon_set))
+                                                onInstanceChanged()
+                                            },
+                                            onFailure = { e ->
+                                                state = state.copy(error = context.getString(R.string.instance_detail_icon_set_failed, e.message ?: ""))
+                                            },
+                                        )
+                                    }
+                                },
+                                onFailure = { e ->
+                                    state = state.copy(error = context.getString(R.string.instance_detail_icon_set_failed, e.message ?: ""))
+                                },
+                            )
+                        }
+                    }
+                }) {
+                    androidx.compose.material3.Text(context.getString(R.string.instance_detail_icon_from_file))
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showIconPicker = false }) {
+                    androidx.compose.material3.Text(context.getString(R.string.instance_detail_cancel))
                 }
             },
         )
@@ -3444,6 +3790,7 @@ private fun InstanceDetailRoute(
                 repairing = repairing,
                 onLaunch = launchAction,
                 onRepair = repairAction,
+                onChangeIcon = { showIconPicker = true },
             )
         }
     }
@@ -3490,7 +3837,12 @@ private fun InstanceDetailRoute(
         },
         launchingWorld = launchingWorld,
         onBackup = { world ->
-            api.createWorldBackup(instanceId, world) { state = state.copy(tab = InstanceTab.Saves) }
+            api.createWorldBackup(instanceId, world) { r ->
+                r.fold(
+                    onSuccess = { state = state.copy(tab = InstanceTab.Saves) },
+                    onFailure = { e -> state = state.copy(error = context.getString(R.string.backup_create_failed, e.message ?: "")) },
+                )
+            }
         },
         onRestore = { file ->
             val world = state.worlds.firstOrNull()?.name ?: return@InstanceDetailPage
@@ -3500,8 +3852,11 @@ private fun InstanceDetailRoute(
                 message = context.getString(R.string.backup_restore_msg, file),
                 confirmText = context.getString(R.string.backup_restore_confirm),
                 action = {
-                    api.restoreWorldBackup(instanceId, world, file) {
-                        state = state.copy(tab = InstanceTab.Saves)
+                    api.restoreWorldBackup(instanceId, world, file) { r ->
+                        r.fold(
+                            onSuccess = { state = state.copy(tab = InstanceTab.Saves) },
+                            onFailure = { e -> state = state.copy(error = context.getString(R.string.backup_restore_failed, e.message ?: "")) },
+                        )
                     }
                 },
             )
@@ -3513,13 +3868,23 @@ private fun InstanceDetailRoute(
                 message = context.getString(R.string.backup_delete_msg),
                 confirmText = context.getString(R.string.backup_delete_confirm),
                 action = {
-                    api.deleteWorldBackup(instanceId, world, file) {
-                        state = state.copy(tab = InstanceTab.Saves)
+                    api.deleteWorldBackup(instanceId, world, file) { r ->
+                        r.fold(
+                            onSuccess = { state = state.copy(tab = InstanceTab.Saves) },
+                            onFailure = { e -> state = state.copy(error = context.getString(R.string.backup_delete_failed, e.message ?: "")) },
+                        )
                     }
                 },
             )
         },
-        onLayoutSelect = { name -> api.setCurrentControlLayout(name) },
+        onLayoutSelect = { name ->
+            api.setCurrentControlLayout(name) { r ->
+                r.fold(
+                    onSuccess = { state = state.copy(tab = InstanceTab.Keys) },
+                    onFailure = { e -> state = state.copy(error = context.getString(R.string.layout_select_failed, e.message ?: "")) },
+                )
+            }
+        },
         onLayoutEdit = { name -> api.openControlLayoutEditor(name, preview = false, saveAs = null) },
         onLayoutRename = { name -> renameTarget = name },
         onLayoutDuplicate = { name -> duplicateTarget = name },
@@ -3528,7 +3893,14 @@ private fun InstanceDetailRoute(
                 title = context.getString(R.string.layout_delete_title, name),
                 message = context.getString(R.string.layout_delete_msg),
                 confirmText = context.getString(R.string.layout_delete_confirm),
-                action = { api.deleteControlLayout(name) },
+                action = {
+                    api.deleteControlLayout(name) { r ->
+                        r.fold(
+                            onSuccess = { state = state.copy(tab = InstanceTab.Keys) },
+                            onFailure = { e -> state = state.copy(error = context.getString(R.string.layout_delete_failed, e.message ?: "")) },
+                        )
+                    }
+                },
             )
         },
         onLayoutImport = {
@@ -3576,6 +3948,64 @@ private fun InstanceDetailRoute(
                 }, 1000L)
             }
             pollControlImport()
+        },
+        // 导出按键布局（D2）：`export_control_layout` 一直没有 UI。
+        // 后端把布局 json 写到导出目录并返回路径；这里提示一下即可。
+        onLayoutExport = { name ->
+            api.exportControlLayout(name.removeSuffix(".json")) { r ->
+                r.fold(
+                    onSuccess = { path ->
+                        state = state.copy(error = context.getString(R.string.layout_export_done, path))
+                    },
+                    onFailure = { e ->
+                        state = state.copy(error = context.getString(R.string.layout_export_failed, e.message ?: ""))
+                    },
+                )
+            }
+        },
+        // 按键穿透设置（D2）：`get_control_buttons` / `set_control_button_passthru`
+        // 一直零调用 —— 按键挡住游戏画面时用户关不掉。
+        onLoadControlButtons = {
+            api.getControlButtons { r ->
+                r.fold(
+                    onSuccess = { arr ->
+                        state = state.copy(
+                            controlButtons = (0 until arr.length()).mapNotNull { i ->
+                                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                                ControlButtonUi(
+                                    index = o.optInt("index", i),
+                                    name = o.optString("name"),
+                                    passThru = o.optBoolean("passThru", false),
+                                )
+                            },
+                        )
+                    },
+                    onFailure = { e ->
+                        state = state.copy(error = context.getString(R.string.instance_detail_passthru_failed, e.message ?: ""))
+                    },
+                )
+            }
+        },
+        onSetControlPassthru = { index, enabled ->
+            api.setControlButtonPassthru(index, enabled) { r ->
+                r.fold(
+                    onSuccess = { arr ->
+                        state = state.copy(
+                            controlButtons = (0 until arr.length()).mapNotNull { i ->
+                                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                                ControlButtonUi(
+                                    index = o.optInt("index", i),
+                                    name = o.optString("name"),
+                                    passThru = o.optBoolean("passThru", false),
+                                )
+                            },
+                        )
+                    },
+                    onFailure = { e ->
+                        state = state.copy(error = context.getString(R.string.instance_detail_passthru_failed, e.message ?: ""))
+                    },
+                )
+            }
         },
         // ⚠️ 2026-10-21 真机修：以前只调 API、不更新 state.content，
         // 开关 UI 靠 state.content[i].enabled 驱动 → 点了没反应，
@@ -3638,29 +4068,32 @@ private fun InstanceDetailRoute(
         // 现在把结果按 filename 回填到对应行的 `latestVersionId`，同时把 `updatable` 置 true。
         onCheckUpdates = {
             api.checkUpdates(instanceId, state.contentKind) { r ->
-                r.onSuccess { arr ->
-                    // 每条 update 形如：
-                    // {filename, projectId, currentVersion, latestVersion, latestVersionId, projectTitle, kind, provider}
-                    val byName = (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i) }
-                        .associateBy { it.optString("filename") }
-                    if (byName.isEmpty()) {
-                        state = state.copy(error = context.getString(R.string.update_none))
-                        return@onSuccess
-                    }
-                    val updated = state.content.map { c ->
-                        val u = byName[c.rel]
-                        if (u == null) c else c.copy(
-                            updatable = true,
-                            latestVersionId = u.optString("latestVersionId"),
-                            projectId = u.optString("projectId").ifBlank { c.projectId },
-                            provider = u.optString("provider").ifBlank { c.provider },
-                        )
-                    }
-                    state = state.copy(
-                        content = updated,
-                        error = context.getString(R.string.updates_found, byName.size),
-                    )
-                }
+                r.fold(
+                    onSuccess = { arr ->
+                        // 每条 update 形如：
+                        // {filename, projectId, currentVersion, latestVersion, latestVersionId, projectTitle, kind, provider}
+                        val byName = (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i) }
+                            .associateBy { it.optString("filename") }
+                        if (byName.isEmpty()) {
+                            state = state.copy(error = context.getString(R.string.update_none))
+                        } else {
+                            val updated = state.content.map { c ->
+                                val u = byName[c.rel]
+                                if (u == null) c else c.copy(
+                                    updatable = true,
+                                    latestVersionId = u.optString("latestVersionId"),
+                                    projectId = u.optString("projectId").ifBlank { c.projectId },
+                                    provider = u.optString("provider").ifBlank { c.provider },
+                                )
+                            }
+                            state = state.copy(
+                                content = updated,
+                                error = context.getString(R.string.updates_found, byName.size),
+                            )
+                        }
+                    },
+                    onFailure = { e -> state = state.copy(error = context.getString(R.string.update_check_failed, e.message ?: "")) },
+                )
             }
         },
 
@@ -3768,9 +4201,10 @@ private fun InstanceDetailRoute(
         },
         onLoadLog = {
             api.readInstanceLog(instanceId) { r ->
-                r.onSuccess { text ->
-                    state = state.copy(logs = text.lines().takeLast(3000))
-                }
+                r.fold(
+                    onSuccess = { text -> state = state.copy(logs = text.lines().takeLast(3000)) },
+                    onFailure = { e -> state = state.copy(error = context.getString(R.string.instance_detail_log_load_failed, e.message ?: "")) },
+                )
             }
         },
         onExportLog = {
@@ -3780,20 +4214,94 @@ private fun InstanceDetailRoute(
                 }
             }
         },
+        // D5a「另存为」：走系统「新建文档」选择器拿 content:// URI，再交给
+        // Rust 的 save_text_file 写回（它内部对 content:// 走 ContentResolver）。
+        // 与上面的「导出 zip」区别：那个走分享面板，这个直接落成 .txt 文件。
+        onSaveLog = activity?.let { act ->
+            {
+                if (state.logs.isNotEmpty()) {
+                    val content = state.logs.joinToString("\n")
+                    val stamp = java.text.SimpleDateFormat(
+                        "yyyyMMdd-HHmmss",
+                        java.util.Locale.US,
+                    ).format(java.util.Date())
+                    act.createTextDocument("log-$stamp.txt") { uri ->
+                        // 用户取消选择时 uri 为 null，静默收场
+                        if (uri != null) {
+                            api.saveTextFile(uri, content) { r ->
+                                state = r.fold(
+                                    onSuccess = {
+                                        state.copy(error = context.getString(R.string.instance_detail_save_log_done))
+                                    },
+                                    onFailure = { e ->
+                                        state.copy(
+                                            error = context.getString(
+                                                R.string.instance_detail_save_log_failed,
+                                                friendlyError(context, e.message),
+                                            ),
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        // D4「导入文件」：把本地下载好的 jar/zip 复制进当前分类目录。
+        // 后端按 kind 决定落到 mods / resourcepacks / shaderpacks。
+        onImportContent = activity?.let { act ->
+            {
+                // 不限定 MIME：模组是 .jar、资源包是 .zip，各机型的 provider
+                // 给的 MIME 五花八门，限定成 application/java-archive 会漏文件。
+                act.pickFileByMime("*/*") { path ->
+                    if (!path.isNullOrBlank()) {
+                        val kind = state.contentKind
+                        val fileName = path.substringAfterLast('/')
+                        api.importLocalFile(instanceId, kind, path) { r ->
+                            r.fold(
+                                onSuccess = {
+                                    state = state.copy(
+                                        error = context.getString(R.string.instance_detail_import_file_done, fileName),
+                                    )
+                                    repo.loadContent(kind, instanceId) { lr ->
+                                        state = lr.fold(
+                                            onSuccess = { state.copy(content = it, loading = false) },
+                                            onFailure = { state.copy(loading = false) },
+                                        )
+                                    }
+                                },
+                                onFailure = { e ->
+                                    state = state.copy(
+                                        error = context.getString(
+                                            R.string.instance_detail_import_file_failed,
+                                            friendlyError(context, e.message),
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        },
         onLoadCrashes = {
             // 崩溃日志是「文件名列表」，不是内容 —— 内容要点了「分析」才拉。
             // ⚠️ list_crash_logs 返回的是**对象数组**（[{filename, ...}]），
             // 不是字符串数组 —— 之前用 optString(i) 读，拿到的是整个对象的
             // JSON 文本当文件名用，analyze 就报「非法的文件名」。
             api.listCrashLogs(instanceId) { r ->
-                r.onSuccess { arr ->
-                    val names = (0 until arr.length()).mapNotNull { i ->
-                        val o = arr.optJSONObject(i)
-                        (o?.optString("filename").orEmpty().ifBlank { arr.optString(i) })
-                            .takeIf { it.isNotBlank() }
-                    }
-                    state = state.copy(crashLogs = names)
-                }
+                r.fold(
+                    onSuccess = { arr ->
+                        val names = (0 until arr.length()).mapNotNull { i ->
+                            val o = arr.optJSONObject(i)
+                            (o?.optString("filename").orEmpty().ifBlank { arr.optString(i) })
+                                .takeIf { it.isNotBlank() }
+                        }
+                        state = state.copy(crashLogs = names)
+                    },
+                    onFailure = { e -> state = state.copy(error = context.getString(R.string.instance_detail_crash_list_failed, e.message ?: "")) },
+                )
             }
         },
         settings = settings,
@@ -4326,6 +4834,10 @@ private fun BrowseRoute(
     // 项目详情对话框（2026-10-21 补：projectInfo 一直没 UI，原来只跳浏览器）
     var projectDetail by remember { mutableStateOf<org.json.JSONObject?>(null) }
     var projectDetailLoading by remember { mutableStateOf(false) }
+    // 正文翻译（D1）：`translate_project_body` 一直没 UI —— 详情页正文只能是原文。
+    var projectBodyZh by remember { mutableStateOf<String?>(null) }
+    var projectBodyTranslating by remember { mutableStateOf(false) }
+    var projectBodyError by remember { mutableStateOf<String?>(null) }
 
     // 初始化时读上次的紧凑模式偏好（2026-10-17：记住用户选择）
     var state by remember {
@@ -4338,6 +4850,8 @@ private fun BrowseRoute(
     var loadingMore by remember { mutableStateOf(false) }
     /** 还有没有下一页（上一页返回满页就认为有）。 */
     var hasMore by remember { mutableStateOf(true) }
+    /** 整页翻译进行中（B1）。 */
+    var translatingPage by remember { mutableStateOf(false) }
 
     // ── 安装对话框状态（对应旧 UI InstallDialog.vue）────────────────────
     var installTarget by remember { mutableStateOf<ProjectUi?>(null) }
@@ -4662,6 +5176,32 @@ private fun BrowseRoute(
         onLoadMore = { loadMore() },
         loadingMore = loadingMore,
         hasMore = hasMore,
+        onTranslatePage = {
+            // 整页翻译（B1）：把当前页所有项目的简介批量翻成中文。
+            // `translate_mod_descriptions` 返回 { translations: { "<id>": "译文" } }。
+            val items = state.items
+            if (items.isNotEmpty() && !translatingPage) {
+                translatingPage = true
+                api.translateModDescriptions(items.first().provider, items.map { it.id }) { r ->
+                    translatingPage = false
+                    r.fold(
+                        onSuccess = { o ->
+                            val t = o.optJSONObject("translations") ?: org.json.JSONObject()
+                            state = state.copy(
+                                items = state.items.map { p ->
+                                    val zh = t.optString(p.id)
+                                    if (zh.isNotBlank()) p.copy(description = zh) else p
+                                },
+                            )
+                        },
+                        onFailure = { e ->
+                            state = state.copy(error = context.getString(R.string.browse_translate_failed, e.message ?: ""))
+                        },
+                    )
+                }
+            }
+        },
+        translatingPage = translatingPage,
     )
 
     // ── 安装对话框 ──────────────────────────────────────────────────────
@@ -4822,7 +5362,7 @@ private fun BrowseRoute(
     // 项目详情对话框（2026-10-21 补）
     projectDetail?.let { info ->
         androidx.compose.material3.AlertDialog(
-            onDismissRequest = { projectDetail = null },
+            onDismissRequest = { projectDetail = null; projectBodyZh = null; projectBodyError = null },
             title = { androidx.compose.material3.Text(info.optString("title")) },
             text = {
                 androidx.compose.foundation.layout.Column {
@@ -4840,20 +5380,106 @@ private fun BrowseRoute(
                         androidx.compose.material3.Text(desc, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                     }
                     val body = info.optString("body")
-                    if (body.isNotBlank()) {
+                    val shown = projectBodyZh ?: body
+                    if (shown.isNotBlank()) {
                         androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
                         androidx.compose.material3.Text(
-                            body.take(500) + if (body.length > 500) "…" else "",
+                            shown.take(500) + if (shown.length > 500) "…" else "",
                             style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                             maxLines = 10,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
                     }
+                    if (projectBodyTranslating) {
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
+                        androidx.compose.material3.Text(
+                            context.getString(R.string.browse_body_translating),
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    projectBodyError?.let { err ->
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
+                        androidx.compose.material3.Text(
+                            err,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { projectDetail = null }) {
+                androidx.compose.material3.TextButton(onClick = { projectDetail = null; projectBodyZh = null; projectBodyError = null }) {
                     androidx.compose.material3.Text(context.getString(R.string.instances_group_cancel))
+                }
+            },
+            dismissButton = {
+                // 正文翻译（D1）：只对能翻译的数据源显示按钮
+                val provider = info.optString("provider")
+                val slug = info.optString("slug")
+                androidx.compose.foundation.layout.Row {
+                    // MC 百科跳转（D7）：`mc_wiki_url` 一直没 UI
+                    val title = info.optString("title")
+                    if (title.isNotBlank()) {
+                        androidx.compose.material3.TextButton(onClick = {
+                            api.mcWikiUrl(title, slug.ifBlank { null }, provider.ifBlank { null }) { r ->
+                                r.onSuccess { url ->
+                                    if (url.isNotBlank()) activity?.openExternalUrl(url)
+                                }
+                            }
+                        }) {
+                            androidx.compose.material3.Text(context.getString(R.string.browse_open_wiki))
+                        }
+                    }
+                    // 翻译质量反馈（D1）：译文出来后给「翻译不准」入口
+                    if (projectBodyZh != null) {
+                        androidx.compose.foundation.layout.Row {
+                            androidx.compose.material3.TextButton(onClick = {
+                                api.reportTranslationQuality(provider, slug, "inaccurate") { }
+                                projectBodyError = context.getString(R.string.browse_body_report_thanks)
+                            }) {
+                                androidx.compose.material3.Text(context.getString(R.string.browse_body_report_bad))
+                            }
+                            // 「译文过时」是另一个后端能力（report_translation_stale）：
+                            // 服务端确认后会清掉本地译文缓存，下次重新翻。
+                            if (provider.isNotBlank() && slug.isNotBlank()) {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    api.reportTranslationStale(provider, slug) { }
+                                    projectBodyError = context.getString(R.string.browse_body_report_stale_thanks)
+                                }) {
+                                    androidx.compose.material3.Text(context.getString(R.string.browse_body_report_stale))
+                                }
+                            }
+                        }
+                    } else if (provider.isNotBlank() && slug.isNotBlank()) {
+                        androidx.compose.material3.TextButton(
+                            enabled = !projectBodyTranslating,
+                            onClick = {
+                                projectBodyTranslating = true
+                                projectBodyError = null
+                                api.translateProjectBody(provider, slug, true) { r ->
+                                    projectBodyTranslating = false
+                                    r.fold(
+                                        onSuccess = { o ->
+                                            val supported = o.optBoolean("supported", false)
+                                            val zh = o.optString("body").takeIf { it.isNotBlank() }
+                                            val err = o.optString("error").takeIf { it.isNotBlank() }
+                                            when {
+                                                zh != null -> projectBodyZh = zh
+                                                err != null -> projectBodyError = err
+                                                !supported -> projectBodyError = context.getString(R.string.browse_body_translate_unsupported)
+                                                else -> projectBodyError = context.getString(R.string.browse_body_translate_empty)
+                                            }
+                                        },
+                                        onFailure = { e ->
+                                            projectBodyError = context.getString(R.string.browse_translate_failed, e.message ?: "")
+                                        },
+                                    )
+                                }
+                            },
+                        ) {
+                            androidx.compose.material3.Text(context.getString(R.string.browse_body_translate))
+                        }
+                    }
                 }
             },
         )

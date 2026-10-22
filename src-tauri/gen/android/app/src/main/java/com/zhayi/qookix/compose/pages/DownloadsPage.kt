@@ -16,10 +16,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.zhayi.qookix.compose.motion.QookiX
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -147,6 +153,10 @@ fun DownloadsPage(
 
 @Composable
 private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
+    // 展开态（B2）：旧界面的 DownloadsView 点任务行能看分文件/分项进度，
+    // 迁移时丢了 —— 下大整合包时只有一个总进度条，看不出卡在哪一步。
+    var expanded by remember { mutableStateOf(false) }
+    val hasDetail = t.stage.isNotBlank() || t.bytesTotal > 0 || t.fileTotal > 0 || t.stepTotal > 0
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -163,6 +173,14 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
                 )
                 if (!t.finished) {
                     TextButton(onClick = onCancel) { Text(stringResource(R.string.download_cancel)) }
+                }
+                if (hasDetail) {
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(
+                            imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = stringResource(R.string.download_detail_toggle),
+                        )
+                    }
                 }
             }
 
@@ -232,7 +250,73 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
                     )
                 }
             }
+
+            // ── 展开明细 ────────────────────────────────────────────────
+            if (expanded) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (t.stage.isNotBlank()) {
+                            TaskDetailLine(
+                                stringResource(R.string.download_detail_stage),
+                                t.stage,
+                            )
+                        }
+                        if (t.bytesTotal > 0) {
+                            TaskDetailLine(
+                                stringResource(R.string.download_detail_bytes),
+                                "${fmtBytes(t.bytesDone)} / ${fmtBytes(t.bytesTotal)}",
+                            )
+                        }
+                        if (t.fileTotal > 0) {
+                            TaskDetailLine(
+                                stringResource(R.string.download_detail_files),
+                                "${t.fileDone} / ${t.fileTotal}",
+                            )
+                        }
+                        if (t.stepTotal > 0) {
+                            TaskDetailLine(
+                                stringResource(R.string.download_detail_steps),
+                                "${t.stepDone} / ${t.stepTotal}",
+                            )
+                        }
+                        if (t.message.isNotBlank()) {
+                            TaskDetailLine(
+                                stringResource(R.string.download_detail_current),
+                                t.message,
+                            )
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+/** 展开明细里的一行「标签 + 值」。 */
+@Composable
+private fun TaskDetailLine(label: String, value: String) {
+    Row {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(72.dp),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -254,6 +338,18 @@ data class TaskUi(
      */
     val stalled: Boolean = false,
     val finished: Boolean,
+    // ── 展开详情（B2）────────────────────────────────────────────────
+    /** 当前阶段 id（download / verify / extract / done …）。 */
+    val stage: String = "",
+    /** 字节进度（该阶段不按字节时都是 0）。 */
+    val bytesDone: Long = 0L,
+    val bytesTotal: Long = 0L,
+    /** 文件计数进度（下载阶段：已完成 / 总数）。 */
+    val fileDone: Int = 0,
+    val fileTotal: Int = 0,
+    /** 步骤计数进度（安装阶段）。 */
+    val stepDone: Int = 0,
+    val stepTotal: Int = 0,
 )
 
 data class DownloadsUiState(

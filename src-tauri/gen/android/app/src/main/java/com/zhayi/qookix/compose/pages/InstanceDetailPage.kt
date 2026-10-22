@@ -3,6 +3,7 @@ package com.zhayi.qookix.compose.pages
 import com.zhayi.qookix.compose.bridge.friendlyError
 
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontFamily
@@ -38,6 +39,8 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
@@ -62,6 +65,7 @@ import com.zhayi.qookix.compose.motion.qkSlideInRight
 import com.zhayi.qookix.compose.motion.qkFadeOut
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -147,6 +151,11 @@ fun InstanceDetailPage(
     onLayoutDuplicate: (String) -> Unit,
     onLayoutDelete: (String) -> Unit,
     onLayoutImport: () -> Unit,
+    onLayoutExport: (String) -> Unit = {},
+    /** 拉当前布局的按键列表（D2）。 */
+    onLoadControlButtons: () -> Unit = {},
+    /** 改某个按键的透传开关（D2）。 */
+    onSetControlPassthru: (Int, Boolean) -> Unit = { _, _ -> },
     // 内容
     onToggleContent: (ContentUi, Boolean) -> Unit,
     onUninstallContent: (ContentUi) -> Unit,
@@ -162,6 +171,8 @@ fun InstanceDetailPage(
     identifying: Boolean = false,
     /** 切换内容分类（审计 H-2）。 */
     onContentKindChange: (String) -> Unit = {},
+    /** 「导入文件」：选本地文件复制进当前分类目录（mods / resourcepacks / shaderpacks）。 */
+    onImportContent: (() -> Unit)? = null,
     /**
      * 共享游戏文件占用（「文件」页顶部显示）。
      *
@@ -173,6 +184,8 @@ fun InstanceDetailPage(
     onApplyUpdate: (ContentUi) -> Unit,
     onLoadLog: () -> Unit,
     onExportLog: () -> Unit = {},
+    /** D5a「另存为」：把日志文本存成 .txt（弹系统新建文档对话框）。 */
+    onSaveLog: (() -> Unit)? = null,
     onLoadCrashes: () -> Unit,
     onAnalyzeCrash: (String) -> Unit,
     // 实例设置 tab
@@ -377,7 +390,7 @@ fun InstanceDetailPage(
                 onLaunchWorld = onLaunchWorld,
                 launchingWorld = launchingWorld,
             )
-                InstanceTab.Keys -> KeysTab(state, onLayoutSelect, onLayoutEdit, onLayoutRename, onLayoutDuplicate, onLayoutDelete, onLayoutImport)
+                InstanceTab.Keys -> KeysTab(state, onLayoutSelect, onLayoutEdit, onLayoutRename, onLayoutDuplicate, onLayoutDelete, onLayoutImport, onLayoutExport, onLoadControlButtons, onSetControlPassthru)
                 InstanceTab.Content -> ContentTab(
                     state = state,
                     onToggle = onToggleContent,
@@ -387,6 +400,7 @@ fun InstanceDetailPage(
                     onIdentify = onIdentify,
                     identifying = identifying,
                     onKindChange = onContentKindChange,
+                    onImport = onImportContent,
                 )
                 InstanceTab.Settings -> InstanceSettingsTab(
                     state = settings,
@@ -408,7 +422,7 @@ fun InstanceDetailPage(
                     onOpenSystemFiles = onOpenFiles,
                     usage = sharedUsage,
                 )
-                InstanceTab.Logs -> LogsTab(state, onLoadLog, onExportLog)
+                InstanceTab.Logs -> LogsTab(state, onLoadLog, onExportLog, onSaveLog)
                 InstanceTab.Crash -> CrashTab(state, onLoadCrashes, onAnalyzeCrash, onCopyCrashText, onViewCrashRaw)
             }
         }
@@ -555,24 +569,91 @@ private fun KeysTab(
     onDuplicate: (String) -> Unit,
     onDelete: (String) -> Unit,
     onImport: () -> Unit,
+    onExport: (String) -> Unit = {},
+    /** 拉当前布局的按键列表（D2 按键穿透）。 */
+    onLoadControlButtons: () -> Unit = {},
+    /** 改某个按键的透传开关（D2）。 */
+    onSetPassthru: (Int, Boolean) -> Unit = { _, _ -> },
 ) {
+    var showPassthru by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             FilledTonalButton(onClick = onImport) {
                 Icon(Icons.Filled.Download, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.instance_detail_import_layout))
             }
+            // 按键穿透设置（D2）：get_control_buttons / set_control_button_passthru
+            // 一直没有 UI —— 按键挡住游戏画面时用户无从关掉它。
+            TextButton(onClick = {
+                showPassthru = true
+                onLoadControlButtons()
+            }) {
+                Icon(Icons.Filled.TouchApp, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.instance_detail_passthru))
+            }
             Text(
                 text = stringResource(R.string.instance_detail_keys_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.weight(1f),
+            )
+        }
+
+        if (showPassthru) {
+            AlertDialog(
+                onDismissRequest = { showPassthru = false },
+                title = { Text(stringResource(R.string.instance_detail_passthru)) },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.instance_detail_passthru_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (state.controlButtons.isEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = stringResource(R.string.instance_detail_passthru_empty),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        state.controlButtons.forEach { b ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = b.name.ifBlank { "#${b.index}" },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Switch(
+                                    checked = b.passThru,
+                                    onCheckedChange = { onSetPassthru(b.index, it) },
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showPassthru = false }) {
+                        Text(stringResource(R.string.instance_detail_cancel))
+                    }
+                },
             )
         }
 
@@ -647,6 +728,12 @@ private fun KeysTab(
                         IconButton(onClick = { onDuplicate(l.name) }) {
                             Icon(Icons.Filled.ContentCopy, stringResource(R.string.instance_detail_copy), modifier = Modifier.size(18.dp))
                         }
+                        IconButton(onClick = { onExport(l.name) }) {
+                            Icon(
+                                Icons.Filled.Share, stringResource(R.string.instance_detail_export_layout),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                         IconButton(onClick = { onDelete(l.name) }) {
                             Icon(
                                 Icons.Filled.Delete, stringResource(R.string.instance_detail_delete),
@@ -675,6 +762,8 @@ private fun ContentTab(
     identifying: Boolean = false,
     /** 切换内容分类（2026-10-17 修审计 H-2：原来 onClick 是空 lambda）。 */
     onKindChange: (String) -> Unit = {},
+    /** 「导入文件」：把本地下载好的 jar/zip 复制进当前分类目录（D4）。 */
+    onImport: (() -> Unit)? = null,
     onApplyUpdate: (ContentUi) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -718,7 +807,7 @@ private fun ContentTab(
                             )
                         }
                     }
-                    ContentActions(onCheckUpdates, onIdentify, identifying)
+                    ContentActions(onCheckUpdates, onIdentify, identifying, onImport)
                 }
             } else {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -748,7 +837,7 @@ private fun ContentTab(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                     ) {
-                        ContentActions(onCheckUpdates, onIdentify, identifying)
+                        ContentActions(onCheckUpdates, onIdentify, identifying, onImport)
                     }
                 }
             }
@@ -950,10 +1039,50 @@ private fun FilesTab(
             onGoUp = { path = path.substringBeforeLast('/', "") },
             onCreate = { name, isDir ->
                 val rel = if (path.isBlank()) name else "$path/$name"
-                ops.create(rel, isDir) { reload() }
+                ops.create(rel, isDir) { r ->
+                    r.fold(
+                        onSuccess = { reload() },
+                        onFailure = { e ->
+                            state = state.copy(
+                                error = ctx.getString(
+                                    R.string.instance_detail_file_op_failed,
+                                    friendlyError(ctx, e.message),
+                                ),
+                            )
+                        },
+                    )
+                }
             },
-            onRename = { e, newName -> ops.rename(e.rel, newName) { reload() } },
-            onDelete = { e -> ops.delete(e.rel) { reload() } },
+            onRename = { e, newName ->
+                ops.rename(e.rel, newName) { r ->
+                    r.fold(
+                        onSuccess = { reload() },
+                        onFailure = { err ->
+                            state = state.copy(
+                                error = ctx.getString(
+                                    R.string.instance_detail_file_op_failed,
+                                    friendlyError(ctx, err.message),
+                                ),
+                            )
+                        },
+                    )
+                }
+            },
+            onDelete = { e ->
+                ops.delete(e.rel) { r ->
+                    r.fold(
+                        onSuccess = { reload() },
+                        onFailure = { err ->
+                            state = state.copy(
+                                error = ctx.getString(
+                                    R.string.instance_detail_file_op_failed,
+                                    friendlyError(ctx, err.message),
+                                ),
+                            )
+                        },
+                    )
+                }
+            },
             onRefresh = { reload() },
         )
     }
@@ -973,7 +1102,12 @@ private fun SettingsTabStub() =
  * 客户端日志在游戏退出后才完整，所以是「读一次」而不是流式。
  */
 @Composable
-private fun LogsTab(state: InstanceDetailUiState, onLoadLog: () -> Unit, onExportLog: () -> Unit = {}) {
+private fun LogsTab(
+    state: InstanceDetailUiState,
+    onLoadLog: () -> Unit,
+    onExportLog: () -> Unit = {},
+    onSaveLog: (() -> Unit)? = null,
+) {
     // 进 tab 时自动读一次
     LaunchedEffect(Unit) { onLoadLog() }
 
@@ -1016,6 +1150,10 @@ private fun LogsTab(state: InstanceDetailUiState, onLoadLog: () -> Unit, onExpor
             // 所以用户找不到入口。现在在日志 tab 加「导出」按钮。
             // 导出走系统分享 Intent（share_logs_zip），用户可存到任意应用/文件管理器。
             TextButton(onClick = onExportLog) { Text(stringResource(R.string.instance_detail_export_log)) }
+            // D5a：直接存成 .txt（区别于上面的「导出 zip」——那个走分享）。
+            if (onSaveLog != null) {
+                TextButton(onClick = onSaveLog) { Text(stringResource(R.string.instance_detail_save_log)) }
+            }
             TextButton(onClick = onLoadLog) { Text(stringResource(R.string.instance_detail_refresh)) }
         }
         LazyColumn(
@@ -1270,6 +1408,15 @@ data class LayoutUi(
     val current: Boolean = false,
 )
 
+/** 布局里的一个虚拟按键（按键穿透设置用，D2）。 */
+data class ControlButtonUi(
+    /** 在 mControlDataList 里的下标（写回时用它定位）。 */
+    val index: Int,
+    val name: String,
+    /** 是否透传触摸（true = 不拦截，交给游戏）。 */
+    val passThru: Boolean,
+)
+
 /** 已装内容项。 */
 data class ContentUi(
     val rel: String,
@@ -1327,6 +1474,8 @@ data class InstanceDetailUiState(
     // 各 tab 的数据
     val worlds: List<WorldUi> = emptyList(),
     val layouts: List<LayoutUi> = emptyList(),
+    /** 当前布局的虚拟按键列表（按键穿透设置用，D2；空 = 没读或还没生成布局）。 */
+    val controlButtons: List<ControlButtonUi> = emptyList(),
     val content: List<ContentUi> = emptyList(),
     /**
      * 内容分类（模组/资源包/光影/世界）。
@@ -1432,6 +1581,8 @@ fun InstanceDetailToolbar(
     repairing: Boolean,
     onLaunch: () -> Unit,
     onRepair: (() -> Unit)? = null,
+    /** 打开换图标面板（D3）。 */
+    onChangeIcon: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1479,6 +1630,18 @@ fun InstanceDetailToolbar(
             }
         }
 
+        // 换图标（D3）：`extract_game_icons` / `import_instance_image`
+        // 一直零调用 —— 实例只能用首字母色块，没有真正的图标。
+        if (onChangeIcon != null) {
+            IconButton(onClick = onChangeIcon) {
+                Icon(
+                    Icons.Filled.Image,
+                    contentDescription = stringResource(R.string.instance_detail_change_icon),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+
         Button(onClick = onLaunch, enabled = canLaunch) {
             Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(4.dp))
@@ -1489,13 +1652,19 @@ fun InstanceDetailToolbar(
 
 
 
-/** 「检查更新 / 识别」两个文字按钮（横竖屏共用）。 */
+/** 「导入 / 检查更新 / 识别」文字按钮（横竖屏共用）。 */
 @Composable
 private fun ContentActions(
     onCheckUpdates: () -> Unit,
     onIdentify: () -> Unit,
     identifying: Boolean,
+    onImport: (() -> Unit)? = null,
 ) {
+    // 导入排在最前：手动装 mod 是「找不到资源就本地下载」的兜底路径，
+    // 也是唯一不需要网络的入口，不该藏在别处。
+    if (onImport != null) {
+        TextButton(onClick = onImport) { Text(stringResource(R.string.instance_detail_import_file)) }
+    }
     TextButton(onClick = onCheckUpdates) { Text(stringResource(R.string.instance_detail_check_updates)) }
     TextButton(onClick = onIdentify, enabled = !identifying) {
         if (identifying) {

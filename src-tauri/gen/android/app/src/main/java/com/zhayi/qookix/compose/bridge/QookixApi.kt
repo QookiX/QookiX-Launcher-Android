@@ -1141,12 +1141,17 @@ class QookixApi(private val bridge: RustBridge) {
     fun requestAllFilesAccess(onResult: (Result<String>) -> Unit = {}) =
         call("request_all_files_access", null, onResult)
 
-    /** 设置某个控制按钮是否透传（不拦截触摸）。 */
+    /**
+     * 设置某个控制按钮是否透传（不拦截触摸）。
+     *
+     * ⚠️ Rust 返回的是**改完后的完整按钮列表**（`Vec<ControlButtonInfo>`，
+     * controls.rs:67），不是字符串 —— 以前用 call 会得到 JSON 数组文本。
+     */
     fun setControlButtonPassthru(
         index: Int,
         enabled: Boolean,
-        onResult: (Result<String>) -> Unit = {},
-    ) = call(
+        onResult: (Result<JSONArray>) -> Unit = {},
+    ) = callArr(
         "set_control_button_passthru",
         JSONObject().put("index", index).put("enabled", enabled),
         onResult,
@@ -1624,7 +1629,9 @@ class QookixApi(private val bridge: RustBridge) {
 
     /** 列出某个实例可加入的服务器（局域网发现）。 */
     fun listServers(instanceId: String, onResult: (Result<JSONArray>) -> Unit) =
-        callArr("list_servers", JSONObject().put("instanceId", instanceId), onResult)
+        callObj("list_servers", JSONObject().put("instanceId", instanceId)) { r ->
+            onResult(r.mapCatching { it.optJSONArray("servers") ?: JSONArray() })
+        }
 
     /** ping 一个 Minecraft 服务器拿延迟与在线人数。 */
     fun pingMcServer(address: String, onResult: (Result<JSONObject>) -> Unit) =

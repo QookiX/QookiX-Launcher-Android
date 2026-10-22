@@ -559,28 +559,39 @@ private fun SkinPreview3d(
         // webview 模式：这里**不画**（保持透明让下面的 WebView 露出来），
         //   并把 WebView 挪到本框的位置，~60fps。
         //
-        // 用 `onGloballyPositioned` 拿本框在屏幕上的真实矩形，
-        // 再交给 Activity 调整 WebView 的位置/尺寸。
-        // 记录预览框在窗口里的位置与大小（webview 模式要把 WebView 挪过来）
-        var boxLayout by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+        // ⚠️⚠️ 2026-10-22 修（用户报：「选了 webview 的皮肤渲染后它一直固定在
+        // 屏幕的一个位置，突破图层了」）。
+        //
+        // 原来的写法是 `LaunchedEffect(renderMode, boxLayout)`：
+        //   - `boxLayout` 存的是 **LayoutCoordinates 对象**，
+        //     滚动时对象**不变**（只是内部的 position 变了），
+        //     所以 `mutableStateOf` 认为「没变」→ 不重组 → effect 不重跑
+        //   - 于是 WebView 停在第一次的坐标上，页面继续滚动它却不动，
+        //     视觉上就是「固定在屏幕某个位置、还盖在别的控件上面」。
+        //
+        // 正确做法：`onGloballyPositioned` **每次位置/大小变化都会回调**，
+        // 直接在里面把最新矩形报上去，别用 LaunchedEffect 间接推导。
+        //
+        // 记录最近一次上报的矩形（像素）——
+        //   1) 去重：位置没变就不重复上报（避免重组时空转）
+        //   2) renderMode 切到 webview 的瞬间布局往往没变、回调不会触发，
+        //      由 LaunchedEffect 用它补报第一次。
+        var lastRect by remember {
+            mutableStateOf<IntArray?>(null)
+        }
 
-        // density 要在 Composable 层取 —— LaunchedEffect 块里没有 Composable 上下文
-        val densityNow = androidx.compose.ui.platform.LocalDensity.current
-        LaunchedEffect(renderMode, boxLayout) {
-            if (renderMode != "webview") {
+        // 模式切换时上报/收回：
+        //   → webview：用 lastRect 补报（布局没变时 onGloballyPositioned 不会触发）
+        //   → 其它：收回 WebView（隐形 1×1）
+        LaunchedEffect(renderMode) {
+            if (renderMode == "webview") {
+                lastRect?.let { r ->
+                    onPreviewBoxChanged?.invoke(true, r[0], r[1], r[2], r[3])
+                }
+            } else {
                 // 离开 webview 模式 → 把 WebView 收回隐形
                 onPreviewBoxChanged?.invoke(null, 0, 0, 0, 0)
-                return@LaunchedEffect
             }
-            val coords = boxLayout ?: return@LaunchedEffect
-            // ⚠️ LayoutCoordinates 的 positionInWindow()/size **本身就是像素**，
-            // 不能再乘 density —— 乘了会放大 2.8 倍（真机实测：预览框 725px
-            // 被算成 2041px，WebView 铺满整屏、把别的控件都盖住了）。
-            val x = coords.positionInWindow().x.toInt()
-            val y = coords.positionInWindow().y.toInt()
-            val wpx = coords.size.width
-            val hpx = coords.size.height
-            onPreviewBoxChanged?.invoke(true, x, y, wpx, hpx)
         }
 
         // ── 🔴 离开本页时必须收回 WebView ────────────────────────────
@@ -605,7 +616,30 @@ private fun SkinPreview3d(
             modifier = Modifier
                 .width(previewH * 0.86f)
                 .height(previewH)
-                .onGloballyPositioned { boxLayout = it }
+                // ⚠️ LayoutCoordinates 的 positionInWindow()/size **本身就是像素**，
+                // 不能再乘 density —— 乘了会放大 2.8 倍（真机实测：预览框 725px
+                // 被算成 2041px，WebView 铺满整屏、把别的控件都盖住了）。
+                //
+                // 滚动/布局变化时这里会持续回调 → WebView 实时跟随本框。
+                .onGloballyPositioned { coords ->
+                    // ⚠️ 矩形**始终**记录（不只在 webview 模式）——
+                    //   切到 webview 模式时布局往往没变，onGloballyPositioned
+                    //   不会再触发，那时就只能靠 lastRect 补报第一次。
+                    val r = intArrayOf(
+                        coords.positionInWindow().x.toInt(),
+                        coords.positionInWindow().y.toInt(),
+                        coords.size.width,
+                        coords.size.height,
+                    )
+                    val prev = lastRect
+                    val moved = prev == null || prev[0] != r[0] || prev[1] != r[1] ||
+                        prev[2] != r[2] || prev[3] != r[3]
+                    lastRect = r
+                    // 只有 webview 模式才真的要把 WebView 挪过去
+                    if (moved && renderMode == "webview") {
+                        onPreviewBoxChanged?.invoke(true, r[0], r[1], r[2], r[3])
+                    }
+                }
                 .pointerInput(bitmap) {
                     detectDragGestures { _, dragAmount ->
                         // 累积到一定阈值再提交，避免每个像素都触发一次

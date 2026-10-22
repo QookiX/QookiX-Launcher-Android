@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -39,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
@@ -50,6 +52,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalIconButton
@@ -127,6 +130,13 @@ fun BrowsePage(
     filterOpen: Boolean = false,
     /** 关闭筛选面板。 */
     onDismissFilter: () -> Unit = {},
+    /**
+     * 整页翻译（B1）：把当前页所有项目的简介批量翻成中文。
+     * 旧界面的 `translatePage()` —— 迁移时漏了，只剩安装对话框里能单个翻。
+     */
+    onTranslatePage: () -> Unit = {},
+    /** 整页翻译进行中（按钮转圈 + 防重入）。 */
+    translatingPage: Boolean = false,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         BrowseFilterSheet(
@@ -213,6 +223,31 @@ fun BrowsePage(
                     horizontalArrangement = Arrangement.spacedBy(if (state.compact) 8.dp else 12.dp),
                     verticalArrangement = Arrangement.spacedBy(if (state.compact) 6.dp else 12.dp),
                 ) {
+                    // 整页翻译按钮（跨整行）
+                    item(key = "__browse_translate__", span = { GridItemSpan(maxLineSpan) }) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (translatingPage) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            TextButton(onClick = onTranslatePage, enabled = !translatingPage) {
+                                Icon(
+                                    imageVector = Icons.Filled.Translate,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(stringResource(R.string.browse_translate_page))
+                            }
+                        }
+                    }
                     items(state.items, key = { it.id }) { p ->
                         if (state.compact) {
                             ProjectRowCompact(p, onClick = { onOpenProject(p) }, onInstall = { onInstall(p) })

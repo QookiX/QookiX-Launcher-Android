@@ -108,13 +108,18 @@
     <string name="home_pinned">置顶</string>
     <string name="instances_pin">置顶</string>
     <string name="instances_unpin">取消置顶</string>
+    <string name="instances_launch">启动</string>
     <string name="home_in_progress">进行中</string>
     <string name="home_latest_news">新闻</string>
+    <string name="home_playtime">游玩统计</string>
+    <string name="home_playtime_hm">累计游玩 %1$d 小时 %2$d 分钟</string>
+    <string name="home_playtime_m">累计游玩 %1$d 分钟</string>
     <string name="home_view_all">更多</string>
     <string name="home_no_instances">还没有游戏实例</string>
     <string name="home_no_instances_hint">创建第一个实例</string>
     <string name="home_launching">启动中…</string>
     <string name="home_launch_game">启动游戏</string>
+    <string name="home_running">运行中</string>
     <string name="home_switch_instance">切换实例</string>
 
     <!-- ── 游玩统计 ── -->
@@ -183,6 +188,16 @@
     <string name="instance_detail_restore">恢复</string>
     <string name="instance_detail_delete">删除</string>
 <string name="instance_detail_import_layout">导入</string>
+    <string name="instance_detail_change_icon">更换图标</string>
+    <string name="instance_detail_icon_no_game_icons">没有从游戏素材里读到可用图标</string>
+    <string name="instance_detail_icon_set">图标已更新</string>
+    <string name="instance_detail_icon_set_failed">图标更新失败：%1$s</string>
+    <string name="instance_detail_icon_from_file">从本地选一张图片</string>
+    <string name="instance_detail_export_layout">导出布局</string>
+    <string name="instance_detail_passthru">按键穿透</string>
+    <string name="instance_detail_passthru_desc">打开后，按键会同时把触摸透传给游戏（默认关闭＝按键会挡住画面）</string>
+    <string name="instance_detail_passthru_empty">没有读到按键列表，请先进一次游戏生成布局</string>
+    <string name="instance_detail_passthru_failed">按键穿透设置失败：%1$s</string>
 <string name="instance_detail_keys_hint">进原生横屏编辑器调键位、大小与位置（和游戏里那个界面一致，所见即所得）</string>
 <string name="instance_detail_no_layouts_title">还没有布局文件，先进一次游戏</string>
 <string name="instance_detail_no_layouts_desc">请先启动一次游戏后再使用按键绑定工具</string>
@@ -206,6 +221,9 @@
     <string name="instance_detail_settings_stub_desc">内存、Java 参数、启动参数目前统一在「设置 → 游戏」里调整</string>
 <string name="instance_detail_no_logs">暂无日志内容</string>
 <string name="instance_detail_no_logs_desc">暂无日志，启动游戏后这里会显示日志</string>
+    <string name="instance_detail_crash_list_failed">读取崩溃列表失败：%1$s</string>
+    <string name="instance_detail_log_load_failed">读取日志失败：%1$s</string>
+    <string name="instance_detail_file_op_failed">文件操作失败：%1$s</string>
     <string name="instance_detail_reload">重新读取</string>
     <string name="instance_detail_log_lines">共 %1$d 行</string>
     <string name="instance_detail_refresh">刷新</string>
@@ -284,6 +302,9 @@
     <string name="frp_rooms_start">启动房间</string>
     <string name="frp_rooms_stop">关闭房间</string>
     <string name="frp_rooms_join">加入并连接</string>
+    <string name="frp_rooms_password_required">该房间需要密码</string>
+    <string name="frp_copy_address">复制地址</string>
+    <string name="frp_tunnel_address">隧道地址</string>
     <string name="frp_rooms_leave">退出房间</string>
     <string name="frp_rooms_status_online">在线</string>
     <string name="frp_rooms_status_closed">已关闭</string>
@@ -400,6 +421,7 @@
     <!-- ── PageHost（跨页面通用文案）── -->
     <string name="renderer_hint_title">渲染器建议</string>
     <string name="renderer_hint_switch">切换为 %1$s</string>
+    <string name="renderer_switch_failed">切换渲染器失败：%1$s</string>
     <string name="renderer_hint_keep">仍用当前</string>
     <string name="login_timeout">授权超时，请重新登录</string>
     <string name="login_denied">授权被拒绝或已过期</string>
@@ -573,6 +595,12 @@
     <string name="content_services_unset">未设置</string>
     <string name="content_services_model">模型</string>
     <string name="content_services_translate_cache">翻译缓存</string>
+    <string name="content_services_test_api">测试翻译接口</string>
+    <string name="content_services_test_api_desc">发一句话给自定义翻译 API，确认配置是否可用</string>
+    <string name="content_services_test">测试</string>
+    <string name="content_services_testing">测试中…</string>
+    <string name="content_services_test_ok">接口可用</string>
+    <string name="content_services_test_failed">接口不可用：%1$s</string>
     <string name="content_services_translate_cache_desc">清掉已缓存的译文，下次重新翻译</string>
 <string name="content_services_clearing">清除中…</string>
 <string name="content_services_clear">清除缓存</string>
@@ -649,6 +677,8 @@
     <string name="settings_game_use_builtin_runtime">使用内置运行时</string>
     <string name="settings_game_edit">编辑</string>
     <string name="settings_game_select">选择</string>
+    <string name="settings_game_dir_changed">游戏目录已切换，界面稍后刷新</string>
+    <string name="settings_game_dir_change_failed">切换游戏目录失败：%1$s</string>
     <string name="settings_game_jvm_help">例如：-XX:+UseG1GC -XX:MaxGCPauseMillis=50</string>
     <string name="settings_game_game_help">会追加到 Minecraft 主类后面。\n例如：--demo  以演示模式启动（不进存档）。\n留空 = 用默认值。</string>
     <string name="settings_game_java_path_label">java 可执行文件路径</string>
@@ -661,6 +691,16 @@
     <string name="settings_storage_location_group">位置</string>
     <string name="settings_storage_game_dir">游戏目录</string>
     <string name="settings_storage_default_dir">默认（应用私有目录）</string>
+    <string name="settings_storage_effective_group">当前生效</string>
+    <string name="settings_storage_effective_root">数据根目录</string>
+    <string name="settings_storage_instances_dir">实例目录</string>
+    <string name="settings_storage_all_files_access">所有文件访问</string>
+    <string name="settings_storage_all_files_access_granted">已授权</string>
+    <string name="settings_storage_all_files_access_missing">未授权，选外部目录可能失败</string>
+    <string name="settings_storage_options_group">可选目录</string>
+    <string name="settings_storage_free_space">剩余 %1$s / 共 %2$s</string>
+    <string name="settings_storage_removable">可插拔存储</string>
+    <string name="settings_game_use">使用</string>
     <string name="settings_storage_cleanup_group">清理</string>
     <string name="settings_storage_shared_files">共享游戏文件</string>
     <string name="settings_storage_shared_files_desc">多个实例共用的版本库/素材，清理后下次启动会重新下载</string>
@@ -695,6 +735,15 @@
     <string name="server_detail_command_placeholder">在下面输入控制台命令，如 list / tp 玩家 / gamemode 1</string>
     <string name="server_detail_refresh_logs_cd">刷新</string>
     <string name="server_detail_send_cd">发送</string>
+    <string name="server_detail_send_failed">命令发送失败：%1$s</string>
+    <string name="server_detail_quick_list">在线玩家 (list)</string>
+    <string name="server_detail_quick_save">存档 (save-all)</string>
+    <!-- ── 设置 · 设备（D8）── -->
+    <string name="settings_device_group">设备</string>
+    <string name="settings_device_memory_available">可用内存</string>
+    <string name="settings_device_memory_available_desc">开服务器时 JVM 最多用到它的 60%</string>
+    <string name="settings_device_memory_value">%1$d MB</string>
+    <string name="settings_device_memory_unknown">未知</string>
     <string name="server_detail_share_title">对外开放（陶瓦联机）</string>
     <string name="server_detail_share_room_code">房间码 %1$s</string>
     <string name="server_detail_share_waiting">正在等待房间码…</string>
@@ -753,6 +802,14 @@
     <string name="app_switch_instance_message">一个进程里只能跑一个游戏。要结束它并启动你刚点的这个版本吗？</string>
     <string name="app_switch_instance_confirm">结束并启动</string>
     <string name="app_clipboard_unavailable">系统剪贴板不可用</string>
+    <string name="app_save_failed_no_stream">无法打开目标文件（系统未授予写权限？）</string>
+    <string name="instance_detail_save_log">另存为</string>
+    <string name="instance_detail_save_log_done">已保存</string>
+    <string name="instance_detail_save_log_failed">保存失败：%1$s</string>
+    <string name="instance_detail_import_file">导入文件</string>
+    <string name="instance_detail_import_file_done">已导入：%1$s</string>
+    <string name="instance_detail_import_file_failed">导入失败：%1$s</string>
+    <string name="frp_rooms_paste">粘贴</string>
     <string name="app_share">分享</string>
     <string name="app_import_layout_empty_path">路径为空</string>
     <string name="app_import_layout_not_found">找不到这个文件</string>
@@ -816,6 +873,17 @@
     <string name="browse_title">内容</string>
     <string name="browse_search_hint">搜索内容…</string>
     <string name="browse_no_results">没有找到相关内容</string>
+    <string name="browse_translate_page">翻译本页</string>
+    <string name="browse_translate_failed">翻译失败：%1$s</string>
+    <string name="browse_body_translate">翻译正文</string>
+    <string name="browse_body_translating">翻译中…</string>
+    <string name="browse_body_translate_unsupported">当前数据源不支持正文翻译</string>
+    <string name="browse_body_translate_empty">没有可翻译的正文内容</string>
+    <string name="browse_body_report_bad">译文不准</string>
+    <string name="browse_body_report_thanks">已反馈，感谢！</string>
+    <string name="browse_body_report_stale">译文过时</string>
+    <string name="browse_body_report_stale_thanks">已反馈，译文将重新更新</string>
+    <string name="browse_open_wiki">MC 百科</string>
     <string name="browse_no_more">没有更多了</string>
     <string name="browse_install">安装</string>
     <string name="browse_search">搜索</string>
@@ -851,6 +919,12 @@
     <string name="download_empty_finished">没有已完成的任务</string>
     <string name="download_cancel">取消</string>
     <string name="download_stalled_hint">下载停滞了 30 秒以上。可能是网络中断，点「取消」后重新开始（已完成的部分会保留）。</string>
+    <string name="download_detail_toggle">展开详情</string>
+    <string name="download_detail_stage">阶段</string>
+    <string name="download_detail_bytes">字节</string>
+    <string name="download_detail_files">文件</string>
+    <string name="download_detail_steps">步骤</string>
+    <string name="download_detail_current">当前</string>
 
     <!-- ── 任务状态文案（TasksRepo.kt）── -->
 
@@ -866,6 +940,7 @@
     <string name="server_detail_core_installed_notice">服务端核心已就绪</string>
     <string name="server_detail_install_core_failed">安装失败：%1$s</string>
     <string name="server_detail_share_stopped">已停止陶瓦联机</string>
+    <string name="server_detail_share_stop_failed">停止分享失败：%1$s</string>
     <string name="server_detail_share_need_running">请先启动服务器</string>
     <string name="server_detail_share_preparing">正在准备隧道…</string>
     <string name="server_detail_share_failed">隧道启动失败</string>
@@ -876,6 +951,7 @@
     <string name="server_detail_plugin_folder_copied">已复制为「%1$s」</string>
     <string name="server_detail_plugin_folder_failed">取插件目录失败：%1$s</string>
     <string name="server_detail_logs_refreshed">日志已刷新</string>
+    <string name="server_detail_logs_refresh_failed">刷新失败</string>
     <string name="server_detail_memory_saved">配置已保存</string>
     <string name="server_detail_memory_failed">改内存失败：%1$s</string>
     <string name="server_detail_delete_failed">删除失败：%1$s</string>
@@ -1071,11 +1147,19 @@
     <string name="enter_world_failed">进入世界失败：%1$s</string>
 <string name="backup_restore_confirm">恢复备份</string>
     <string name="backup_delete_confirm">删除备份</string>
+    <string name="backup_create_failed">创建备份失败：%1$s</string>
+    <string name="backup_restore_failed">恢复备份失败：%1$s</string>
+    <string name="backup_delete_failed">删除备份失败：%1$s</string>
     <!-- ── PageHost 续 5（布局 / 内容 / 备份 / 更新）── -->
     <string name="load_failed">加载失败：%1$s</string>
     <string name="layout_delete_title">删除按键布局「%1$s」？</string>
     <string name="layout_delete_msg">整套按键配置会被删除，无法恢复。</string>
     <string name="layout_delete_confirm">删除布局</string>
+    <string name="layout_rename_failed">重命名布局失败：%1$s</string>
+    <string name="layout_select_failed">切换布局失败：%1$s</string>
+    <string name="layout_delete_failed">删除布局失败：%1$s</string>
+    <string name="layout_export_done">布局已导出：%1$s</string>
+    <string name="layout_export_failed">导出布局失败：%1$s</string>
     <string name="content_uninstall_title">卸载「%1$s」？</string>
     <string name="content_uninstall_msg">文件会从实例里删除，无法恢复（下次要重新下载）。</string>
     <string name="updates_found">发现 %1$d 个更新，点对应条目的「更新」即可升级</string>

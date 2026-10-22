@@ -28,6 +28,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import com.zhayi.qookix.compose.ui.SkeletonList
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,6 +74,7 @@ fun FrpPage(
     onToggleTunnel: (FrpTunnelUi) -> Unit,
     onOpenLog: (FrpTunnelUi) -> Unit,
     onOpenRooms: () -> Unit,
+    onCopyAddress: (String) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -304,6 +309,7 @@ fun FrpPage(
                             busy = state.busyTunnelId == t.id,
                             onToggle = { onToggleTunnel(t) },
                             onOpenLog = { onOpenLog(t) },
+                            onCopyAddress = { onCopyAddress(t.runningAddress) },
                         )
                     }
                 }
@@ -345,6 +351,7 @@ private fun FrpTunnelCard(
     busy: Boolean,
     onToggle: () -> Unit,
     onOpenLog: () -> Unit,
+    onCopyAddress: () -> Unit = {},
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -391,18 +398,25 @@ private fun FrpTunnelCard(
             // 运行中：把「分享给别人的地址」单独提出来（朋友要填这个）
             if (tunnel.runningAddress.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                ) {
-                    Text(
-                        text = tunnel.runningAddress,
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = tunnel.runningAddress,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    IconButton(onClick = onCopyAddress) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.frp_copy_address))
+                    }
                 }
             }
 

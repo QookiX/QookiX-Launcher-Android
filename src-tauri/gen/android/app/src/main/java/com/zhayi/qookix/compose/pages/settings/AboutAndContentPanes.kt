@@ -367,6 +367,12 @@ fun ContentServicesPane(
     clearingTranslation: Boolean = false,
     /** 上次清理结果的提示（「已清理 N KB」/「缓存是空的」）。 */
     clearTranslationHint: String? = null,
+    /** 测试自定义翻译 API 连通性（D1）；null = 不显示按钮。 */
+    onTestTranslateApi: (() -> Unit)? = null,
+    /** 测试进行中。 */
+    testingTranslate: Boolean = false,
+    /** 测试结果提示。 */
+    translateTestHint: String? = null,
 ) {
     var editingKey by remember { mutableStateOf(false) }
     // 自定义翻译 API 的三个字段（provider 选「自定义」时才需要）
@@ -477,7 +483,7 @@ fun ContentServicesPane(
                     subtitle = state.translateApiModel.ifBlank {
                         stringResource(R.string.content_services_unset)
                     },
-                    showDivider = false,
+                    showDivider = onTestTranslateApi == null,
                 ) {
                     TextButton(onClick = { editingApiModel = true }) {
                         Text(
@@ -485,6 +491,21 @@ fun ContentServicesPane(
                                 stringResource(R.string.content_services_set)
                             else stringResource(R.string.content_services_modify)
                         )
+                    }
+                }
+                // 连通性测试（D1）：`test_translate_api` 一直没有 UI ——
+                // 用户填完 base/key/model 无从知道能不能用。
+                if (onTestTranslateApi != null) {
+                    SettingsRow(
+                        title = stringResource(R.string.content_services_test_api),
+                        subtitle = translateTestHint
+                            ?: stringResource(R.string.content_services_test_api_desc),
+                        showDivider = false,
+                    ) {
+                        TextButton(onClick = onTestTranslateApi, enabled = !testingTranslate) {
+                            Text(if (testingTranslate) stringResource(R.string.content_services_testing)
+                                 else stringResource(R.string.content_services_test))
+                        }
                     }
                 }
             }

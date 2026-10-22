@@ -25,6 +25,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * 「下载」设置子页。
@@ -549,12 +553,40 @@ enum class MemoryMode(val id: String, @StringRes val labelRes: Int) {
     Custom("custom", R.string.settings_game_memory_mode_custom),
 }
 
+/**
+ * 可选游戏目录（对应 `get_game_dir_options` 的一条）。
+ *
+ * @param kind `internal` / `external`
+ * @param freeBytes 剩余空间（字节）
+ * @param removable 是否可插拔（SD 卡）
+ */
+data class GameDirOptionUi(
+    val kind: String,
+    val label: String,
+    val path: String,
+    val freeBytes: Long,
+    val totalBytes: Long,
+    val removable: Boolean,
+)
+
+/** 字节数转人类可读（GB / MB）。 */
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val gb = bytes / (1024.0 * 1024.0 * 1024.0)
+    if (gb >= 1.0) return String.format(java.util.Locale.US, "%.1f GB", gb)
+    val mb = bytes / (1024.0 * 1024.0)
+    if (mb >= 1.0) return String.format(java.util.Locale.US, "%.0f MB", mb)
+    return "$bytes B"
+}
+
 /** 「存储」设置子页。 */
 @Composable
 fun StoragePane(
     state: SettingsUiState,
     onChange: (SettingsPatch) -> Unit,
     bridge: com.zhayi.qookix.compose.bridge.RustBridge? = null,
+    /** 外部改了设置后通知宿主重拉（切换游戏目录用）。 */
+    onReloadSettings: () -> Unit = {},
 ) {
     val api = remember(bridge) {
         bridge?.let { com.zhayi.qookix.compose.bridge.QookixApi(it) }
@@ -570,6 +602,88 @@ fun StoragePane(
     var confirmClear by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
+    // 选择游戏目录（B4）：SAF 选择器是**异步**的 —— `pick_game_dir` 只是
+    // 发起请求，用户选完后结果写进 `<files>/game-dir-pick.json`，前端必须
+    // 轮询 `take_picked_game_dir` 取回，再 `set_game_dir` 落地。
+    // 以前只发 `pick_game_dir` 就当完事 → 选完目录界面毫无反应。
+    var pickSeq by remember { mutableStateOf(0) }
+    var dirMessage by remember { mutableStateOf<String?>(null) }
+
+    // 游戏目录状态与可选目录。
+    //
+    // `get_game_dir_state` 返回实际生效的数据根、实例目录根，以及
+    // Android 11+「所有文件访问」有没有授权 —— 这些光看 settings 里的
+    // dataDir 是看不出来的（比如用户授权被系统撤销了）。
+    //
+    // `get_game_dir_options` 列出可选目录（内部存储 + 各卷的应用专属外部目录）
+    // 及其剩余空间 —— 让用户知道装 SD 卡还够不够。
+    var gameDirRoot by remember { mutableStateOf("") }
+    var gameDirInstances by remember { mutableStateOf("") }
+    var allFilesAccess by remember { mutableStateOf(false) }
+    var gameDirOptions by remember { mutableStateOf<List<GameDirOptionUi>>(emptyList()) }
+
+    LaunchedEffect(api, pickSeq) {
+        val a = api ?: return@LaunchedEffect
+        a.getGameDirState { r ->
+            r.onSuccess { o ->
+                gameDirRoot = o.optString("root")
+                gameDirInstances = o.optString("instances_dir")
+                allFilesAccess = o.optBoolean("all_files_access", false)
+            }
+        }
+        a.getGameDirOptions { r ->
+            r.onSuccess { arr ->
+                gameDirOptions = (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    GameDirOptionUi(
+                        kind = o.optString("kind"),
+                        label = o.optString("label"),
+                        path = o.optString("path"),
+                        freeBytes = o.optLong("free"),
+                        totalBytes = o.optLong("total"),
+                        removable = o.optBoolean("removable", false),
+                    )
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(pickSeq) {
+        if (pickSeq == 0 || api == null) return@LaunchedEffect
+        // 用户可能在人系统弹窗里停留很久；给 2 分钟窗口，选完就立刻返回
+        val deadline = System.currentTimeMillis() + 120_000L
+        var handled = false
+        while (!handled && System.currentTimeMillis() < deadline) {
+            delay(500)
+            val picked = suspendCancellableCoroutine<String?> { cont ->
+                api.takePickedGameDir { r ->
+                    val v = r.getOrNull()
+                    // Rust 返回 Option<String>：没选过/已取消 都是 "null"
+                    if (cont.isActive) {
+                        cont.resume(v?.takeIf { it.isNotBlank() && it != "null" })
+                    }
+                }
+            }
+            if (picked != null) {
+                handled = true
+                api.setGameDir(picked, true) { sr ->
+                    sr.fold(
+                        onSuccess = {
+                            dirMessage = context.getString(R.string.settings_game_dir_changed)
+                            onReloadSettings()
+                        },
+                        onFailure = { e ->
+                            dirMessage = context.getString(
+                                R.string.settings_game_dir_change_failed,
+                                friendlyError(context, e.message),
+                            )
+                        },
+                    )
+                }
+            }
+        }
+    }
+
     SettingsPane(title = stringResource(R.string.settings_storage_title)) {
         SettingsGroup(stringResource(R.string.settings_storage_location_group)) {
             SettingsRow(
@@ -580,11 +694,100 @@ fun StoragePane(
                 showDivider = false,
             ) {
                 TextButton(onClick = {
-                    // 走 Rust：它内部会回调宿主的 pickGameDir 弹系统目录选择器，
-                    // 用户选完后 Rust 用 take_picked_game_dir 取回结果。
-                    api?.pickGameDir { /* 结果由 Rust 侧落地，界面稍后刷新 */ }
+                    // 发起系统目录选择器；结果由上面的轮询取回并落地
+                    dirMessage = null
+                    api?.pickGameDir { }
+                    pickSeq++
                 }) {
                     Text(stringResource(R.string.settings_game_select))
+                }
+            }
+        }
+
+        // 选择结果提示（成功/失败）
+        dirMessage?.let { msg ->
+            Text(
+                text = msg,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+
+        // 实际生效的数据根 + 「所有文件访问」授权状态
+        if (gameDirRoot.isNotBlank()) {
+            SettingsGroup(stringResource(R.string.settings_storage_effective_group)) {
+                SettingsRow(
+                    title = stringResource(R.string.settings_storage_effective_root),
+                    subtitle = gameDirRoot,
+                ) {
+                }
+                SettingsRow(
+                    title = stringResource(R.string.settings_storage_instances_dir),
+                    subtitle = gameDirInstances.ifBlank { gameDirRoot },
+                ) {
+                }
+                SettingsRow(
+                    title = stringResource(R.string.settings_storage_all_files_access),
+                    subtitle = stringResource(
+                        if (allFilesAccess) {
+                            R.string.settings_storage_all_files_access_granted
+                        } else {
+                            R.string.settings_storage_all_files_access_missing
+                        }
+                    ),
+                    showDivider = false,
+                ) {
+                }
+            }
+        }
+
+        // 可选目录（内部存储 / SD 卡等）+ 剩余空间
+        if (gameDirOptions.isNotEmpty()) {
+            SettingsGroup(stringResource(R.string.settings_storage_options_group)) {
+                gameDirOptions.forEachIndexed { idx, opt ->
+                    SettingsRow(
+                        title = opt.label.ifBlank { opt.path },
+                        subtitle = buildString {
+                            append(opt.path)
+                            if (opt.freeBytes > 0L) {
+                                append("\n")
+                                append(
+                                    context.getString(
+                                        R.string.settings_storage_free_space,
+                                        formatBytes(opt.freeBytes),
+                                        formatBytes(opt.totalBytes),
+                                    )
+                                )
+                            }
+                            if (opt.removable) {
+                                append("\n")
+                                append(context.getString(R.string.settings_storage_removable))
+                            }
+                        },
+                        showDivider = idx != gameDirOptions.lastIndex,
+                    ) {
+                        if (opt.path.isNotBlank() && opt.path != gameDirRoot) {
+                            TextButton(onClick = {
+                                api?.setGameDir(opt.path, true) { r ->
+                                    r.fold(
+                                        onSuccess = {
+                                            dirMessage = context.getString(R.string.settings_game_dir_changed)
+                                            onReloadSettings()
+                                        },
+                                        onFailure = { e ->
+                                            dirMessage = context.getString(
+                                                R.string.settings_game_dir_change_failed,
+                                                friendlyError(context, e.message),
+                                            )
+                                        },
+                                    )
+                                }
+                            }) {
+                                Text(stringResource(R.string.settings_game_use))
+                            }
+                        }
+                    }
                 }
             }
         }

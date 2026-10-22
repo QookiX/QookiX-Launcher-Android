@@ -62,6 +62,21 @@
   var currentDataUrl = null;
   var currentModel = "default";
   var currentAnim = "idle";
+  // 加载序号：每次 load() 自增。
+  //
+  // ⚠️ 为什么需要它 —— 真机 bug（2026-10-22 用户报）：
+  // 「皮肤手臂是纤细，改成经典就会和第一张图一样，改成纤细就变回来了」
+  // 「有时整个模型变成一块绿色色块」。
+  //
+  // 原因是 `viewer.loadSkin(dataUrl)` 是**异步**的（内部 loadImage → Promise），
+  // 而 Kotlin 侧切模型时会连续触发两次 load（先 load(null) 清空，再 load(url)），
+  // 两次的 Promise 谁先落谁说了算 —— 旧的那次（模型是旧的）可能**后**落地，
+  // 把几何体又改回旧模型的手臂宽度，同时贴图已被 resetSkin 清成 null，
+  // 于是渲染出「没有贴图的材质」（MeshStandardMaterial 无 map 时的默认色）。
+  //
+  // 用序号做「后发起者胜」：只有 seq === 当前序号的 Promise 才允许
+  // 写回状态与取帧。
+  var loadSeq = 0;
   // 视图状态。
   // autoRotate：模型自转开关（由 skinview3d 的 viewer.autoRotate 驱动）。
   var view = { yaw: 0, pitch: 0, zoom: 0.9, autoRotate: false };
@@ -444,10 +459,13 @@
       }
       currentDataUrl = dataUrl || null;
       currentModel = model === "slim" ? "slim" : "default";
+      // 后发起者胜：旧请求的 Promise 回来时发现序号过期，直接丢弃。
+      var mySeq = ++loadSeq;
       try {
         if (!currentDataUrl) {
           viewer.loadSkin(null);
           nextFrame().then(function () {
+            if (mySeq !== loadSeq) return;
             QkSkin3D.snapshotAsync(SNAP_W, SNAP_H);
           });
           return true;
@@ -455,14 +473,28 @@
         // ⚠️ 先清空再带 model 重新加载 —— skinview3d 对**同一个 source**
         // 会直接早退、不重建几何体，于是 slim/classic 的胳膊宽度不会变。
         // 旧 UI 的 useSkinRenderer.ts 也是这么处理的。
+        //
+        // ⚠️⚠️ 但「清空」和「重载」之间**必须等一帧**（2026-10-22 修）：
+        // `loadSkin(null)` 会 resetSkin()（map=null / visible=false），
+        // 如果紧接着同步调 `loadSkin(url)`，两次操作落在同一帧里，
+        // `recreateSkinTexture()` 与 `modelType` setter 的几何体重建
+        // 顺序不定 —— 表现就是「手臂宽度不对」或「整块绿」。
         viewer.loadSkin(null);
-        // loadSkin 返回 Promise：等它 + 一帧，确保纹理真的传到 GPU 再取帧
-        Promise.resolve(viewer.loadSkin(currentDataUrl, { model: currentModel }))
+        nextFrame()
+          .then(function () {
+            if (mySeq !== loadSeq) return null;
+            // 纹理真的加载完（Promise resolve）才算就绪
+            return Promise.resolve(
+              viewer.loadSkin(currentDataUrl, { model: currentModel })
+            );
+          })
           .then(nextFrame)
           .then(function () {
+            if (mySeq !== loadSeq) return;
             QkSkin3D.snapshotAsync(SNAP_W, SNAP_H);
           })
           .catch(function (e) {
+            if (mySeq !== loadSeq) return;
             window.__QK_SKIN3D_RESULT =
               "loaderr:" + (e && e.message ? e.message : e);
           });
@@ -483,10 +515,24 @@
     setModel: function (model) {
       currentModel = model === "slim" ? "slim" : "default";
       if (!viewer || !currentDataUrl) return false;
+      var mySeq = ++loadSeq;
       try {
-        // 同上：强制重建几何体
+        // 同上：强制重建几何体，且**清空与重载之间等一帧**，
+        // 否则手臂宽度与贴图会错配（2026-10-22 用户报的手臂不变/绿块）。
         viewer.loadSkin(null);
-        viewer.loadSkin(currentDataUrl, { model: currentModel });
+        nextFrame()
+          .then(function () {
+            if (mySeq !== loadSeq) return null;
+            return Promise.resolve(
+              viewer.loadSkin(currentDataUrl, { model: currentModel })
+            );
+          })
+          .then(nextFrame)
+          .then(function () {
+            if (mySeq !== loadSeq) return;
+            QkSkin3D.snapshotAsync(SNAP_W, SNAP_H);
+          })
+          .catch(function () { });
         return true;
       } catch (e) {
         return false;

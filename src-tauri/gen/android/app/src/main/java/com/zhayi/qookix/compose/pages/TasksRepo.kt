@@ -82,6 +82,9 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
         private set
     var launchProgress by mutableStateOf(0f)
         private set
+    /** 当前正在运行的实例 id（launch://state 推送，首页显示「运行中」用）。 */
+    var runningInstanceId by mutableStateOf<String?>(null)
+        private set
 
     private var onChange: ((DownloadsUiState) -> Unit)? = null
 
@@ -233,7 +236,7 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
             val state = o.optString("state")
             val instanceId = o.optString("instanceId")
             Log.i(TAG, "游戏状态: $state ($instanceId)")
-            // 游戏状态主要影响首页「正在运行」提示，暂不并入任务列表
+            runningInstanceId = if (state == "running" && instanceId.isNotBlank()) instanceId else null
         }.onFailure { Log.w(TAG, "解析 launch://state 失败", it) }
     }
 
@@ -387,6 +390,13 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
             stalled = !finished && lastProgressMark >= 0 &&
                 (System.currentTimeMillis() - lastProgressAt) > STALL_MS,
             finished = finished,
+            stage = stage,
+            bytesDone = bytesDone,
+            bytesTotal = bytesTotal,
+            fileDone = fileDone,
+            fileTotal = fileTotal,
+            stepDone = stepDone,
+            stepTotal = stepTotal,
         )
     }
 }

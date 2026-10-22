@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -97,6 +98,8 @@ fun InstancesPage(
     state: InstancesUiState,
     onCreate: () -> Unit,
     onOpen: (String) -> Unit,
+    /** 直接启动实例（卡片上的播放按钮）。 */
+    onLaunch: (String) -> Unit = {},
     /** 删除实例（长按卡片触发菜单后调用）。 */
     onDelete: (InstanceUi) -> Unit = {},
     /** 分组管理（2026-10-21 补：后端命令一直没 UI）。 */
@@ -178,6 +181,7 @@ fun InstancesPage(
                         inst = inst,
                         onClick = { onOpen(inst.id) },
                         onLongClick = { menuTarget = inst },
+                        onLaunch = { onLaunch(inst.id) },
                     )
                 }
                 item(key = "s-${section.key}") { Spacer(Modifier.height(4.dp)) }
@@ -383,6 +387,7 @@ private fun InstanceCard(
     inst: InstanceUi,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    onLaunch: () -> Unit = {},
 ) {
     // 按下缩放：combinedClickable 必须显式接收这个 source，
     // 否则它内部自建一个，pressScale 永远收不到按压事件
@@ -449,6 +454,10 @@ private fun InstanceCard(
                     maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
+            }
+
+            IconButton(onClick = onLaunch) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = stringResource(R.string.instances_launch))
             }
         }
     }

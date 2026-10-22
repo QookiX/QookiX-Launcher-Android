@@ -159,9 +159,27 @@ jobs:
           fi
 
       # ⑤ Gradle 打包（arm64 / x86_64 两个 flavor；universal 缺 armeabi-v7a、x86 的 Rust 库，不出）
+      #
+      # ⚠️ 2026-10-22 加 timeout-minutes ——
+      # 上一版（v1.7.4 的 run 39639594331）在这里挂了 5 小时 49 分：
+      #   compileArm64ReleaseArtProfile 抛 OutOfMemoryError
+      #   → AAPT2 worker 死掉，Gradle 干等它的返回
+      #   → packageArm64Release 既不报错也不推进
+      #   → 直到 GitHub 的 6 小时作业上限才把整个 job 取消。
+      #
+      # 根因（OOM）已在 gradle.properties 里修掉
+      # （-Xmx4096m / MaxMetaspaceSize=1024m / workers.max=2 / release 不跑 lint）。
+      # 注意：`android.enableArtProfiles=false` 在 AGP 8 已删除、写了会直接构建失败，
+      # 所以 Art Profile 不能关，只能给够堆。
+      # 这个 timeout 是**兜底**：万一再挂，45 分钟就失败，
+      # 而不是拖满 6 小时然后被"自动取消"（看不出是超时还是崩溃）。
+      #
+      # --max-workers=2 与 gradle.properties 的 org.gradle.workers.max=2 一致，
+      # 显式写出来是为了不依赖 properties 是否被正确读取。
       - name: Gradle 打包
         working-directory: src-tauri/gen/android
-        run: ./gradlew :app:assembleArm64Release :app:assembleX86_64Release --no-daemon
+        timeout-minutes: 45
+        run: ./gradlew :app:assembleArm64Release :app:assembleX86_64Release --no-daemon --max-workers=2 --console=plain
 
       # ⑥ 产物改名：带版本号（多版本下载时不会认错）
       - name: 整理产物

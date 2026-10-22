@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -81,6 +83,7 @@ fun HomePage(
     // 启动阶段文案（检查文件 / 补全 / 启动中）。
     // 比笼统的「启动中…」有用 —— 补全大包要几分钟，用户需要知道在等什么。
     launchStage: String? = null,
+    onCancelTask: (Long) -> Unit = {},
 ) {
     // ── 响应式：横屏左右分栏，竖屏改单列 ────────────────────────────────
     //
@@ -120,6 +123,7 @@ fun HomePage(
                     inst = state.current,
                     launching = state.launching,
                     launchStage = launchStage,
+                    running = state.current?.id == state.runningInstanceId,
                     onLaunch = onLaunch,
                     onSwitch = onSwitchInstance,
                 )
@@ -169,7 +173,7 @@ fun HomePage(
 
                 if (state.tasks.isNotEmpty()) {
                     SectionTitle(stringResource(R.string.home_in_progress))
-                    state.tasks.forEach { t -> TaskRow(t) }
+                    state.tasks.forEach { t -> TaskRow(t, onCancel = { onCancelTask(t.id) }) }
                 }
 
                 if (state.news.isNotEmpty()) {
@@ -202,12 +206,13 @@ fun HomePage(
                 inst = state.current,
                 launching = state.launching,
                 launchStage = launchStage,
+                running = state.current?.id == state.runningInstanceId,
                 onLaunch = onLaunch,
                 onSwitch = onSwitchInstance,
             )
 
             Spacer(Modifier.height(20.dp))
-            HomeSecondaryContent(state, onOpenInstance, onOpenNews)
+            HomeSecondaryContent(state, onOpenInstance, onOpenNews, onCancelTask)
         }
     }
 }
@@ -223,6 +228,7 @@ private fun HomeSecondaryContent(
     state: HomeUiState,
     onOpenInstance: (String) -> Unit,
     onOpenNews: () -> Unit,
+    onCancelTask: (Long) -> Unit = {},
 ) {
     if (state.pinned.isNotEmpty()) {
         SectionTitle(stringResource(R.string.home_pinned))
@@ -252,7 +258,7 @@ private fun HomeSecondaryContent(
 
     if (state.tasks.isNotEmpty()) {
         SectionTitle(stringResource(R.string.home_in_progress))
-        state.tasks.forEach { t -> TaskRow(t) }
+        state.tasks.forEach { t -> TaskRow(t, onCancel = { onCancelTask(t.id) }) }
     }
 
     if (state.news.isNotEmpty()) {
@@ -262,6 +268,46 @@ private fun HomeSecondaryContent(
             onAction = onOpenNews,
         )
         state.news.take(4).forEach { n -> NewsRow(n) }
+    }
+
+    // 游玩统计（B3）：旧 Vue 首页底部有 PlaytimeCard，迁移时漏了。
+    // 独立页「更多 → 游玩统计」还在，这里给首页一个总时长的入口。
+    if (state.playtimeSeconds > 0L) {
+        SectionTitle(stringResource(R.string.home_playtime))
+        PlaytimeCard(state.playtimeSeconds)
+    }
+}
+
+/** 首页游玩统计卡（总时长）。 */
+@Composable
+private fun PlaytimeCard(seconds: Long) {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Schedule,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = if (hours > 0) {
+                    stringResource(R.string.home_playtime_hm, hours, minutes)
+                } else {
+                    stringResource(R.string.home_playtime_m, minutes)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
     }
 }
 
@@ -306,6 +352,7 @@ private fun CurrentInstanceCard(
     // 比笼统的「启动中…」有用 —— 补全大包要几分钟，
     // 用户需要知道在等什么。
     launchStage: String? = null,
+    running: Boolean = false,
     onLaunch: () -> Unit,
     onSwitch: () -> Unit,
 ) {
@@ -406,6 +453,8 @@ private fun CurrentInstanceCard(
                     Text(
                         text = if (launching) {
                             launchStage ?: stringResource(R.string.home_launching)
+                        } else if (running) {
+                            stringResource(R.string.home_running)
                         } else {
                             stringResource(R.string.home_launch_game)
                         },
@@ -487,7 +536,7 @@ private fun RecentInstanceCard(inst: InstanceUi, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TaskRow(t: TaskUi) {
+private fun TaskRow(t: TaskUi, onCancel: () -> Unit = {}) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -509,6 +558,10 @@ private fun TaskRow(t: TaskUi) {
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onCancel) {
+                    Text(stringResource(R.string.common_cancel))
+                }
             }
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(
@@ -556,6 +609,10 @@ data class HomeUiState(
     val tasks: List<TaskUi> = emptyList(),
     val news: List<NewsItemUi> = emptyList(),
     val launching: Boolean = false,
+    /** 正在运行的实例 id（launch://state 推送），用于在卡片上显示「运行中」角标。 */
+    val runningInstanceId: String? = null,
+    /** 总游玩时长（秒）；0 = 不显示统计卡。 */
+    val playtimeSeconds: Long = 0L,
 )
 
 /**

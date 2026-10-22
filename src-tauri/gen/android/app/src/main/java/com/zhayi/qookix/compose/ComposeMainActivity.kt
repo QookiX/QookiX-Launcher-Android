@@ -320,6 +320,18 @@ class ComposeMainActivity : TauriActivity() {
         return try {
             runOnUiThread {
                 if (visible) {
+                    // ⚠️ 坐标系换算（2026-10-22 修）。
+                    //
+                    // Compose 侧给的是 `positionInWindow()` —— **相对 window**；
+                    // 而 WebView 的 x/y 是 **相对它的父容器 host**。
+                    // 两者原点不同时，WebView 会整体偏移一个 host 顶边的距离，
+                    // 看起来就是「预览不在框里 / 跑到别处去了」。
+                    //
+                    // 换算：host 在 window 里的偏移量，从 window 坐标里减掉。
+                    val off = IntArray(2)
+                    host.getLocationInWindow(off)
+                    val localX = x - off[0]
+                    val localY = y - off[1]
                     // ⚠️ 必须幂等：滚动时预览框位置一直在变，本函数会被
                     // 反复调用。每次都 removeView+addView 会闪、还浪费。
                     // 只有「首次提层」或「尺寸变了」才重挂。
@@ -335,8 +347,8 @@ class ComposeMainActivity : TauriActivity() {
                             ),
                         )
                     }
-                    wv.x = x.toFloat()
-                    wv.y = y.toFloat()
+                    wv.x = localX.toFloat()
+                    wv.y = localY.toFloat()
                     if (wv.alpha != 1f) {
                         wv.alpha = 1f
                         wv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -349,8 +361,11 @@ class ComposeMainActivity : TauriActivity() {
                         wv.evaluateJavascript(
                             "window.QkSkin3D && window.QkSkin3D.setDirectDisplay(true, $w, $h)"
                         ) { }
-                        android.util.Log.i(TAG, "3D 预览：WebView 已提层 ${w}x$h @($x,$y)")
                     }
+                    android.util.Log.i(
+                        TAG,
+                        "3D 预览：WebView 提层 ${w}x$h 窗口坐标($x,$y) → 容器坐标($localX,$localY)"
+                    )
                 } else if (webViewRaisedForPreview) {
                     webViewRaisedForPreview = false
                     // 先让页面停掉渲染循环、把 canvas 挪回屏幕外，
@@ -446,7 +461,12 @@ class ComposeMainActivity : TauriActivity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != android.app.Activity.RESULT_OK) return
+        if (resultCode != android.app.Activity.RESULT_OK) {
+            // 用户取消了选择：把「另存为」的回调丢掉，否则它会一直
+            // 持有那个页面的 lambda（页面早就不在了）。
+            if (requestCode == REQ_CREATE_TEXT_DOC) pendingSaveCallback = null
+            return
+        }
         when (requestCode) {
             REQ_PICK_IMAGE -> {
                 caps.onPickFileResult(data?.data)
@@ -466,6 +486,14 @@ class ComposeMainActivity : TauriActivity() {
                 val cb = pendingFileCallback
                 pendingFileCallback = null
                 cb?.invoke(path)
+            }
+            REQ_CREATE_TEXT_DOC -> {
+                // D5a「另存为」：把 SAF 的 content:// URI 回调给调用方，
+                // 内容由调用方经 Rust save_text_file → writeTextToUri 写入。
+                // 取消选择（data == null）时回调 null，调用方静默收场。
+                val cb = pendingSaveCallback
+                pendingSaveCallback = null
+                cb?.invoke(data?.data?.toString())
             }
             HostCapabilities.REQ_PICK_CONTROL_LAYOUT -> {
                 // ⚠️ 2026-10-18 补（修「按键导入选完文件没反应」）：
@@ -501,6 +529,66 @@ class ComposeMainActivity : TauriActivity() {
     fun systemProxy(): String? = caps.systemProxy()
     fun readPojavPrefs(): String? = caps.readPojavPrefs()
     fun readClipboardText(): String? = caps.readClipboardText()
+
+    // ── 「另存为」（D5a，2026-10-22 加）──────────────────────────────────
+    //
+    // Rust 的 save_text_file 对 content:// URI 走 android_bridge::write_text_to_uri，
+    // 它 JNI 反射调用的是 **ACTIVITY 指针指向的 Activity** —— 本项目里那是
+    // ComposeMainActivity（TauriBridge.attach(this)），不是旧 MainActivity。
+    // 所以这个方法必须在这里存在，否则「日志另存为」永远报
+    // 「原生桥不可用，无法写入所选位置」。
+    //
+    // 返回约定（同旧 MainActivity）：成功返回空串；失败返回错误信息。
+    fun writeTextToUri(uriOrPath: String, content: String): String {
+        return try {
+            if (!uriOrPath.startsWith("content://")) {
+                val f = java.io.File(uriOrPath)
+                f.parentFile?.mkdirs()
+                f.writeText(content)
+                return ""
+            }
+            val uri = android.net.Uri.parse(uriOrPath)
+            // 模式必须是 "wt"（write + truncate）：只写 "w" 时部分 provider
+            // 会在原内容后面追加，导出的日志会变成「旧 + 新」两份。
+            val out = contentResolver.openOutputStream(uri, "wt")
+                ?: return getString(R.string.app_save_failed_no_stream)
+            out.use { os ->
+                os.write(content.toByteArray(Charsets.UTF_8))
+                os.flush()
+            }
+            ""
+        } catch (e: Throwable) {
+            Log.w(TAG, "写入所选位置失败: $uriOrPath", e)
+            e.message ?: e.toString()
+        }
+    }
+
+    /** 「另存为」结果回调（createTextDocument 用）。 */
+    private var pendingSaveCallback: ((String?) -> Unit)? = null
+    private val REQ_CREATE_TEXT_DOC = 1003
+
+    /**
+     * 弹系统的「新建文档」选择器（ACTION_CREATE_DOCUMENT，text/plain）。
+     *
+     * 为什么不用分享：分享只能存到别的 App；用户要的是「存成 .txt 文件」。
+     * 返回的是 SAF 的 content:// URI —— 由 [writeTextToUri]（经 Rust 的
+     * save_text_file）写回。
+     */
+    fun createTextDocument(suggestedName: String, onResult: (String?) -> Unit) {
+        pendingSaveCallback = onResult
+        runCatching {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TITLE, suggestedName)
+            }
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQ_CREATE_TEXT_DOC)
+        }.onFailure {
+            Log.w(TAG, "弹另存为选择器失败", it)
+            pendingSaveCallback = null
+        }
+    }
     fun gameDirOptions(): String = caps.gameDirOptions()
     fun pickGameDir() = caps.pickGameDir()
     fun vpnConsentGranted(): String = caps.vpnConsentGranted()

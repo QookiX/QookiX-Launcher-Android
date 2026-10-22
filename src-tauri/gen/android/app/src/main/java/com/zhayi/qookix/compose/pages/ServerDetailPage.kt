@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
@@ -102,6 +103,8 @@ fun ServerDetailPage(
     onStop: () -> Unit,
     onCommandInput: (String) -> Unit,
     onCommandSend: () -> Unit,
+    /** 快捷命令（list / save-all）—— 直接下发，不经过输入框。 */
+    onQuickCommand: (String) -> Unit = {},
     onInstallCore: () -> Unit,
     onOpenDirectory: () -> Unit,
     onOpenFiles: () -> Unit,
@@ -262,6 +265,7 @@ fun ServerDetailPage(
                 onCopyRoom = onCopyRoom,
                 onRefreshLogs = onRefreshLogs,
                 onRequestBatteryUnrestricted = onRequestBatteryUnrestricted,
+                onQuickCommand = onQuickCommand,
             )
             ServerTab.Files -> FilesTab(
                 state = state,
@@ -323,6 +327,8 @@ private fun ConsoleTab(
     onCopyRoom: (String) -> Unit,
     onRefreshLogs: () -> Unit,
     onRequestBatteryUnrestricted: () -> Unit = {},
+    /** 快捷命令：直接下发，不经过输入框（list / save-all）。 */
+    onQuickCommand: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     // ⚠️ 2026-10-21 真机修：用户反馈「开服务器连着 WiFi 的话，有个连接地址，
@@ -460,6 +466,29 @@ private fun ConsoleTab(
                     }
                 }
             }
+        }
+
+        // ── 快捷命令（D10）──────────────────────────────────────────────
+        //
+        // `server_console_command` 后端一直有，但界面上要手打全称才能用。
+        // 开服的人高频就这两条：list（谁在线）/ save-all（手动存档，防崩溃回档）。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            AssistChip(
+                onClick = { onQuickCommand("list") },
+                enabled = state.running,
+                label = { Text(stringResource(R.string.server_detail_quick_list)) },
+            )
+            AssistChip(
+                onClick = { onQuickCommand("save-all") },
+                enabled = state.running,
+                label = { Text(stringResource(R.string.server_detail_quick_save)) },
+            )
         }
 
         // 命令输入行

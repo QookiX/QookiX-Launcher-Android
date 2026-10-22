@@ -84,8 +84,19 @@ fun FrpRoomsPage(
     onRefresh: () -> Unit,
     onCreate: (name: String, nodeId: Int, localPort: Int, password: String?) -> Unit,
     onEnter: (FrpRoomUi) -> Unit,
+    onEnterWithPassword: (FrpRoomUi, String) -> Unit = { _, _ -> },
     onExit: (FrpRoomUi) -> Unit,
     onOpenConnect: (String) -> Unit,
+    /**
+     * 读系统剪贴板（密码框的「粘贴」按钮）。
+     *
+     * 为什么不用输入框自带的长按粘贴：WebView/Compose 混合壳里长按菜单
+     * 时常弹不出来（迁移前的已知问题），而房主发来的密码就是一段要粘的文本。
+     *
+     * 参数是**异步**的：走 Rust 的 `read_clipboard` 命令（它再回调宿主读原生剪贴板），
+     * 拿到文本后回调给页面填进输入框；剪贴板为空/失败时回调 null。
+     */
+    onReadClipboard: (((String?) -> Unit) -> Unit)? = null,
 ) {
     var showCreate by remember { mutableStateOf(false) }
 
@@ -192,7 +203,9 @@ fun FrpRoomsPage(
                         busy = state.busy,
                         note = state.notes[r.id],
                         onEnter = { onEnter(r) },
+                        onEnterWithPassword = { pwd -> onEnterWithPassword(r, pwd) },
                         onExit = { onExit(r) },
+                        onReadClipboard = onReadClipboard,
                     )
                 }
             }
@@ -229,7 +242,12 @@ private fun FrpRoomCard(
     note: String?,
     onEnter: () -> Unit,
     onExit: () -> Unit,
+    onEnterWithPassword: (String) -> Unit = {},
+    /** 读系统剪贴板（密码框「粘贴」）；null = 不显示该按钮。 */
+    onReadClipboard: (((String?) -> Unit) -> Unit)? = null,
 ) {
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var passwordInput by remember { mutableStateOf("") }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -298,7 +316,9 @@ private fun FrpRoomCard(
 
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = onEnter, enabled = !busy) {
+                FilledTonalButton(onClick = {
+                    if (!room.isHost && room.hasPassword) showPasswordDialog = true else onEnter()
+                }, enabled = !busy) {
                     Text(
                         if (room.isHost) stringResource(R.string.frp_rooms_start)
                         else stringResource(R.string.frp_rooms_join),
@@ -313,6 +333,52 @@ private fun FrpRoomCard(
                 }
             }
         }
+    }
+
+    if (showPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasswordDialog = false; passwordInput = "" },
+            title = { Text(stringResource(R.string.frp_rooms_password_required)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        label = { Text(stringResource(R.string.frp_rooms_password)) },
+                    )
+                    if (onReadClipboard != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(onClick = {
+                                onReadClipboard { text ->
+                                    text?.takeIf { it.isNotBlank() }?.let {
+                                        // 去掉换行：从聊天软件复制时经常带尾部换行，
+                                        // 直接塞进密码框会让校验永远失败。
+                                        passwordInput = it.trim()
+                                    }
+                                }
+                            }) {
+                                Text(stringResource(R.string.frp_rooms_paste))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onEnterWithPassword(passwordInput)
+                    showPasswordDialog = false
+                    passwordInput = ""
+                }) { Text(stringResource(R.string.frp_rooms_join)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasswordDialog = false; passwordInput = "" }) {
+                    Text(stringResource(R.string.frp_rooms_cancel))
+                }
+            },
+        )
     }
 }
 
