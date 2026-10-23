@@ -564,6 +564,9 @@ fun ServerDetailRoute(
             }
         },
         onDismissNotice = { state = state.copy(notice = null) },
+        // 顶部失败提示可手动关掉（2026-10-22）：用户反馈「提示占地方、
+        // 看不到日志」—— 给他一个一键收起。
+        onDismissError = { state = state.copy(error = null) },
 
         // ── 改 server.properties ────────────────────────────────────────
         //

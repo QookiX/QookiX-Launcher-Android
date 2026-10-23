@@ -12,7 +12,28 @@ use std::path::{Path, PathBuf};
 /// 服务器根目录（数据目录下 servers/）
 fn servers_root() -> Option<PathBuf> {
     let data = crate::settings::data_dir_sync()?;
-    Some(crate::settings::resolve_servers_root(Path::new(&data)))
+    let root = crate::settings::resolve_servers_root(Path::new(&data));
+    // 兜底：约定的 `server/` / `servers/` 都不存在，但数据根下**有别的目录**
+    // 装着服务器（目录被改名/搬过家）—— 那就用它。
+    //
+    // 不这么做的话，用户会看到「还没有服务器」，而他的服务器好好地
+    // 躺在某个我们没预料到的目录里，完全找不回来（2026-10-22 真机复现）。
+    if !root.exists() {
+        if let Some(found) = crate::settings::find_servers_root(Path::new(&data)) {
+            println!(
+                "[servers] 约定的目录 {} 不存在，改用找到的 {}",
+                root.display(),
+                found.display()
+            );
+            crate::util::log_line(&format!(
+                "[servers] 约定的目录 {} 不存在，改用找到的 {}",
+                root.display(),
+                found.display()
+            ));
+            return Some(found);
+        }
+    }
+    Some(root)
 }
 
 pub fn server_dir(id: &str) -> Result<PathBuf, String> {
@@ -49,19 +70,122 @@ fn now_secs() -> u64 {
 /// 列出全部服务器（按创建时间倒序，与桌面版一致）
 pub fn list_servers() -> Vec<ServerConfig> {
     let Some(root) = servers_root() else {
+        crate::util::log_line("[servers] 数据目录不可用");
+        println!("[servers] 数据目录不可用");
         return Vec::new();
     };
     let Ok(entries) = std::fs::read_dir(&root) else {
+        // 诊断（2026-10-22）：目录读不到时，把**数据根目录下有什么**打出来 ——
+        // 否则只能看到「读不到目录」，根本不知道数据到底在哪。
+        let data = crate::settings::data_dir_sync().unwrap_or_default();
+        let listing = std::fs::read_dir(&data)
+            .map(|it| {
+                it.flatten()
+                    .map(|e| {
+                        let p = e.path();
+                        let kind = if p.is_dir() { "D" } else { "F" };
+                        let n = p
+                            .join("server.json")
+                            .is_file()
+                            .then(|| " [有server.json]")
+                            .unwrap_or("");
+                        format!(
+                            "{}{}{}",
+                            kind,
+                            p.file_name().unwrap_or_default().to_string_lossy(),
+                            n
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        // 决定性诊断：递归扫两层，把**任何**含 server.json 的路径找出来。
+        // 服务器目录被改名/搬家/误删，只有这样才查得到它到底在哪儿。
+        let mut found: Vec<String> = Vec::new();
+        if let Ok(top) = std::fs::read_dir(&data) {
+            for e in top.flatten() {
+                let d = e.path();
+                if !d.is_dir() {
+                    continue;
+                }
+                if d.join("server.json").is_file() {
+                    found.push(d.display().to_string());
+                }
+                if let Ok(sub) = std::fs::read_dir(&d) {
+                    for e2 in sub.flatten() {
+                        let d2 = e2.path();
+                        if d2.is_dir() && d2.join("server.json").is_file() {
+                            found.push(d2.display().to_string());
+                        }
+                    }
+                }
+            }
+        }
+        let msg = format!(
+            "[servers] 读不到服务器目录 {}；数据根 {} 下有：{:?}；含 server.json 的路径：{:?}；game_root={:?}",
+            root.display(),
+            data,
+            listing,
+            found,
+            crate::settings::game_root_sync()
+        );
+        crate::util::log_line(&msg);
+        println!("{}", msg);
         return Vec::new();
     };
-    let mut out: Vec<ServerConfig> = entries
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| {
-            let text = std::fs::read_to_string(e.path().join("server.json")).ok()?;
-            serde_json::from_str::<ServerConfig>(&text).ok()
-        })
-        .collect();
+    // 诊断（2026-10-22 真机复现「服务器列表整个空了」）：
+    // 把目录里每个子目录、以及 server.json 读不读得出来都写进诊断日志，
+    // 否则「目录存在但 server.json 损坏」和「目录就是空的」分不清。
+    //
+    // ⚠️ 用 `util::log_line`（落盘）而不是 `tracing::warn!` ——
+    // 这个项目**没有初始化 tracing subscriber**（tracing-subscriber 装了
+    // 但没 enable），tracing 的日志在真机上根本不会输出，排查时一片空白。
+    let mut names: Vec<String> = Vec::new();
+    let mut broken = 0usize;
+    let mut out: Vec<ServerConfig> = Vec::new();
+    for e in entries.flatten() {
+        let p = e.path();
+        if !p.is_dir() {
+            continue;
+        }
+        let nm = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        names.push(nm.clone());
+        match std::fs::read_to_string(p.join("server.json")) {
+            Ok(text) => match serde_json::from_str::<ServerConfig>(&text) {
+                Ok(cfg) => out.push(cfg),
+                Err(err) => {
+                    broken += 1;
+                    crate::util::log_line(&format!(
+                        "[servers] {} 的 server.json 解析失败: {}",
+                        nm, err
+                    ));
+                }
+            },
+            Err(err) => {
+                broken += 1;
+                crate::util::log_line(&format!(
+                    "[servers] {} 读不到 server.json: {}",
+                    nm, err
+                ));
+            }
+        }
+    }
+    crate::util::log_line(&format!(
+        "[servers] 根目录={} 子目录={:?} 可用={} 异常={}",
+        root.display(),
+        names,
+        out.len(),
+        broken
+    ));
+    // 同一份也打到 stdout —— Android 会把 stdout 收进 logcat（tag=stdout），
+    // 这样 adb logcat 就能直接看到，不用去翻 app 私有目录里的日志文件。
+    println!(
+        "[servers] 根目录={} 子目录={:?} 可用={} 异常={}",
+        root.display(),
+        names,
+        out.len(),
+        broken
+    );
     out.sort_by(|a, b| b.created.cmp(&a.created));
     out
 }
@@ -1861,13 +1985,51 @@ pub fn hosted_server_log(id: String, lines: Option<usize>) -> Result<Vec<String>
     } else {
         paper
     };
-    let text = std::fs::read_to_string(path).map_err(|e| format!("读日志失败: {e}"))?;
+    // ⚠️ 2026-10-22 补：Paper **按日期归档** —— `logs/latest.log` 只是软链/副本，
+    // 真正常驻的是 `logs/2026-10-22-1.log.gz`（或未压缩的 .log）。
+    // 有些版本压根不生成 latest.log，于是这里「文件存在但读不到内容」。
+    // 兜底：扫 logs/ 下最新的 .log 文件（按修改时间），用它当日志源。
+    let path = if path.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+        path
+    } else {
+        match newest_log_in(&dir.join("logs")) {
+            Some(p) => p,
+            None => path,
+        }
+    };
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("读日志失败（{}）: {e}", path.display()))?;
     let n = lines.unwrap_or(200).min(2000);
     let all: Vec<&str> = text.lines().collect();
     Ok(all[all.len().saturating_sub(n)..]
         .iter()
         .map(|s| s.to_string())
         .collect())
+}
+
+/// 在 `logs/` 目录里找**修改时间最新**的 .log 文件（不看 .gz）。
+///
+/// 为什么要这个兜底：Paper 每天一个日志文件（`2026-10-22-1.log`），
+/// `latest.log` 并非所有版本都有。没有它的话，用户明明能通过文件管理器
+/// 看到日志，界面上的控制台却一片空白。
+fn newest_log_in(logs_dir: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(logs_dir).ok()?;
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.extension().and_then(|s| s.to_str()) != Some("log") {
+            continue;
+        }
+        let Ok(meta) = p.metadata() else { continue };
+        if meta.len() == 0 {
+            continue;
+        }
+        let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+        if best.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
+            best = Some((mtime, p));
+        }
+    }
+    best.map(|(_, p)| p)
 }
 
 /// 取得本机在局域网里的地址，用于显示「朋友用这个地址连进来」。
@@ -2287,6 +2449,16 @@ pub fn is_hosted_server_running(id: String) -> bool {
 /// 读服务器日志（UI 契约：string[]）
 #[tauri::command]
 pub fn read_hosted_server_log(id: String) -> Vec<String> {
-    hosted_server_log(id, Some(300)).unwrap_or_default()
+    let sid = id.clone();
+    match hosted_server_log(id, Some(300)) {
+        Ok(lines) => lines,
+        Err(err) => {
+            // 诊断（2026-10-22）：之前用 unwrap_or_default() 把错误吞了 ——
+            // 「日志文件不存在」和「日志是空的」在界面上长得一模一样，
+            // 用户只能看到一片空白，完全不知道该去看哪。
+            crate::util::log_line(&format!("[servers] 读日志失败（{}）: {}", sid, err));
+            Vec::new()
+        }
+    }
 }
 

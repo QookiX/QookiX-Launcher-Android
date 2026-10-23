@@ -871,7 +871,7 @@
      * @param {number} wpx 预览区**物理像素**宽（Kotlin 传来的 LayoutCoordinates.size）
      * @param {number} hpx 预览区**物理像素**高
      */
-    setDirectDisplay: function (on, wpx, hpx) {
+    setDirectDisplay: function (on, wpx, hpx, xpx, ypx) {
       if (!ensure()) return false;
       try {
         if (on) {
@@ -880,9 +880,28 @@
           var dpr = window.devicePixelRatio || 1;
           var cw = Math.max(1, Math.round((wpx || 200) / dpr));
           var chh = Math.max(1, Math.round((hpx || 250) / dpr));
-          canvas.style.position = "absolute";
-          canvas.style.left = "0";
-          canvas.style.top = "0";
+          // canvas 在 WebView（已铺满整屏）里的位置。
+          //
+          // ⚠️ 2026-10-22 改：以前 WebView 被缩成预览框大小、挪到框的位置，
+          // 于是 WebView 永远压在 Compose 之上（用户报的「突破图层」）。
+          // 现在 WebView 铺满整屏、位置恒为 0，**画面位置由 canvas 决定** ——
+          // 这样只有 canvas 这一小块有内容，其余透明，不会盖住任何控件；
+          // 预览框滚出屏幕时 canvas 自然被 WebView 边界裁掉。
+          var cx = Math.round((xpx || 0) / dpr);
+          var cy = Math.round((ypx || 0) / dpr);
+          canvas.style.position = "fixed";
+          canvas.style.left = "0px";
+          canvas.style.top = "0px";
+          // ⚠️ 用 transform 移动，**不要**直接改 left/top。
+          //
+          // 真机实测（2026-10-22）：改 left/top 时 canvas 的**布局**位置变了
+          //（getBoundingClientRect 确实跟着变），但**画面留在原地不动** ——
+          // WebView 把 canvas 提升成了独立合成层，left/top 的变化没有
+          // 触发该层的重新合成，于是「DOM 在新位置、画面在老位置」。
+          //
+          // transform 走的是合成层的变换路径，每帧改都会立刻反映到画面上。
+          canvas.style.transform = "translate(" + cx + "px," + cy + "px)";
+          canvas.style.webkitTransform = "translate(" + cx + "px," + cy + "px)";
           canvas.style.width = cw + "px";
           canvas.style.height = chh + "px";
           canvas.style.zIndex = "9999";
@@ -891,14 +910,30 @@
           document.body.style.background = "transparent";
           document.body.style.margin = "0";
           // setSize 接收的是 CSS 逻辑尺寸（内部会再乘 pixelRatio）
-          if (viewer && viewer.setSize) viewer.setSize(cw, chh);
+          try {
+            if (viewer && viewer.setSize) viewer.setSize(cw, chh);
+          } catch (se) {
+            return "setSize-failed:" + (se && se.message ? se.message : se);
+          }
           view.direct = true;
-          startDirectLoop();
+          try {
+            startDirectLoop();
+          } catch (le) {
+            return "loop-failed:" + (le && le.message ? le.message : le);
+          }
+          // 回报状态（Kotlin 侧会打进 logcat），便于定位位置问题。
+          return "ok canvas=" + cx + "," + cy + " " + cw + "x" + chh +
+            " dpr=" + dpr + " vp=" + window.innerWidth + "x" + window.innerHeight +
+            " rect=" + (canvas.getBoundingClientRect ?
+              Math.round(canvas.getBoundingClientRect().left) + "," +
+              Math.round(canvas.getBoundingClientRect().top) : "?");
         } else {
           stopDirectLoop();
           canvas.style.position = "fixed";
           canvas.style.left = "-10000px";
           canvas.style.top = "0";
+          canvas.style.transform = "";
+          canvas.style.webkitTransform = "";
           canvas.style.width = "";
           canvas.style.height = "";
           canvas.style.zIndex = "";

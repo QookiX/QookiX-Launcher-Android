@@ -66,27 +66,115 @@ pub const SERVER_DIR_NAME_LEGACY: &str = "servers";
 
 /// 解析「实例目录根」：优先新名 `game/`，不存在则回退旧名 `instances/`。
 ///
-/// 注意：**只在旧目录存在且新目录不存在时**才回退 —— 一旦用户有了新目录，
-/// 就再也不看旧目录（避免两个目录各有一半实例、界面上分裂）。
+/// ⚠️ 2026-10-22 修：同 [resolve_servers_root] 的坑 —— 只要 `game/`
+/// 目录**存在**（哪怕是空的），旧目录 `instances/` 里用户真正的实例
+/// 就再也读不到了（界面显示「还没有实例」）。
+/// 现在改成「选真正有实例的那个」。
 pub fn resolve_instances_root(root: &Path) -> PathBuf {
     let new_dir = root.join(GAME_DIR_NAME);
     let legacy = root.join(GAME_DIR_NAME_LEGACY);
-    if new_dir.exists() || !legacy.exists() {
-        new_dir
-    } else {
-        legacy
+    if !legacy.exists() {
+        return new_dir;
     }
+    if !new_dir.exists() {
+        return legacy;
+    }
+    if count_instances_in(&new_dir) == 0 && count_instances_in(&legacy) > 0 {
+        crate::util::log_line(
+            "[settings] game/ 是空的但 instances/ 里有实例 —— 改用旧目录（数据在旧目录）",
+        );
+        return legacy;
+    }
+    new_dir
+}
+
+/// 数一个目录里有几个实例（子目录里带 `instance.json` 或 `game` 标记的才算）。
+fn count_instances_in(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|e| {
+            let p = e.path();
+            p.is_dir() && (p.join("instance.json").is_file() || p.join("version.json").is_file())
+        })
+        .count()
 }
 
 /// 解析「服务器目录根」：优先新名 `server/`，不存在则回退旧名 `servers/`。
+///
+/// ⚠️ 2026-10-22 修（真机复现：服务器列表整个空了）。
+///
+/// 原来的判断是「新目录**存在**就用新目录」—— 但只要有任何代码在
+/// `files/server/` 下建过一个空目录（哪怕只是 `create_dir_all`），
+/// 旧目录 `files/servers/` 里用户真正的服务器就再也读不到了：
+/// 列表接口遍历新目录 → 一个都没有 → 界面显示「还没有服务器」，
+/// 而用户的数据好好地躺在旧目录里。
+///
+/// 现在改成「**选真正有服务器的那个**」：
+///   - 两个目录都有服务器 → 用新的（保持「新名优先」的既定语义）
+///   - 只有旧的里面有 → 用旧的（数据可见性优先于命名整洁）
+///   - 都没有 → 用新的（后续创建时落在新目录）
 pub fn resolve_servers_root(root: &Path) -> PathBuf {
     let new_dir = root.join(SERVER_DIR_NAME);
     let legacy = root.join(SERVER_DIR_NAME_LEGACY);
-    if new_dir.exists() || !legacy.exists() {
-        new_dir
-    } else {
-        legacy
+    if !legacy.exists() {
+        println!("[settings] 服务器目录 -> 新目录 {}（旧的不存在）", new_dir.display());
+        return new_dir;
     }
+    if !new_dir.exists() {
+        println!("[settings] 服务器目录 -> 旧目录 {}", legacy.display());
+        return legacy;
+    }
+    // 两个都存在：看谁真的有服务器（子目录里带 server.json 的才算）
+    let n_new = count_servers_in(&new_dir);
+    let n_old = count_servers_in(&legacy);
+    println!(
+        "[settings] 服务器目录：server/ 有 {} 个，servers/ 有 {} 个",
+        n_new, n_old
+    );
+    if n_new == 0 && n_old > 0 {
+        crate::util::log_line(
+            "[settings] server/ 是空的但 servers/ 里有服务器 —— 改用旧目录（数据在旧目录）",
+        );
+        println!("[settings] server/ 是空的但 servers/ 里有服务器 -> 用旧目录");
+        return legacy;
+    }
+    new_dir
+}
+
+/// 兜底：在**数据根**下找「里面装着服务器的目录」。
+///
+/// 极端情况下服务器目录会被改名/搬家（老版本用过别的名字、
+/// 或迁移时被搬到了游戏目录下面）。这时硬编码 `server/` / `servers/`
+/// 就会让用户的服务器凭空消失 —— 界面显示「还没有服务器」，
+/// 数据却好好地躺在某个我们没预料到的目录里。
+///
+/// 判据：该目录的**直接子目录**里至少有一个带 `server.json`。
+pub fn find_servers_root(data_root: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(data_root).ok()?;
+    for e in entries.flatten() {
+        let p = e.path();
+        if !p.is_dir() {
+            continue;
+        }
+        if count_servers_in(&p) > 0 {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// 数一个目录里有几个「带 server.json 的子目录」（= 几个服务器）。
+fn count_servers_in(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().join("server.json").is_file())
+        .count()
 }
 /// 游戏数据根目录（`instances/` 的父目录）。
 ///

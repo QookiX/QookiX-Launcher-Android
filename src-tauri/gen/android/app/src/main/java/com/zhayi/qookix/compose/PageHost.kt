@@ -4677,6 +4677,29 @@ private fun CreateRoute(
     // 解析 / 建实例 / 解 overrides / 下载内容全在后端一条流水线里跑。
     var importMode by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
+    // ── 导入进度（2026-10-23）───────────────────────────────────────────
+    // 直接听 install://progress：`TasksRepo.onChange` 是**单槽位**（见本文件上面的注释），
+    // 抢它的订阅会让下载页没有进度；而 `bridge.listen` 支持多订阅者。
+    // 只更新「阶段文案 + done/total」，导入页据此画确定进度条。
+    var importStage by remember { mutableStateOf("") }
+    var importDone by remember { mutableStateOf(0) }
+    var importTotal by remember { mutableStateOf(0) }
+    DisposableEffect(bridge) {
+        bridge.listen("install://progress") { payload ->
+            runCatching {
+                val o = org.json.JSONObject(payload)
+                Triple(o.optString("message"), o.optInt("done", 0), o.optInt("total", 0))
+            }.getOrNull()?.let { (msg, done, total) ->
+                // 只在导入期间采纳：别的安装（补全/装插件）也会发同样的阶段，别串到导入页
+                if (importing) {
+                    importStage = msg
+                    importDone = done
+                    importTotal = total
+                }
+            }
+        }
+        onDispose { bridge.unlisten("install://progress") }
+    }
     var importMsg by remember { mutableStateOf<String?>(null) }
 
     fun pickAndImportModpack() {
@@ -4744,6 +4767,9 @@ private fun CreateRoute(
         onImportModeChange = { importMode = it },
         onPickModpack = { pickAndImportModpack() },
         importing = importing,
+    importStage = importStage,
+    importDone = importDone,
+    importTotal = importTotal,
         onCreate = {
             if (state.creating) return@CreateInstancePage
             state = state.copy(creating = true, error = null)

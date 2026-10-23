@@ -436,6 +436,7 @@
     <string name="update_check_title">更新检查</string>
     <string name="licenses_title">许可与版权声明</string>
     <string name="common_cancel">取消</string>
+    <string name="common_close">关闭</string>
     <string name="layout_copy_title">复制布局</string>
 <string name="backup_restore_title">恢复备份</string>
 <string name="backup_delete_title">删除备份</string>

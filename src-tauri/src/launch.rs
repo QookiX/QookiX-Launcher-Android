@@ -585,14 +585,32 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         let loader_str2 = loader_name(&instance.loader);
         let main_class = if loader_str2 != "vanilla" {
             let versions_dir = Path::new(&data_dir).join("versions");
-            crate::loader_install::find_loader_profile(&versions_dir, &loader_str2, &instance.mc_version)
-                .and_then(|p| crate::loader_install::profile_main_class(&p))
-                .unwrap_or_else(|| {
-                    version_info
-                        .main_class
-                        .clone()
-                        .unwrap_or_else(|| "net.minecraft.client.main.Main".to_string())
-                })
+            match crate::loader_install::find_loader_profile(
+                &versions_dir,
+                &loader_str2,
+                &instance.mc_version,
+            )
+            .and_then(|p| crate::loader_install::profile_main_class(&p))
+            {
+                Some(m) => m,
+                None => {
+                    // ⚠️ 真机踩过（1.21.1 NeoForge 实例，日志里只有 `profile=<未找到>`）：
+                    // 这里原来**静默退回原版主类** → 游戏照常进得去、但一个模组都不加载，
+                    // 用户完全看不出原因（还以为是模组装错了）。
+                    // 宁可当场拒绝：用原版跑一个"NeoForge 实例"不但模组全失效，
+                    // 还可能让原版去动 NeoForge 的存档。
+                    let msg = format!(
+                        "{loader_str2} 加载器没装成功：versions/ 下找不到它的 profile。\
+                         直接启动会变成原版（所有模组失效），所以先不启动。\
+                         请到实例设置里重新安装一次 {loader_str2} 加载器。"
+                    );
+                    crate::util::log_line(&format!(
+                        "[launcher] {msg}（versions_dir={}）",
+                        versions_dir.display()
+                    ));
+                    return Err(anyhow::anyhow!(msg));
+                }
+            }
         } else {
             version_info
                 .main_class

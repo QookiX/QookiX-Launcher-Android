@@ -453,7 +453,17 @@ class RustBridge(private val activity: Activity) {
                     // 用户能看进度、能取消，不需要靠「前端超时」兜底。
                     // 取消/失败的信号由任务系统负责，比盲猜一个秒数可靠。
                     cmd.contains("install", ignoreCase = true) ||
-                        cmd.contains("repair", ignoreCase = true) -> 0L
+                        cmd.contains("repair", ignoreCase = true) ||
+                        // ⚠️ 2026-10-23 真机修：`import_modpack` 的命令名里**没有** "install"，
+                        // 于是掉进了默认 8 秒 —— 实测日志：
+                        //   「命令超时无响应：import_modpack（8s）」
+                        //   「import_modpack 失败: 命令超时」
+                        // 表现就是导入整合包时界面立刻退回、一个文件都没装（用户以为是没反应）。
+                        // 导入/导出/下载都耗时且**自带进度事件**，和 install 一样不设超时。
+                        cmd.contains("import", ignoreCase = true) ||
+                        cmd.contains("modpack", ignoreCase = true) ||
+                        cmd.contains("export", ignoreCase = true) ||
+                        cmd.contains("download", ignoreCase = true) -> 0L
                     // 完整性检查只遍历本地文件，2 分钟足够
                     cmd.contains("check", ignoreCase = true) -> 120_000L
                     // ⚠️ 2026-10-20 修：**凡是联网拉元数据的命令，8 秒根本不够**。

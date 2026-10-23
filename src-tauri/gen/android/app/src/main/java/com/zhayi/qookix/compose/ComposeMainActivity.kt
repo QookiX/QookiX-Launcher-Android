@@ -308,6 +308,72 @@ class ComposeMainActivity : TauriActivity() {
     private var webViewRaisedForPreview = false
 
     /**
+     * 皮肤 3D 预览框在宿主（overlayHost）里的矩形：x / y / w / h。
+     *
+     * null = 没有提层（webview 模式没开），触摸全部走正常流程。
+     */
+    private var skinPreviewRect: IntArray? = null
+
+    /**
+     * 当前这条手势该给谁：true = 给 WebView（预览框内），false = 给 Compose。
+     *
+     * ⚠️ 必须按 **DOWN** 决定整条手势的归属 ——
+     * 如果按每一帧的落点判断，手指从预览框里划出去的那一刻
+     * 手势就换了目标（WebView 收到一半、Compose 收到一半），
+     * 两边都会表现为「卡住 / 乱动」。
+     */
+    private var gestureToWebView = false
+
+    /**
+     * 提层期间把「预览框以外」的触摸还回 Compose。
+     *
+     * ⚠️ 为什么需要（2026-10-22 真机复现）：
+     * 修「WebView 突破图层」时把 WebView 改成**铺满整个宿主**，
+     * 由 JS 把 canvas 定位到预览框位置 —— 这样画面不会盖住别的控件。
+     *
+     * 但代价是：铺满的 WebView 会**吃掉全屏的触摸** ——
+     * 页面滚不动、侧边导航栏点不动（实测：滑动落在模型上，页面纹丝不动）。
+     *
+     * Android 没有「View 只接收某块区域的触摸」这种能力
+     * （`touchDelegate` 只能扩大、不能缩小命中区）。
+     * 所以只能在这里拦：触摸点不在预览框矩形里 → 不让 WebView 收到，
+     * 交回 ComposeView 正常处理。
+     */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        val rect = skinPreviewRect
+        val wv = tauriWebView
+        if (rect != null && wv != null && wv.visibility == android.view.View.VISIBLE) {
+            val host = overlayHost
+            val px = ev.x
+            val py = ev.y
+            if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                // 按下时决定这条手势的归属
+                gestureToWebView = px >= rect[0] && px <= rect[0] + rect[2] &&
+                    py >= rect[1] && py <= rect[1] + rect[3]
+            }
+            if (!gestureToWebView) {
+                // 框外的触摸：**绝不能**让 WebView 拿到（它是兄弟里最后添加的，
+                // super.dispatchTouchEvent 会优先分发给它）。
+                // 所以直接把事件转交给 ComposeView 处理，并**拦截掉**，
+                // 不再 fall through 给 super。
+                val cv = composeView
+                if (cv != null && host != null) {
+                    val loc = IntArray(2)
+                    cv.getLocationInWindow(loc)
+                    val off = IntArray(2)
+                    host.getLocationInWindow(off)
+                    val moved = android.view.MotionEvent.obtain(ev)
+                    moved.setLocation(px - (loc[0] - off[0]), py - (loc[1] - off[1]))
+                    cv.dispatchTouchEvent(moved)
+                    moved.recycle()
+                }
+                return true
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    /**
      * 让 wry 的 WebView 在 ComposeView **之上**显示（或收回隐形）。
      *
      * @param visible true = 提到最上层并展开；false = 还原成 1×1 alpha=0
@@ -320,35 +386,52 @@ class ComposeMainActivity : TauriActivity() {
         return try {
             runOnUiThread {
                 if (visible) {
-                    // ⚠️ 坐标系换算（2026-10-22 修）。
+                    // ⚠️⚠️ 2026-10-22 重做（真机复现：「WebView 突破图层」）。
                     //
-                    // Compose 侧给的是 `positionInWindow()` —— **相对 window**；
-                    // 而 WebView 的 x/y 是 **相对它的父容器 host**。
-                    // 两者原点不同时，WebView 会整体偏移一个 host 顶边的距离，
-                    // 看起来就是「预览不在框里 / 跑到别处去了」。
+                    // ── 原做法（错在哪）──────────────────────────────────
+                    // 原来把 WebView **缩成预览框大小**、再挪到预览框的位置。
+                    // 问题：WebView 与 ComposeView 是**同一个父容器里的兄弟**，
+                    // 我们后 addView → 它永远画在 Compose **之上**。
+                    // 于是页面滚动、预览框露出一部分时，WebView 就把
+                    // 标题栏「皮肤」压住了 —— 这正是用户报的「突破图层」。
                     //
-                    // 换算：host 在 window 里的偏移量，从 window 坐标里减掉。
+                    // Android 只按**父容器**裁剪子 View，不按 Compose 的层级裁剪，
+                    // 所以「把 WebView 挪到框的位置」这件事本身就不可能不越界。
+                    //
+                    // ── 新做法（正确）────────────────────────────────────
+                    // WebView **铺满整个 host**、位置恒为 (0,0)，
+                    // 由 JS 把 canvas 定位到预览框在 WebView 内的偏移。
+                    //
+                    // 这样：
+                    //   1. WebView 永远是全屏的，不存在「挪到某个位置」→ 不会跑偏；
+                    //   2. canvas 只有预览框那么大，其余透明 → 不会盖住标题栏；
+                    //   3. 预览框滚出屏幕 → canvas 移出 WebView 边界，
+                    //      WebView 自己的裁剪就把画面切掉 → 自然消失。
+                    //
+                    // 坐标换算：Compose 给的是 window 坐标，WebView 内是
+                    // host 坐标 —— 减掉 host 在 window 里的偏移。
                     val off = IntArray(2)
                     host.getLocationInWindow(off)
                     val localX = x - off[0]
                     val localY = y - off[1]
-                    // ⚠️ 必须幂等：滚动时预览框位置一直在变，本函数会被
-                    // 反复调用。每次都 removeView+addView 会闪、还浪费。
-                    // 只有「首次提层」或「尺寸变了」才重挂。
+                    val hostW = host.width
+                    val hostH = host.height
+
+                    // 铺满 host（尺寸变了才重挂，避免频繁 remove/add 引起闪烁）
                     val needRemount = !webViewRaisedForPreview ||
-                        wv.width != w || wv.height != h
+                        wv.width != hostW || wv.height != hostH
                     if (needRemount) {
                         (wv.parent as? ViewGroup)?.removeView(wv)
                         host.addView(
                             wv,
                             ViewGroup.LayoutParams(
-                                if (w > 0) w else ViewGroup.LayoutParams.MATCH_PARENT,
-                                if (h > 0) h else ViewGroup.LayoutParams.MATCH_PARENT,
+                                if (hostW > 0) hostW else ViewGroup.LayoutParams.MATCH_PARENT,
+                                if (hostH > 0) hostH else ViewGroup.LayoutParams.MATCH_PARENT,
                             ),
                         )
                     }
-                    wv.x = localX.toFloat()
-                    wv.y = localY.toFloat()
+                    wv.x = 0f
+                    wv.y = 0f
                     if (wv.alpha != 1f) {
                         wv.alpha = 1f
                         wv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -359,13 +442,25 @@ class ComposeMainActivity : TauriActivity() {
                         // 通知页面：canvas 移到屏内 + 启动自驱动渲染循环。
                         // 尺寸用**物理像素**传，JS 侧按 devicePixelRatio 换算成 CSS。
                         wv.evaluateJavascript(
-                            "window.QkSkin3D && window.QkSkin3D.setDirectDisplay(true, $w, $h)"
-                        ) { }
+                            "window.QkSkin3D && window.QkSkin3D.setDirectDisplay(true, $w, $h, $localX, $localY)"
+                        ) { r ->
+                            android.util.Log.i(TAG, "3D 预览：setDirectDisplay -> $r")
+                        }
+                    } else {
+                        // 只挪 canvas 的位置（尺寸没变）—— 滚动时每帧都要发。
+                        wv.evaluateJavascript(
+                            "window.QkSkin3D && window.QkSkin3D.setDirectDisplay(true, $w, $h, $localX, $localY)"
+                        ) { r ->
+                            android.util.Log.i(TAG, "3D 预览：setDirectDisplay(移动) -> $r")
+                        }
                     }
                     android.util.Log.i(
                         TAG,
-                        "3D 预览：WebView 提层 ${w}x$h 窗口坐标($x,$y) → 容器坐标($localX,$localY)"
+                        "3D 预览：canvas ${w}x$h @($localX,$localY)（宿主 ${hostW}x$hostH）"
                     )
+                    // 记住预览框在宿主里的矩形 —— dispatchTouchEvent 用它
+                    // 判断「这次触摸该不该给 WebView」。
+                    skinPreviewRect = intArrayOf(localX, localY, w, h)
                 } else if (webViewRaisedForPreview) {
                     webViewRaisedForPreview = false
                     // 先让页面停掉渲染循环、把 canvas 挪回屏幕外，
@@ -376,6 +471,7 @@ class ComposeMainActivity : TauriActivity() {
                     wv.alpha = 0f
                     wv.x = 0f
                     wv.y = 0f
+                    skinPreviewRect = null
                     wv.layoutParams = ViewGroup.LayoutParams(1, 1)
                     (wv.parent as? ViewGroup)?.removeView(wv)
                     host.addView(wv, ViewGroup.LayoutParams(1, 1))

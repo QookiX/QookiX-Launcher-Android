@@ -8,7 +8,7 @@
 //! 公共目录的原始读写 —— SAF 授权只对 `ContentResolver` 生效，救不了 `java.io.File`。
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// 一个可选的游戏目录（Android 侧枚举各卷后回传）。
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -189,14 +189,68 @@ pub async fn set_game_dir(root: Option<String>, migrate: bool) -> Result<GameDir
         .await
         .map_err(|e| format!("无法创建目录 {}：{e}", new_instances.display()))?;
 
-    if migrate && old_instances != new_instances {
-        let moved = migrate_instances(&old_instances, &new_instances)
-            .await
-            .map_err(|e| format!("迁移失败：{e}"))?;
-        tracing::info!(
-            "[game_dir] 已迁移 {moved} 个实例到 {}",
+    // ⚠️ 真机反馈（OPPO ColorOS 12 / iQOO OriginOS / 澎湃 OS 三台**全部**）：换目录"完全不生效"。
+    // 光「目录建得出来」不够 —— 从 Android 11 起访问 `/storage/...` 需要「所有文件访问」
+    // （MANAGE_EXTERNAL_STORAGE）；没授时可能建得出目录、但后续游戏与 Rust 的读写全被拒，
+    // 而界面还显示"已切换"，用户看到的就是「换了没用」。
+    // 所以在**落盘设置之前**做一次真实写入探测：写一字节 → 读回来 → 删掉。
+    let probe = new_instances.join(".qookix-write-test");
+    let probe_res: std::io::Result<()> = async {
+        tokio::fs::write(&probe, b"ok").await?;
+        let back = tokio::fs::read(&probe).await?;
+        tokio::fs::remove_file(&probe).await?;
+        if back != b"ok" {
+            return Err(std::io::Error::other("回读内容不一致"));
+        }
+        Ok(())
+    }
+    .await;
+    if let Err(e) = probe_res {
+        let _ = tokio::fs::remove_file(&probe).await;
+        crate::util::log_line(&format!(
+            "[game_dir] 写入探测失败 {}：{e}",
             new_instances.display()
-        );
+        ));
+        return Err(format!(
+            "这个目录无法读写（{e}）。请先授予「所有文件访问」权限，或换一个目录（例如 SD 卡根目录下新建一个文件夹）。"
+        ));
+    }
+    crate::util::log_line(&format!(
+        "[game_dir] 准备切换：old={} new={} migrate={migrate}",
+        old_instances.display(),
+        new_instances.display()
+    ));
+
+    if migrate && old_instances != new_instances {
+        // ⚠️ 2026-10-22 加护栏：`old_instances` **绝不能**是数据根目录本身。
+        //
+        // 一旦它是 `files/`，`migrate_instances` 就会把 `files/` 下的
+        // 每个子目录都当成实例搬走 —— 包括 `servers/`（用户的服务器）、
+        // `skins/`、`accounts/`。跨分区时还会 `remove_dir_all` 删源目录，
+        // 结果就是「用户的数据凭空消失，界面上一个都不剩」。
+        let data_dir = crate::settings::get_data_dir().await.map_err(|e| e.to_string())?;
+        let old_is_data_root = std::fs::canonicalize(&old_instances).ok()
+            == std::fs::canonicalize(&data_dir).ok();
+        if old_is_data_root {
+            crate::util::log_line(&format!(
+                "[game_dir] 拒绝迁移：来源 {} 就是数据根目录（会误删 servers/skins/accounts）",
+                old_instances.display()
+            ));
+            println!(
+                "[game_dir] 拒绝迁移：来源 {} 就是数据根目录（会误删 servers/skins/accounts）",
+                old_instances.display()
+            );
+        } else {
+            let moved = migrate_instances(&old_instances, &new_instances)
+                .await
+                .map_err(|e| format!("迁移失败：{e}"))?;
+            crate::util::log_line(&format!(
+                "[game_dir] 已迁移 {} 个实例到 {}",
+                moved,
+                new_instances.display()
+            ));
+            println!("[game_dir] 已迁移 {} 个实例到 {}", moved, new_instances.display());
+        }
     }
 
     crate::settings::set_game_root(new_root.as_deref())
@@ -207,6 +261,17 @@ pub async fn set_game_dir(root: Option<String>, migrate: bool) -> Result<GameDir
 }
 
 /// 把 `from` 下的实例目录搬到 `to`。目标已存在则跳过（不覆盖）。返回搬动数量。
+///
+/// ⚠️ 2026-10-22 加防呆：**只搬「真正的实例」**，别的一概不碰。
+///
+/// 之前是「`from` 下的每个子目录都搬」，而 `from` 来自
+/// `resolve_instances_root(game_root)` —— 一旦那个路径算错
+/// （比如指向了数据根目录本身），就会把 `servers/`（用户的服务器！）、
+/// `skins/`、`accounts/` 这些**根本不是实例**的目录一起搬走，
+/// 其中跨分区失败时还会 `remove_dir_all` 删掉源目录 ——
+/// 结果就是「服务器莫名消失，界面上一个都不剩」。
+///
+/// 现在只搬带实例标记（`instance.json` / `version.json`）的子目录。
 async fn migrate_instances(from: &Path, to: &Path) -> anyhow::Result<usize> {
     if !from.is_dir() {
         return Ok(0);
@@ -219,7 +284,12 @@ async fn migrate_instances(from: &Path, to: &Path) -> anyhow::Result<usize> {
             continue;
         }
         let src = entry.path();
-        let dst = to.join(entry.file_name());
+        let name = entry.file_name();
+        // ⚠️ 只搬真正的实例（见上面的说明）。
+        if !is_instance_dir(&src).await {
+            continue;
+        }
+        let dst = to.join(&name);
         if dst.exists() {
             continue;
         }
@@ -234,6 +304,25 @@ async fn migrate_instances(from: &Path, to: &Path) -> anyhow::Result<usize> {
         moved += 1;
     }
     Ok(moved)
+}
+
+/// 判断一个目录是不是「一个实例」（有实例标记文件）。
+async fn is_instance_dir(dir: &Path) -> bool {
+    if tokio::fs::metadata(dir.join("instance.json")).await.is_ok() {
+        return true;
+    }
+    if tokio::fs::metadata(dir.join("version.json")).await.is_ok() {
+        return true;
+    }
+    // 没有标记文件时，看目录里有没有「实例该有的东西」（mods/config 等）。
+    // ⚠️ 刻意**不**看目录名 —— 老实例目录名是 UUID，新的是 id，
+    // 而且「名字里带 servers」这种判断太脆。
+    for marker in ["mods", "config", "options.txt", "logs"] {
+        if tokio::fs::metadata(dir.join(marker)).await.is_ok() {
+            return true;
+        }
+    }
+    false
 }
 
 /// 递归复制目录（同步实现；`tokio::fs` 没有开箱版本，交给阻塞线程池跑）。

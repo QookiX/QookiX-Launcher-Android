@@ -144,8 +144,15 @@ pub fn expected_main_class(loader: &str) -> Option<&'static str> {
 
 /// 在 `versions/` 下查找已生成的加载器 profile 目录。
 ///
-/// 官方 installer 的命名不完全可控（尤其 Fabric 会带游戏版本后缀），
-/// 所以按「目录名包含 loader 与 mc_version」来匹配，而不是拼死路径。
+/// ⚠️ 2026-10-22 真机修（1.21.1 NeoForge：游戏能进、**一个模组都不加载**）：
+/// 原来要求「目录名同时包含 loader 与 mc_version」。但 NeoForge 的 profile id 是
+/// `neoforge-21.1.251` —— **不含 `1.21.1`** ✗，于是永远匹配不上：
+///   `[launcher] 加载器=neoforge profile=<未找到> mainClass=net.minecraft.client.main.Main`
+/// 结果静默退回原版主类，用户以为是模组装错了。
+///
+/// 现在改成：目录名含 loader 是必要条件；「是不是这个游戏的」优先看 profile 里的
+/// `inheritsFrom`（权威依据），目录名带 mc_version 只作为兜底 —— 官方 installer 的
+/// 命名本来就不可控，不能拿它当唯一判据。
 pub fn find_loader_profile(
     versions_dir: &Path,
     loader: &str,
@@ -164,10 +171,27 @@ pub fn find_loader_profile(
             continue;
         }
         let name = path.file_name()?.to_string_lossy().to_string();
-        if !name.contains(&needle) || !name.contains(mc_version) {
+        if !name.contains(&needle) {
             continue;
         }
-        if path.join(format!("{name}.json")).exists() {
+        let json = path.join(format!("{name}.json"));
+        if !json.is_file() {
+            continue;
+        }
+        // 目录名命中就直接认（老行为）；否则读 profile 看 inheritsFrom。
+        let by_name = name.contains(mc_version);
+        let by_inherit = || -> bool {
+            std::fs::read_to_string(&json)
+                .ok()
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                .and_then(|v| {
+                    v.get("inheritsFrom")
+                        .and_then(|i| i.as_str())
+                        .map(|s| s == mc_version)
+                })
+                .unwrap_or(false)
+        };
+        if by_name || by_inherit() {
             best = Some(path);
         }
     }
@@ -617,6 +641,40 @@ mod tests {
         assert_eq!(paths.len(), 1, "只收存在的文件");
         assert_eq!(missing, 1, "缺的计数返回，供界面提示先补全");
 
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // ── find_loader_profile：NeoForge 的目录名不含 mc 版本 ────────────
+    #[test]
+    fn find_loader_profile_matches_neoforge_by_inherits_from() {
+        let tmp = std::env::temp_dir().join("qookix-loader-test-find-neo");
+        let _ = fs::remove_dir_all(&tmp);
+        // 真机实际形态（1.21.1 + NeoForge 21.1.251）：目录名只有 neoforge-21.1.251，
+        // **不含 1.21.1** —— 老逻辑按名字匹配因此永远找不到，游戏退回原版、模组全失效。
+        let dir = tmp.join("neoforge-21.1.251");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("neoforge-21.1.251.json"),
+            r#"{"id":"neoforge-21.1.251","inheritsFrom":"1.21.1",
+                "mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher"}"#,
+        )
+        .unwrap();
+        let found =
+            find_loader_profile(&tmp, "neoforge", "1.21.1").expect("应按 inheritsFrom 认出来");
+        assert_eq!(found, dir);
+        let mc = profile_main_class(&found).unwrap();
+        assert!(mc.contains("BootstrapLauncher"), "mainClass 不该退回原版：{mc}");
+
+        // 反例：inheritsFrom 是别的版本时不能误认
+        fs::write(
+            dir.join("neoforge-21.1.251.json"),
+            r#"{"id":"neoforge-21.1.251","inheritsFrom":"1.20.1"}"#,
+        )
+        .unwrap();
+        assert!(
+            find_loader_profile(&tmp, "neoforge", "1.21.1").is_none(),
+            "别的游戏版本的 profile 不能被当成这个版本的"
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 

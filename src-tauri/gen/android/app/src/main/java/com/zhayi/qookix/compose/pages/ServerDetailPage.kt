@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
@@ -141,6 +142,8 @@ fun ServerDetailPage(
     onDeleteServer: () -> Unit = {},
     /** 清除提示。 */
     onDismissNotice: () -> Unit = {},
+    /** 关掉顶部的失败提示（2026-10-22 加：用户想立刻把位置让给日志区）。 */
+    onDismissError: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // ── 顶栏已上移（2026-10-17）────────────────────────────────────
@@ -148,27 +151,22 @@ fun ServerDetailPage(
         // 和外层 TopAppBar 重复显示返回箭头 + 标题，现在搬进 title 槽位
         // （见 PageHost 注册的 ServerDetailToolbar）。
 
-        // 和设置页 / 实例详情用同一套 tab 容器（2026-10-17 统一）
-        // 统一 tab 组件（2026-10-17）：4 个 tab 在横屏会自动等分填满，
-        // 不再像原来那样右边空一片。
-        QkTabRow(
-            labels = ServerTab.entries.map { stringResource(it.labelRes) },
-            selectedIndex = state.tab.ordinal,
-            onSelect = { onTabChange(ServerTab.entries[it]) },
-        )
-
         // ── 操作失败提示（启动/停止等）────────────────────────────────
         //
         // ⚠️ 2026-10-16 补：`state.error` 原来只在「配置」页当作空态文案用，
         // 其他页面上**完全看不到**。真机实测：服务器没装核心时点「启动」，
         // 后端返回「还没下载服务端核心」，界面却毫无反应 —— 用户会以为按钮坏了。
         //
-        // 放在 TabRow 下面、所有 tab 之上，保证任何页签都能看到。
+        // ⚠️ 2026-10-22 调位置：原来放在 TabRow **下面**，把控制台日志区
+        // 往下挤了一截 —— 而日志区恰恰是开服时最需要空间的地方
+        // （横屏尤其明显，日志被压到只剩一两行）。
+        // 现在挪到 TabRow **上面**：标题栏下方本来就是空白，
+        // 提示放那儿不占日志区的地方。
         if (!state.error.isNullOrBlank()) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 shape = MaterialTheme.shapes.small,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -189,10 +187,33 @@ fun ServerDetailPage(
                         text = state.error,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.weight(1f),
                     )
+                    // 关闭按钮：提示不该一直占着位置（用户反馈位置问题时
+                    // 想立刻把它收起来看日志）。
+                    IconButton(
+                        onClick = onDismissError,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.common_close),
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
             }
         }
+
+        // 和设置页 / 实例详情用同一套 tab 容器（2026-10-17 统一）
+        // 统一 tab 组件（2026-10-17）：4 个 tab 在横屏会自动等分填满，
+        // 不再像原来那样右边空一片。
+        QkTabRow(
+            labels = ServerTab.entries.map { stringResource(it.labelRes) },
+            selectedIndex = state.tab.ordinal,
+            onSelect = { onTabChange(ServerTab.entries[it]) },
+        )
 
         // ── 上次运行的结束原因 ────────────────────────────────────────
         //

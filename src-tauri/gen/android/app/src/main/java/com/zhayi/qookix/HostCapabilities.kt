@@ -371,12 +371,59 @@ class HostCapabilities(private val activity: Activity) {
                     )
                 }
                 @Suppress("DEPRECATION")
-                activity.startActivityForResult(intent, REQ_PICK_GAME_DIR)
+                launchPicker(intent, REQ_PICK_GAME_DIR, "目录选择器")
             } catch (e: Throwable) {
                 Log.w(TAG, "弹目录选择器失败", e)
-                Toast.makeText(activity, "打不开目录选择器", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, "打不开目录选择器：${e.message}", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    /**
+     * 统一的「拉起系统选择器」入口。
+     *
+     * ⚠️ 真机反馈（OPPO / iQOO / 澎湃，用户点好几次甚至上百次都没反应）：
+     * 以前是每点一次就 `startActivityForResult` 一次 —— 连点会排队起多个选择器，
+     * 系统只认最后一个或直接丢弃，表现就是"点了没反应"；而某些 ROM 在 Activity
+     * 没回到前台时调用也会静默失败，什么日志都不留。
+     *
+     * 这里做三件事：
+     *  1. **连点合并**：5 秒内的重复请求只放行第一个（挡手抖，不挡"取消后重试"）；
+     *  2. **前置检查**：Activity 已结束/销毁时明确报错，不去做无效调用；
+     *  3. **失败可见**：异常原样弹出来 + 写日志，不再"点了没反应"。
+     */
+    @Volatile
+    private var pickerStartedAt: Long = 0L
+
+    /** 连点合并窗口：只挡"手抖连点"，不挡住用户取消后重新点（5 秒后自动放行）。 */
+    private val PICKER_DEBOUNCE_MS = 5_000L
+
+    private fun launchPicker(intent: Intent, requestCode: Int, what: String) {
+        val now = System.currentTimeMillis()
+        if (pickerStartedAt > 0 && now - pickerStartedAt < PICKER_DEBOUNCE_MS) {
+            Log.i(TAG, "刚拉起过$what（${now - pickerStartedAt}ms前），忽略重复请求")
+            return
+        }
+        if (activity.isFinishing || activity.isDestroyed) {
+            Log.w(TAG, "Activity 已结束，无法拉起$what")
+            Toast.makeText(activity, "界面已经关闭，请重新打开这一页", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pickerStartedAt = now
+        try {
+            @Suppress("DEPRECATION")
+            activity.startActivityForResult(intent, requestCode)
+            Log.i(TAG, "已拉起$what（code=$requestCode）")
+        } catch (e: Throwable) {
+            pickerStartedAt = 0L
+            Log.w(TAG, "拉起${what}失败", e)
+            Toast.makeText(activity, "打不开$what：${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** 选择器结果回来了（无论成功/取消），清掉在途标记。 */
+    private fun clearPickerInFlight() {
+        pickerStartedAt = 0L
     }
 
     /** 取走最近一次目录选择结果（取一次即清空）。 */
@@ -388,10 +435,22 @@ class HostCapabilities(private val activity: Activity) {
 
     /** 由 Activity 的 onActivityResult 调用。 */
     fun onPickGameDirResult(uri: Uri?) {
+        if (uri != null) {
+            // ⚠️ SAF 的授权默认是**临时**的（任务/进程结束就失效）→ 换完目录、重启一次就
+            // "不生效"。必须显式持久化。真机反馈三台全挂，这是主因之一。
+            runCatching {
+                activity.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }.onFailure { Log.w(TAG, "持久化目录授权失败: $uri", it) }
+        }
         val path = uri?.let { resolveTreeUri(it) }
         pendingGameDirPick = path
         if (path != null) {
             Log.i(TAG, "游戏目录已选: $path")
+        } else if (uri != null) {
+            Log.w(TAG, "目录 URI 无法解析成路径（provider=${uri.authority}）")
         }
     }
 
@@ -629,7 +688,7 @@ class HostCapabilities(private val activity: Activity) {
                     )
                 }
                 @Suppress("DEPRECATION")
-                activity.startActivityForResult(intent, REQ_PICK_CONTROL_LAYOUT)
+                launchPicker(intent, REQ_PICK_CONTROL_LAYOUT, "布局选择器")
             } catch (e: Throwable) {
                 Log.w(TAG, "弹布局选择器失败", e)
             }
@@ -668,10 +727,10 @@ class HostCapabilities(private val activity: Activity) {
                     type = mime
                 }
                 @Suppress("DEPRECATION")
-                activity.startActivityForResult(intent, requestCode)
+                launchPicker(intent, requestCode, "文件选择器")
             } catch (e: Throwable) {
                 Log.w(TAG, "弹文件选择器失败", e)
-                Toast.makeText(activity, "打不开文件选择器", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, "打不开文件选择器：${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -689,11 +748,14 @@ class HostCapabilities(private val activity: Activity) {
             pendingPickedFile = null
             return
         }
-        // 优先解析成真实路径：Rust 侧的 `std::fs` 只认路径。
-        // 解析不出来（如某些云盘 provider）就退回 content:// URI ——
-        // Rust 侧拿到 URI 后可以走 ContentResolver 那条路。
-        pendingPickedFile = resolveToRealPath(uri) ?: uri.toString()
-        Log.i(TAG, "已选文件: ${pendingPickedFile}")
+        // ⚠️ 统一「复制到应用目录」，不再直接用 `_data` 解析出的 `/sdcard/...`：
+        // Android 11+ 没有「所有文件访问」时，应用对 /sdcard 的**原始路径**读写会被拒
+        // （真机实测：选了整合包后导入立即失败、日志里连一条 install 都没有；
+        // `appops get … MANAGE_EXTERNAL_STORAGE` = No operations）。
+        // ContentResolver 走的是 SAF 授权，任何 ROM 都有效 → 复制一份最稳。
+        // 顺序：先复制；复制失败再退回真实路径（老行为）；最后才是 content://（Rust 读不了，仅兜底）。
+        pendingPickedFile = copyToTemp(uri) ?: resolveToRealPath(uri)
+        Log.i(TAG, "已选文件: ${pendingPickedFile ?: "(无法读取)"}")
     }
 
     /**
@@ -717,6 +779,31 @@ class HostCapabilities(private val activity: Activity) {
             }
         } catch (e: Throwable) {
             Log.w(TAG, "解析文件路径失败: $uri", e)
+            null
+        }
+    }
+
+    /**
+     * 把 `content://` 的内容复制到应用临时目录，返回**真实路径**。
+     *
+     * 为什么需要：Rust 侧所有文件操作都是 `std::fs`（只认路径），而 `_data` 列在
+     * 不少 ROM 上为空（OPPO 实测）。以前解析不出就把 `content://` 原样交给 Rust，
+     * 结果是静默失败 —— 用户看到的就是「选完文件没反应」。
+     */
+    private fun copyToTemp(uri: Uri): String? {
+        return try {
+            val dir = java.io.File(activity.cacheDir, "picked").apply { mkdirs() }
+            val name = (activity.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (i >= 0 && c.moveToFirst()) c.getString(i) else null
+            }) ?: "picked-${System.currentTimeMillis()}"
+            val out = java.io.File(dir, name.replace('/', '_'))
+            val ins = activity.contentResolver.openInputStream(uri) ?: return null
+            ins.use { i -> out.outputStream().use { o -> i.copyTo(o) } }
+            Log.i(TAG, "已复制到临时文件: ${out.absolutePath} (${out.length()} B)")
+            out.absolutePath
+        } catch (e: Throwable) {
+            Log.w(TAG, "复制选中文件失败: $uri", e)
             null
         }
     }

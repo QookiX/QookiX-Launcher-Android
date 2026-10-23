@@ -641,9 +641,23 @@ pub async fn import_modpack(file_path: &str) -> Result<ModpackImportResult> {
     // 其余默认值沿用创建流程那一套，不再手抄一遍。
     let mut instance = instance;
     instance.source_path = Some(file_path.to_string());
-    // 整合包导入最需要这项：游戏本体还没装，启动时正好顺带补全。
-    instance.check_files_on_launch = Some(true);
+    // ⚠️ 2026-10-23 改：导入完**直接把游戏装好**，不再只留一个"启动时补全"的标记。
+    //
+    // 原来的做法（check_files_on_launch = true）在实现上没错，但用户看到的是
+    // 「游戏文件不完整（已就绪 2/5）· 缺 1.21.1 版本信息 / neoforge 本体 / Java」
+    // → 第一反应是「导入失败了」，然后点「补全」，还容易再撞上补全那边的历史问题。
+    // 这里复用 `repair_instance_files`（装本体 + 加载器 + Java 运行时），进度走同一条
+    // install://progress，导入页的进度条能一路走到"完成"。
+    instance.check_files_on_launch = Some(false);
     crate::instances::write_instance(&instance).await?;
+
+    // 失败不掩盖"导入成功"：mod 已经落地了，这里只记日志，用户仍可点「补全」重试。
+    let install_id = instance.id.clone();
+    if let Err(e) = crate::instance_files::repair_instance_files(install_id.clone()).await {
+        crate::util::log_line(&format!(
+            "[modpack] 导入后的游戏文件安装失败（{install_id}）：{e}"
+        ));
+    }
     // 走到这里实例已经完整可用，不再需要回滚
     rollback.defuse();
 

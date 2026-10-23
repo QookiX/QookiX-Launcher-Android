@@ -95,6 +95,11 @@ fun CreateInstancePage(
     onImportModeChange: (Boolean) -> Unit = {},
     /** 选择整合包文件并导入（`.mrpack` / `.zip`）。 */
     onPickModpack: () -> Unit = {},
+    /** 导入进度：当前阶段的文案（来自 install://progress 的 message）。 */
+    importStage: String = "",
+    /** 导入进度：已完成步数 / 总步数（0 表示未知，用不确定进度条）。 */
+    importDone: Int = 0,
+    importTotal: Int = 0,
     /** 导入进行中。 */
     importing: Boolean = false,
     /**
@@ -174,6 +179,45 @@ fun CreateInstancePage(
                     Text(
                         if (importing) stringResource(R.string.create_instance_importing)
                         else stringResource(R.string.create_instance_pick_file),
+                    )
+                }
+                // ⚠️ 导入进度必须**在导入页可见**（2026-10-23）：
+                // 之前这里只有一个转圈，而导入本身要走「解压 → 下 1.21.1 → 装加载器 → 下 166 个文件」，
+                // 期间界面看不出任何变化；更要命的是当时桥接层对它用了 8 秒超时（已修），
+                // 失败时界面只是"退回原样"，用户完全无从判断。
+                if (importing) {
+                    Spacer(Modifier.height(20.dp))
+                    val barMod = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
+                    // ⚠️ 必须去掉 M3 1.3 的「新样式」装饰，否则长这样：一条细线 + 末尾一个小圆点
+                    // （stop indicator + 4dp 断口），完全不是用户认得的安卓进度条。
+                    // gapSize = 0.dp 去掉断口、drawStopIndicator = null 去掉圆点、圆头收尾。
+                    if (importTotal > 0) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { importDone.toFloat() / importTotal },
+                            modifier = barMod,
+                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                            gapSize = 0.dp,
+                            // 这个版本的参数非空 → 传空 lambda 等于「什么装饰都不画」
+                            drawStopIndicator = {},
+                        )
+                    } else {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            modifier = barMod,
+                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                            gapSize = 0.dp,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = buildString {
+                            append(importStage.ifBlank { "正在导入…" })
+                            if (importTotal > 0) append("（$importDone/$importTotal）")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
