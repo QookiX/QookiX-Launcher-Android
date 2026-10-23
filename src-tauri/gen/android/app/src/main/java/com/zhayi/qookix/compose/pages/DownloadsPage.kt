@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,7 +104,7 @@ fun DownloadsPage(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = QkSpacing.md, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Spacer(Modifier.weight(1f))
@@ -142,7 +144,7 @@ fun DownloadsPage(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
         ) {
             items(list, key = { it.id }) { t ->
                 TaskCard(t, onCancel = { onCancel(t.id) })
@@ -162,7 +164,7 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.md)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = t.title,
@@ -185,7 +187,7 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
             }
 
             if (t.message.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(QkSpacing.xxs))
                 Text(
                     text = t.message,
                     style = MaterialTheme.typography.bodySmall,
@@ -193,7 +195,7 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
                 )
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(QkSpacing.sm))
             // 进度条平滑跟随：事件是离散推送的（几百 ms 一次），
             // 直接绑定会一格一格跳；animateFloatAsState 让它连续滑动
             val animatedFraction by animateFloatAsState(
@@ -221,7 +223,7 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
             //
             // 前端能做的：速度归零超过阈值时明确告知 + 给出可操作建议。
             if (!t.finished && t.stalled) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Surface(
                     shape = MaterialTheme.shapes.small,
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -230,11 +232,11 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
                         text = stringResource(R.string.download_stalled_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 6.dp),
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             Row {
                 Text(
                     text = t.progressText,
@@ -253,7 +255,7 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
 
             // ── 展开明细 ────────────────────────────────────────────────
             if (expanded) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Surface(
                     shape = MaterialTheme.shapes.small,
                     color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -261,8 +263,8 @@ private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                            .padding(QkSpacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(QkSpacing.xxs),
                     ) {
                         if (t.stage.isNotBlank()) {
                             TaskDetailLine(

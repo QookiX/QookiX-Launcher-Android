@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import com.zhayi.qookix.compose.bridge.friendlyError
 
 import androidx.compose.material.icons.filled.Build
@@ -244,12 +246,12 @@ fun InstanceDetailPage(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                    .padding(horizontal = QkSpacing.lg, vertical = 4.dp),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.secondaryContainer,
             ) {
                 Row(
-                    modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(start = QkSpacing.md, end = 8.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -259,14 +261,14 @@ fun InstanceDetailPage(
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                         )
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(QkSpacing.xs))
                         LinearProgressIndicator(
                             progress = { t.fraction },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(6.dp),
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(QkSpacing.xxs))
                         Text(
                             text = listOf(t.progressText, t.speedText)
                                 .filter { it.isNotBlank() }
@@ -285,12 +287,12 @@ fun InstanceDetailPage(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                    .padding(horizontal = QkSpacing.lg, vertical = 4.dp),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.errorContainer,
             ) {
                 Row(
-                    modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(start = QkSpacing.md, end = 8.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -444,7 +446,7 @@ private fun SavesTab(
     onDeleteBackup: (String) -> Unit,
 ) {
     when {
-        state.loading -> Column(modifier = Modifier.padding(20.dp)) {
+        state.loading -> Column(modifier = Modifier.padding(QkSpacing.lg)) {
             SkeletonList(rows = 4, rowHeight = 72.dp)
         }
         state.worlds.isEmpty() -> EmptyHint(
@@ -454,7 +456,7 @@ private fun SavesTab(
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
         ) {
             items(state.worlds, key = { it.name }) { w ->
                 Card(
@@ -464,7 +466,7 @@ private fun SavesTab(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     ),
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
+                    Column(modifier = Modifier.padding(QkSpacing.md)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = w.name,
@@ -481,8 +483,8 @@ private fun SavesTab(
                                 color = MaterialTheme.colorScheme.outline,
                             )
                         }
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Spacer(Modifier.height(QkSpacing.sm))
+                        Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
                             // 「进入世界」—— 直接启动游戏并加载这个存档（quick-play）。
                             // 旧 UI 的 launchWorld；没有它用户只能先启动游戏再手动选世界。
                             if (onLaunchWorld != null) {
@@ -521,7 +523,7 @@ private fun SavesTab(
                         }
                         // 已有备份列表
                         if (w.backups.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             w.backups.forEach { b ->
                                 Row(
@@ -580,8 +582,8 @@ private fun KeysTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FilledTonalButton(onClick = onImport) {
@@ -617,7 +619,7 @@ private fun KeysTab(
                             .fillMaxWidth()
                             .heightIn(max = 360.dp)
                             .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(QkSpacing.xxs),
                     ) {
                         Text(
                             text = stringResource(R.string.instance_detail_passthru_desc),
@@ -625,7 +627,7 @@ private fun KeysTab(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (state.controlButtons.isEmpty()) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             Text(
                                 text = stringResource(R.string.instance_detail_passthru_empty),
                                 style = MaterialTheme.typography.bodySmall,
@@ -668,7 +670,7 @@ private fun KeysTab(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
         ) {
             items(state.layouts, key = { it.name }) { l ->
                 Card(
@@ -684,7 +686,7 @@ private fun KeysTab(
                     ),
                 ) {
                     Row(
-                        modifier = Modifier.padding(14.dp),
+                        modifier = Modifier.padding(QkSpacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -782,14 +784,14 @@ private fun ContentTab(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                        .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
                         modifier = Modifier
                             .weight(1f)
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                     ) {
                         state.contentKinds.forEach { k ->
                             FilterChip(
@@ -810,12 +812,12 @@ private fun ContentTab(
                     ContentActions(onCheckUpdates, onIdentify, identifying, onImport)
                 }
             } else {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 8.dp)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                     ) {
                         state.contentKinds.forEach { k ->
                             FilterChip(
@@ -844,7 +846,7 @@ private fun ContentTab(
         }
 
         if (state.loading) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(QkSpacing.lg)) {
                 SkeletonList(rows = 4, rowHeight = 64.dp)
             }
             return@Column
@@ -861,7 +863,7 @@ private fun ContentTab(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
         ) {
             items(state.content, key = { it.rel }) { c ->
                 Surface(
@@ -870,7 +872,7 @@ private fun ContentTab(
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -973,20 +975,20 @@ private fun FilesTab(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                    .padding(horizontal = QkSpacing.lg, vertical = 8.dp),
                 shape = MaterialTheme.shapes.medium,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 ),
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.md)) {
                     Text(
                         text = stringResource(R.string.instance_detail_shared_files_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     if (u.mcVersion.isNotBlank()) {
                         UsageLine(stringResource(R.string.instance_detail_usage_game_version, u.mcVersion), u.versionBytes)
                     }
@@ -995,7 +997,7 @@ private fun FilesTab(
                     }
                     UsageLine(stringResource(R.string.instance_detail_usage_libraries), u.librariesBytes)
                     UsageLine(stringResource(R.string.instance_detail_usage_assets), u.assetsBytes)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = stringResource(R.string.instance_detail_shared_instances, u.instancesTotal),
                         style = MaterialTheme.typography.bodySmall,
@@ -1009,7 +1011,7 @@ private fun FilesTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 2.dp),
+                .padding(horizontal = QkSpacing.lg, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -1119,13 +1121,13 @@ private fun LogsTab(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.instance_detail_no_logs_desc),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(QkSpacing.md))
                 FilledTonalButton(onClick = onLoadLog) { Text(stringResource(R.string.instance_detail_reload)) }
             }
         }
@@ -1136,7 +1138,7 @@ private fun LogsTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
+                .padding(horizontal = QkSpacing.lg, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -1225,13 +1227,13 @@ private fun CrashTab(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.instance_detail_no_crashes_desc),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(QkSpacing.md))
                 FilledTonalButton(onClick = onLoadCrashes) { Text(stringResource(R.string.instance_detail_recheck)) }
             }
         }
@@ -1253,7 +1255,7 @@ private fun CrashTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
     ) {
         items(state.crashLogs) { name ->
             Card(
@@ -1264,7 +1266,7 @@ private fun CrashTab(
                 ),
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(QkSpacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -1345,7 +1347,7 @@ private fun EmptyHint(title: String, subtitle: String) {
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,

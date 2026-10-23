@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.annotation.StringRes
 import com.zhayi.qookix.R
 import androidx.compose.foundation.horizontalScroll
@@ -46,8 +48,8 @@ fun GeneralPane(
             ) {
                 // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
                  FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                  ) {
                     CloseBehavior.entries.forEach { b ->
                         FilterChip(
@@ -97,8 +99,8 @@ fun GeneralPane(
                 //
                 // 加 horizontalScroll 后，窄屏也能滑到全部选项。
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                 ) {
                     OrientationMode.entries.forEach { o ->
                         FilterChip(
@@ -119,8 +121,8 @@ fun GeneralPane(
             ) {
                 // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
                  FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                  ) {
                     MirrorPreset.entries.forEach { mp ->
                         FilterChip(

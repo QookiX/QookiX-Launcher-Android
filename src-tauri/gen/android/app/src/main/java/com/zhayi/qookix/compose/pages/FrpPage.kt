@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import com.zhayi.qookix.compose.theme.QkRadius
 
 import androidx.compose.foundation.background
@@ -82,7 +84,7 @@ fun FrpPage(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
         ) {
             // ── 联机房间入口 ──────────────────────────────────────────────
             //
@@ -97,20 +99,20 @@ fun FrpPage(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     ),
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(QkSpacing.md)) {
                         Text(
                             text = stringResource(R.string.frp_rooms_title),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(QkSpacing.xxs))
                         Text(
                             text = stringResource(R.string.frp_rooms_mode_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(QkSpacing.sm))
                         OutlinedButton(onClick = onOpenRooms) {
                             Text(stringResource(R.string.frp_rooms_open))
                         }
@@ -127,14 +129,14 @@ fun FrpPage(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     ),
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(QkSpacing.md)) {
                         Text(
                             text = stringResource(R.string.frp_panel_title),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(QkSpacing.xs))
                         Row {
                             Text(
                                 text = stringResource(R.string.frp_panel_address),
@@ -156,8 +158,8 @@ fun FrpPage(
                                 modifier = Modifier.weight(1f),
                             )
                         }
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Spacer(Modifier.height(QkSpacing.sm))
+                        Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
                             OutlinedButton(
                                 onClick = onProbe,
                                 enabled = !state.probeBusy,
@@ -183,7 +185,7 @@ fun FrpPage(
                             if (!state.frpcReady) state.frpcDetail else ""
                         }
                         if (hint.isNotBlank()) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             Text(
                                 text = hint,
                                 style = MaterialTheme.typography.bodySmall,
@@ -208,20 +210,20 @@ fun FrpPage(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                         ),
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(modifier = Modifier.padding(QkSpacing.md)) {
                             Text(
                                 text = stringResource(R.string.frp_login),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(QkSpacing.xxs))
                             Text(
                                 text = stringResource(R.string.frp_login_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(QkSpacing.sm))
                             androidx.compose.material3.Button(onClick = onLogin) {
                                 Text(stringResource(R.string.frp_login))
                             }
@@ -237,14 +239,14 @@ fun FrpPage(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                         ),
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(modifier = Modifier.padding(QkSpacing.md)) {
                             Text(
                                 text = stringResource(R.string.frp_account_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             InfoRow(
                                 stringResource(R.string.frp_account_username),
                                 state.username.ifBlank { "—" },
@@ -258,8 +260,8 @@ fun FrpPage(
                             if (state.tunnelStats.isNotBlank()) {
                                 InfoRow(stringResource(R.string.frp_tunnel), state.tunnelStats)
                             }
-                            Spacer(Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Spacer(Modifier.height(QkSpacing.sm))
+                            Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
                                 OutlinedButton(
                                     onClick = onRefresh,
                                     enabled = !state.loading,
@@ -323,7 +325,7 @@ fun FrpPage(
 /** 一行「键 + 值」。 */
 @Composable
 private fun InfoRow(label: String, value: String) {
-    Row(modifier = Modifier.padding(vertical = 2.dp)) {
+    Row(modifier = Modifier.padding(vertical = QkSpacing.xxs)) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
@@ -362,7 +364,7 @@ private fun FrpTunnelCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.md)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = tunnel.name,
@@ -376,7 +378,7 @@ private fun FrpTunnelCard(
                 StatusBadge(tunnel.status)
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             Text(
                 text = buildString {
                     append(tunnel.protocol)
@@ -399,7 +401,7 @@ private fun FrpTunnelCard(
 
             // 运行中：把「分享给别人的地址」单独提出来（朋友要填这个）
             if (tunnel.runningAddress.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
                         shape = MaterialTheme.shapes.small,
@@ -412,7 +414,7 @@ private fun FrpTunnelCard(
                                 fontFamily = FontFamily.Monospace,
                             ),
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 6.dp),
                         )
                     }
                     Spacer(Modifier.width(6.dp))
@@ -423,7 +425,7 @@ private fun FrpTunnelCard(
             }
 
             if (tunnel.alive && !tunnel.exitNote.isBlank()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.frp_tunnel_exited, tunnel.exitNote),
                     style = MaterialTheme.typography.bodySmall,
@@ -431,8 +433,8 @@ private fun FrpTunnelCard(
                 )
             }
 
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(QkSpacing.sm))
+            Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
                 OutlinedButton(onClick = onToggle, enabled = !busy) {
                     if (busy) {
                         CircularProgressIndicator(
@@ -472,7 +474,7 @@ private fun StatusBadge(status: String) {
             text = status.ifBlank { stringResource(R.string.frp_status_unknown) },
             style = MaterialTheme.typography.labelSmall,
             color = fg,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 2.dp),
         )
     }
 }
@@ -499,7 +501,7 @@ fun FrpLoginDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
 
                 if (state.userCode.isNotBlank()) {
                     Surface(
@@ -513,10 +515,10 @@ fun FrpLoginDialog(
                                 letterSpacing = 2.sp,
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 12.dp),
                         )
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                 }
 
                 if (state.uri.isNotBlank()) {
@@ -530,7 +532,7 @@ fun FrpLoginDialog(
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 when (state.phase) {
                     FrpLoginPhase.Waiting -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(

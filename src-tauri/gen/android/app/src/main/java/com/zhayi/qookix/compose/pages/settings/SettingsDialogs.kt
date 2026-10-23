@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -113,7 +115,7 @@ fun TextInputDialog(
                     },
                 )
                 if (helperText.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = helperText,
                         style = MaterialTheme.typography.bodySmall,
@@ -153,7 +155,7 @@ fun InfoDialog(
                 loading -> Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 20.dp),
+                        .padding(vertical = QkSpacing.lg),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

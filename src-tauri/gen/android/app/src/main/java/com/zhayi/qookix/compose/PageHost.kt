@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
 
@@ -3620,8 +3622,8 @@ private fun InstanceDetailRoute(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(220.dp),
-                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
-                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(QkSpacing.xs),
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(QkSpacing.xs),
                         ) {
                             items(gameIcons.size) { i ->
                                 val ic = gameIcons[i]
@@ -5544,7 +5546,7 @@ private fun PlaceholderPage(dest: NavDestination) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(QkSpacing.xl),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -5554,13 +5556,13 @@ private fun PlaceholderPage(dest: NavDestination) {
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground,
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
         Text(
             text = context.getString(R.string.page_wip),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(QkSpacing.xxs))
         Text(
             text = context.getString(R.string.page_wip_desc),
             style = MaterialTheme.typography.bodySmall,

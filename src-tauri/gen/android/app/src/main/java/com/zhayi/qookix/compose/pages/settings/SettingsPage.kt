@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import com.zhayi.qookix.compose.ui.QkTabRow
 
 import androidx.compose.foundation.clickable
@@ -203,14 +205,14 @@ fun SettingsGroup(
     title: String? = null,
     content: @Composable () -> Unit,
 ) {
-    Column(modifier = Modifier.padding(bottom = 20.dp)) {
+    Column(modifier = Modifier.padding(bottom = QkSpacing.lg)) {
         if (title != null) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+                modifier = Modifier.padding(start = QkSpacing.xxs, bottom = 8.dp),
             )
         }
         Surface(
@@ -256,7 +258,7 @@ fun SettingsRow(
                     .then(
                         if (onClick != null) Modifier.androidxClickable(onClick) else Modifier
                     )
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = QkSpacing.md, vertical = 12.dp),
             ) {
                 Text(
                     text = title,
@@ -264,7 +266,7 @@ fun SettingsRow(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (subtitle != null) {
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
@@ -272,7 +274,7 @@ fun SettingsRow(
                     )
                 }
                 if (trailing != null) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     trailing()
                 }
             }
@@ -283,7 +285,7 @@ fun SettingsRow(
                     .then(
                         if (onClick != null) Modifier.androidxClickable(onClick) else Modifier
                     )
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = QkSpacing.md, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -293,7 +295,7 @@ fun SettingsRow(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     if (subtitle != null) {
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(QkSpacing.xxs))
                         Text(
                             text = subtitle,
                             style = MaterialTheme.typography.bodySmall,
@@ -309,7 +311,7 @@ fun SettingsRow(
         }
         if (showDivider) {
             HorizontalDivider(
-                modifier = Modifier.padding(start = 16.dp),
+                modifier = Modifier.padding(start = QkSpacing.md),
                 color = MaterialTheme.colorScheme.outlineVariant,
             )
         }
@@ -326,14 +328,14 @@ fun SettingsPane(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(QkSpacing.xl),
     ) {
         Text(
             text = title,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(bottom = 20.dp),
+            modifier = Modifier.padding(bottom = QkSpacing.lg),
         )
         content()
     }
@@ -355,7 +357,7 @@ fun SettingsPlaceholder(title: String) {
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             Text(
                 text = stringResource(R.string.settings_placeholder_wip),
                 style = MaterialTheme.typography.bodyMedium,

@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import com.zhayi.qookix.compose.theme.QkRadius
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -173,7 +175,7 @@ fun BrowsePage(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (state.error != null) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             Text(
                                 text = state.error,
                                 style = MaterialTheme.typography.bodySmall,
@@ -263,7 +265,7 @@ fun BrowsePage(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 16.dp),
+                                .padding(vertical = QkSpacing.md),
                             contentAlignment = Alignment.Center,
                         ) {
                             if (loadingMore) {
@@ -310,7 +312,7 @@ private fun ProjectCard(p: ProjectUi, onClick: () -> Unit, onInstall: () -> Unit
                 cornerRadius = 0.dp,
             )
 
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(QkSpacing.sm)) {
                 Text(
                     text = p.title,
                     style = MaterialTheme.typography.titleSmall,
@@ -319,7 +321,7 @@ private fun ProjectCard(p: ProjectUi, onClick: () -> Unit, onInstall: () -> Unit
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(QkSpacing.xxs))
                 Text(
                     text = p.description,
                     style = MaterialTheme.typography.bodySmall,
@@ -327,7 +329,7 @@ private fun ProjectCard(p: ProjectUi, onClick: () -> Unit, onInstall: () -> Unit
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = p.author,
@@ -465,7 +467,7 @@ fun BrowseToolbar(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(QkSpacing.xxs),
     ) {
         // ── 标题（必须保留）────────────────────────────────────────
         //
@@ -478,7 +480,7 @@ fun BrowseToolbar(
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
-            modifier = Modifier.padding(end = 12.dp),
+            modifier = Modifier.padding(end = QkSpacing.sm),
         )
 
         // 搜索框：高度压到 40dp，塞进 56dp 的 TopAppBar 里不顶格
@@ -593,7 +595,7 @@ private fun ProjectRowCompact(p: ProjectUi, onClick: () -> Unit, onInstall: () -
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = QkSpacing.sm, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 40dp 缩略图（比卡片模式的 110dp 小得多，但还能认出是哪个项目）

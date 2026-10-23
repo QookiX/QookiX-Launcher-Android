@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,7 +95,7 @@ fun AccountPanel(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
+                .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -125,12 +127,12 @@ fun AccountPanel(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                    .padding(horizontal = QkSpacing.lg, vertical = 4.dp),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(QkSpacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CircularProgressIndicator(
@@ -146,7 +148,7 @@ fun AccountPanel(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(QkSpacing.xxs))
                         // 设备码用等宽大字显示 —— 用户要照着敲，等宽避免看错
                         Text(
                             text = stringResource(R.string.account_code, flow.userCode),
@@ -175,7 +177,7 @@ fun AccountPanel(
 
         // ── 列表 ──────────────────────────────────────────────────────
         when {
-            loading && accounts.isEmpty() -> Column(modifier = Modifier.padding(20.dp)) {
+            loading && accounts.isEmpty() -> Column(modifier = Modifier.padding(QkSpacing.lg)) {
                 SkeletonList(rows = 2, rowHeight = 72.dp)
             }
 
@@ -186,7 +188,7 @@ fun AccountPanel(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = stringResource(R.string.account_empty_desc),
                         style = MaterialTheme.typography.bodyMedium,
@@ -198,7 +200,7 @@ fun AccountPanel(
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             ) {
                 items(accounts, key = { it.uuid }) { a ->
                     AccountCard(
@@ -296,7 +298,7 @@ private fun AccountCard(
         ),
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(QkSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 头像是首字母圆圈 —— 皮肤图要联网拉，列表里用字母更快更省
@@ -376,7 +378,7 @@ private fun OfflineAddDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit)
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.account_offline_desc),
                     style = MaterialTheme.typography.bodySmall,
@@ -422,7 +424,7 @@ private fun MsHintDialog(
                         text = stringResource(R.string.account_step_open_url),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = flow.verificationUri.ifBlank { "microsoft.com/link" },
                         style = MaterialTheme.typography.bodyMedium.copy(
@@ -430,12 +432,12 @@ private fun MsHintDialog(
                         ),
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     Text(
                         text = stringResource(R.string.account_step_enter_code),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = flow.userCode,
                         style = MaterialTheme.typography.headlineSmall.copy(
@@ -445,7 +447,7 @@ private fun MsHintDialog(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     Text(
                         text = stringResource(R.string.account_done_hint),
                         style = MaterialTheme.typography.bodySmall,

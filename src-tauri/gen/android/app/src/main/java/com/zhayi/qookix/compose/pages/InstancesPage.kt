@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import com.zhayi.qookix.compose.theme.QkRadius
 
 import androidx.compose.foundation.clickable
@@ -139,7 +141,7 @@ fun InstancesPage(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = stringResource(R.string.instances_empty_hint),
                         style = MaterialTheme.typography.bodyMedium,
@@ -153,7 +155,7 @@ fun InstancesPage(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
         ) {
             // 新建分组按钮（2026-10-21 补）
             item(key = "new-group") {
@@ -186,7 +188,7 @@ fun InstancesPage(
                         onLaunch = { onLaunch(inst.id) },
                     )
                 }
-                item(key = "s-${section.key}") { Spacer(Modifier.height(4.dp)) }
+                item(key = "s-${section.key}") { Spacer(Modifier.height(QkSpacing.xxs)) }
             }
         }
     }
@@ -347,7 +349,7 @@ private fun SectionHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 2.dp),
+            .padding(top = QkSpacing.xs, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -410,7 +412,7 @@ private fun InstanceCard(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(QkSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 实例图标位（旧实现是图标或首字母色块）
@@ -448,7 +450,7 @@ private fun InstanceCard(
                     maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(QkSpacing.xxs))
                 Text(
                     text = inst.subtitle,
                     style = MaterialTheme.typography.bodySmall,

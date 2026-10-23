@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.ui
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -149,7 +151,7 @@ fun SkeletonList(
 ) {
     androidx.compose.foundation.layout.Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(QkSpacing.sm),
     ) {
         repeat(rows) {
             SkeletonBox(

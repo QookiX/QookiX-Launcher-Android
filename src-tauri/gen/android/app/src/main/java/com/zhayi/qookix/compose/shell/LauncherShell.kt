@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.shell
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.runtime.remember
 import com.zhayi.qookix.compose.motion.pressScale
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -190,7 +192,7 @@ fun LauncherShell(
                     // 只保留 verticalScroll 作兜底（将来加入口也不会被裁）。
                     modifier = Modifier
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
                 ) {
                     // 品牌区（MD3 常驻抽屉的标准做法：抽屉顶部放产品名，
                     // 顶栏放页面标题 —— 两者不重复）
@@ -200,7 +202,7 @@ fun LauncherShell(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 8.dp),
+                        modifier = Modifier.padding(start = QkSpacing.md, top = 4.dp, bottom = 8.dp),
                     )
 
                     NavDestination.bottomBar.forEach { dest ->

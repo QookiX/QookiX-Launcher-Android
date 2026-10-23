@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.ui
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -80,7 +82,7 @@ fun QkVersionRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = QkSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -128,7 +130,7 @@ fun QkListHeader(title: String, trailing: String?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 20.dp, top = 4.dp, bottom = 6.dp),
+            .padding(start = QkSpacing.sm, end = 20.dp, top = 4.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -164,6 +166,6 @@ fun QkGroupTitle(name: String, count: Int) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
     )
 }

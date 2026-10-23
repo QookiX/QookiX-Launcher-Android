@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
@@ -217,7 +219,7 @@ fun SkinPage(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (sel != null) {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         text = sel.subtitle(ctx),
                         style = MaterialTheme.typography.bodySmall,
@@ -225,7 +227,7 @@ fun SkinPage(
                     )
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(QkSpacing.md))
 
                 if (state.accountName.isNotBlank()) {
                     Text(
@@ -237,10 +239,10 @@ fun SkinPage(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
                     Button(
                         onClick = { sel?.let(onApply) },
                         enabled = sel != null &&
@@ -274,10 +276,10 @@ fun SkinPage(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(QkSpacing.lg),
             ) {
                 previewBlock()
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(QkSpacing.md))
                 // 纵向时不需要 weight —— 它在 Column 里会撑开，
                 // 用 fillMaxWidth 让内容自然占满宽度
                 Box(modifier = Modifier.fillMaxWidth()) { infoBlock() }
@@ -286,8 +288,8 @@ fun SkinPage(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    .padding(QkSpacing.lg),
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.lg),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 previewBlock()
@@ -304,11 +306,11 @@ fun SkinPage(
         //
         // 离线账号没有披风（Mojang 侧才有），所以那里显示一句说明而不是空列表。
         if (accountOnline) {
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(QkSpacing.md))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = QkSpacing.lg),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -322,7 +324,7 @@ fun SkinPage(
                     CircularProgressIndicator(modifier = Modifier.size(16.dp))
                 }
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
 
             if (capes.isEmpty()) {
                 Text(
@@ -330,15 +332,15 @@ fun SkinPage(
                     else stringResource(R.string.skin_capes_empty),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(horizontal = 20.dp),
+                    modifier = Modifier.padding(horizontal = QkSpacing.lg),
                 )
             } else {
                 FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                        .padding(horizontal = QkSpacing.lg),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                 ) {
                     FilterChip(
                         selected = selectedCapeId == null,
@@ -360,7 +362,7 @@ fun SkinPage(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = QkSpacing.lg),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -384,9 +386,9 @@ fun SkinPage(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = QkSpacing.lg),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
         ) {
             OutlinedTextField(
                 value = playerName,
@@ -417,15 +419,15 @@ fun SkinPage(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (msg.startsWith("获取失败")) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 4.dp),
             )
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
 
         when {
             state.loading && state.skins.isEmpty() ->
-                Column(modifier = Modifier.padding(20.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.lg)) {
                     SkeletonList(rows = 2, rowHeight = 120.dp)
                 }
 
@@ -437,7 +439,7 @@ fun SkinPage(
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(QkSpacing.xs))
                         Text(
                             text = stringResource(R.string.skin_empty_desc),
                             style = MaterialTheme.typography.bodyMedium,
@@ -455,8 +457,8 @@ fun SkinPage(
                     .fillMaxWidth()
                     .heightIn(max = gridMaxH),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             ) {
                 items(state.skins, key = { it.filename }) { s ->
                     SkinCard(
@@ -673,7 +675,7 @@ private fun SkinPreview3d(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(QkSpacing.xs))
                         Text(
                             text = stringResource(R.string.skin_rendering),
                             style = MaterialTheme.typography.bodySmall,
@@ -684,7 +686,7 @@ private fun SkinPreview3d(
                         text = error,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(QkSpacing.md),
                     )
                     else -> Text(
                         text = stringResource(R.string.skin_select_hint),
@@ -695,13 +697,13 @@ private fun SkinPreview3d(
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
 
         // ── 动画（旧 UI 的四种）────────────────────────────────────────
         // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
          FlowRow(
-             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+             horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
          ) {
             listOf(
                 "idle" to R.string.skin_anim_idle,
@@ -717,12 +719,12 @@ private fun SkinPreview3d(
             }
         }
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(QkSpacing.xs))
 
         // ── 模型（经典 / 纤细）+ 重置视角 + 自动旋转 ──────────────────
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
         ) {
             FilterChip(
                 selected = !slim,
@@ -742,7 +744,7 @@ private fun SkinPreview3d(
             TextButton(onClick = onReset) { Text(stringResource(R.string.skin_reset_view)) }
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(QkSpacing.xxs))
         Text(
             // 静态帧摸不到 canvas，用户不可能自己发现"能拖" —— 必须写出来
             text = stringResource(R.string.skin_drag_hint),
@@ -781,7 +783,7 @@ private fun SkinView(img: ImageBitmap, label: String, front: Boolean) {
                 drawSkinPart(img, this, if (front) 20 else 4, 20, 4, 12, cx, legY, px * 4, px * 12)
             }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(QkSpacing.xs))
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
@@ -833,7 +835,7 @@ private fun SkinCard(
             },
         ),
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.sm)) {
             // 缩略图：选中时用已解码的，否则用 Coil 异步加载
             if (imageUrl.isNotBlank()) {
                 val bmp = remember(imageUrl) { decodeDataUrl(imageUrl) }
@@ -858,7 +860,7 @@ private fun SkinCard(
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             Text(
                 text = skin.name,
                 style = MaterialTheme.typography.bodyMedium,

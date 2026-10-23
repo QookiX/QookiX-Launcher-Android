@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
@@ -95,16 +97,16 @@ fun InstanceSettingsTab(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(QkSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
     ) {
         // ── 内存 ──────────────────────────────────────────────────────
         SettingsCard(stringResource(R.string.instance_settings_card_memory)) {
             FieldLabel(stringResource(R.string.instance_settings_memory_mode))
             // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
              FlowRow(
-                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                 horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
              ) {
                 MemoryMode2.entries.forEach { m ->
                     FilterChip(
@@ -122,7 +124,7 @@ fun InstanceSettingsTab(
 
             // 只有「手动」时才显示滑杆 —— 跟随全局/自动时调它没有意义
             if (state.memoryMode == "custom") {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(QkSpacing.xxs))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = stringResource(R.string.instance_settings_memory_limit),
@@ -171,8 +173,8 @@ fun InstanceSettingsTab(
             // 之前是两行（先选模式、再选渲染器），在 384dp 可用高度下
             // 第二行会被挤出屏幕 —— 用户根本看不到 GL4ES 这个选项。
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
             ) {
                 RendererMode.entries.forEach { m ->
                     FilterChip(
@@ -216,7 +218,7 @@ fun InstanceSettingsTab(
                     fontFamily = FontFamily.Monospace,
                 ),
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             OutlinedTextField(
                 value = state.gameArgs,
                 onValueChange = { onChange(InstanceSettingsPatch.GameArgs(it)) },
@@ -299,7 +301,7 @@ fun InstanceSettingsTab(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         text = stringResource(
                             R.string.instance_settings_export_summary,
@@ -313,7 +315,7 @@ fun InstanceSettingsTab(
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(QkSpacing.sm))
 
             ExportToggle(stringResource(R.string.instance_settings_export_include_config), exportConfig) { exportConfig = it }
             ExportToggle(
@@ -327,7 +329,7 @@ fun InstanceSettingsTab(
                 enabled = exportPlan?.hasScreenshots ?: false,
             ) { exportShots = it }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(QkSpacing.sm))
             Button(
                 onClick = { onExport(exportConfig, exportSaves, exportShots) },
                 enabled = !exporting,
@@ -346,7 +348,7 @@ fun InstanceSettingsTab(
             }
 
             exportHint?.let {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodySmall,
@@ -357,7 +359,7 @@ fun InstanceSettingsTab(
 
         // ── 保存 ──────────────────────────────────────────────────────
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(onClick = onSave, enabled = !saving) {
@@ -446,8 +448,8 @@ private fun SettingsCard(title: String, content: @Composable () -> Unit) {
         ),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(QkSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
         ) {
             Text(
                 text = title,

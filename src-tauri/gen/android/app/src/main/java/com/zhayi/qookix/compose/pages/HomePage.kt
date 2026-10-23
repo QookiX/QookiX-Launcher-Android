@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import com.zhayi.qookix.compose.theme.QkRadius
 
 import androidx.compose.animation.AnimatedVisibility
@@ -119,7 +121,7 @@ fun HomePage(
                     )
                     .fillMaxHeight()
                     .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
+                    .padding(QkSpacing.lg),
             ) {
                 CurrentInstanceCard(
                     inst = state.current,
@@ -139,13 +141,13 @@ fun HomePage(
                     .weight(1f)
                     .fillMaxHeight()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 4.dp, end = 20.dp, top = 20.dp, bottom = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                    .padding(start = QkSpacing.xxs, end = 20.dp, top = 20.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.lg),
             ) {
                 // 置顶实例（2026-10-21 补：getPins/setPins 一直没 UI）
                 if (state.pinned.isNotEmpty()) {
                     SectionTitle(stringResource(R.string.home_pinned))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
                         itemsIndexed(state.pinned, key = { _, it -> it.id }) { index, inst ->
                             RecentInstanceCard(inst) { onOpenInstance(inst.id) }
                         }
@@ -154,7 +156,7 @@ fun HomePage(
                 // 横屏时「最近实例」用横向滚动更省纵向空间
                 if (state.recent.isNotEmpty()) {
                     SectionTitle(stringResource(R.string.home_recent_instances))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
                         itemsIndexed(state.recent, key = { _, it -> it.id }) { index, inst ->
                             // 依次进场：横向列表的卡片逐个浮现，
                             // 比整排同时出现更有"内容在加载出来"的节奏感
@@ -202,7 +204,7 @@ fun HomePage(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(QkSpacing.md),
         ) {
             CurrentInstanceCard(
                 inst = state.current,
@@ -213,7 +215,7 @@ fun HomePage(
                 onSwitch = onSwitchInstance,
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(QkSpacing.lg))
             HomeSecondaryContent(state, onOpenInstance, onOpenNews, onCancelTask)
         }
     }
@@ -236,7 +238,7 @@ private fun HomeSecondaryContent(
         SectionTitle(stringResource(R.string.home_pinned))
         state.pinned.forEach { inst ->
             RecentInstanceCard(inst) { onOpenInstance(inst.id) }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(QkSpacing.sm))
         }
     }
     if (state.recent.isNotEmpty()) {
@@ -291,7 +293,7 @@ private fun PlaytimeCard(seconds: Long) {
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(QkSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -333,7 +335,7 @@ private fun SectionTitle(text: String, action: String? = null, onAction: (() -> 
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .clip(MaterialTheme.shapes.small)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(horizontal = QkSpacing.xs, vertical = 4.dp)
                     .then(Modifier),
             )
         }
@@ -365,14 +367,14 @@ private fun CurrentInstanceCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.lg)) {
             if (inst == null) {
                 Text(
                     text = stringResource(R.string.home_no_instances),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.home_no_instances_hint),
                     style = MaterialTheme.typography.bodyMedium,
@@ -401,7 +403,7 @@ private fun CurrentInstanceCard(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(QkSpacing.md))
             Text(
                 text = inst.name,
                 style = MaterialTheme.typography.headlineSmall,
@@ -410,7 +412,7 @@ private fun CurrentInstanceCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             Text(
                 text = inst.subtitle,
                 style = MaterialTheme.typography.bodyMedium,
@@ -419,7 +421,7 @@ private fun CurrentInstanceCard(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(QkSpacing.lg))
 
             // 启动按钮：整屏最强的视觉元素
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -501,7 +503,7 @@ private fun RecentInstanceCard(inst: InstanceUi, onClick: () -> Unit) {
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.md)) {
             Surface(
                 modifier = Modifier
                     .size(44.dp)
@@ -517,7 +519,7 @@ private fun RecentInstanceCard(inst: InstanceUi, onClick: () -> Unit) {
                     )
                 }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(QkSpacing.sm))
             Text(
                 text = inst.name,
                 style = MaterialTheme.typography.bodyMedium,
@@ -544,7 +546,7 @@ private fun TaskRow(t: TaskUi, onCancel: () -> Unit = {}) {
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.md)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = t.title,
@@ -565,7 +567,7 @@ private fun TaskRow(t: TaskUi, onCancel: () -> Unit = {}) {
                     Text(stringResource(R.string.common_cancel))
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             LinearProgressIndicator(
                 progress = { t.fraction },
                 modifier = Modifier
@@ -583,7 +585,7 @@ private fun NewsRow(n: NewsItemUi) {
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.md)) {
             Text(
                 text = n.title,
                 style = MaterialTheme.typography.bodyMedium,
@@ -592,7 +594,7 @@ private fun NewsRow(n: NewsItemUi) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(QkSpacing.xxs))
             Text(
                 text = n.date,
                 style = MaterialTheme.typography.bodySmall,

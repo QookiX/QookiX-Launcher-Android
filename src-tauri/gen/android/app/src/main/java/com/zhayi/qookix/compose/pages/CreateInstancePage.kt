@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -130,8 +132,8 @@ fun CreateInstancePage(
         // 为什么两种模式要分开：整合包**自带** MC 版本与加载器，
         // 让用户再手填一遍只会填错（旧 UI 注释原话）。
         Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
         ) {
             FilterChip(
                 selected = !importMode,
@@ -150,7 +152,7 @@ fun CreateInstancePage(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(24.dp),
+                    .padding(QkSpacing.xl),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -160,14 +162,14 @@ fun CreateInstancePage(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.create_instance_import_desc),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(QkSpacing.lg))
                 Button(onClick = onPickModpack, enabled = !importing) {
                     if (importing) {
                         CircularProgressIndicator(
@@ -186,10 +188,10 @@ fun CreateInstancePage(
                 // 期间界面看不出任何变化；更要命的是当时桥接层对它用了 8 秒超时（已修），
                 // 失败时界面只是"退回原样"，用户完全无从判断。
                 if (importing) {
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(QkSpacing.lg))
                     val barMod = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 32.dp)
+                        .padding(horizontal = QkSpacing.xxl)
                     // ⚠️ 必须去掉 M3 1.3 的「新样式」装饰，否则长这样：一条细线 + 末尾一个小圆点
                     // （stop indicator + 4dp 断口），完全不是用户认得的安卓进度条。
                     // gapSize = 0.dp 去掉断口、drawStopIndicator = null 去掉圆点、圆头收尾。
@@ -209,7 +211,7 @@ fun CreateInstancePage(
                             gapSize = 0.dp,
                         )
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = buildString {
                             append(importStage.ifBlank { "正在导入…" })
@@ -242,8 +244,8 @@ fun CreateInstancePage(
                 modifier = Modifier
                     .width(leftW)
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 20.dp, end = 12.dp, bottom = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(start = QkSpacing.lg, end = 12.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
             ) {
                 OutlinedTextField(
                     value = state.name,
@@ -277,8 +279,8 @@ fun CreateInstancePage(
                 QkFieldLabel(stringResource(R.string.create_instance_loader))
                 // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
                  FlowRow(
-                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                     horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                  ) {
                     Loader.entries.forEach { l ->
                         FilterChip(
@@ -320,7 +322,7 @@ fun CreateInstancePage(
                 //
                 // enabled 条件：名称可以留空（留空则用游戏版本号当名字，见下），
                 // 所以只需要「选了版本」且「不在创建中」。
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Button(
                     onClick = onCreate,
                     enabled = state.version.isNotBlank() && !state.creating,
@@ -350,7 +352,7 @@ fun CreateInstancePage(
                     // fillMaxSize() 会和它抢宽度（竖屏/大缩放时右栏被压成一条）。
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(end = 20.dp, bottom = 20.dp),
+                    .padding(end = QkSpacing.lg, bottom = 20.dp),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
             ) {
@@ -379,12 +381,12 @@ fun CreateInstancePage(
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
-                                Spacer(Modifier.height(6.dp))
+                                Spacer(Modifier.height(QkSpacing.xs))
                                 Text(
                                     text = state.error ?: stringResource(R.string.create_instance_check_network),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 24.dp),
+                                    modifier = Modifier.padding(horizontal = QkSpacing.xl),
                                 )
                             }
                         }
@@ -395,7 +397,7 @@ fun CreateInstancePage(
                         ) {
                             com.zhayi.qookix.compose.ui.QkWavyLoading(
                                 text = stringResource(R.string.create_instance_loading_versions),
-                                modifier = Modifier.padding(horizontal = 24.dp),
+                                modifier = Modifier.padding(horizontal = QkSpacing.xl),
                             )
                         }
                         else -> {
@@ -479,7 +481,7 @@ private fun GroupTitle(name: String, count: Int) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
     )
 }
 
@@ -505,7 +507,7 @@ private fun LoaderVersionSelect(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(

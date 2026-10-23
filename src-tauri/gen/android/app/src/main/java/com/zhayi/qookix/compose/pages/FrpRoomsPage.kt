@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -105,7 +107,7 @@ fun FrpRoomsPage(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
+                .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -139,12 +141,12 @@ fun FrpRoomsPage(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                    .padding(horizontal = QkSpacing.lg, vertical = 4.dp),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(QkSpacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -172,7 +174,7 @@ fun FrpRoomsPage(
 
         // ── 列表 ──────────────────────────────────────────────────────
         when {
-            state.busy && state.rooms.isEmpty() -> Column(modifier = Modifier.padding(20.dp)) {
+            state.busy && state.rooms.isEmpty() -> Column(modifier = Modifier.padding(QkSpacing.lg)) {
                 SkeletonList(rows = 2, rowHeight = 96.dp)
             }
 
@@ -183,7 +185,7 @@ fun FrpRoomsPage(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = stringResource(R.string.frp_rooms_empty_desc),
                         style = MaterialTheme.typography.bodyMedium,
@@ -195,7 +197,7 @@ fun FrpRoomsPage(
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             ) {
                 items(state.rooms, key = { it.id }) { r ->
                     FrpRoomCard(
@@ -216,7 +218,7 @@ fun FrpRoomsPage(
                 text = msg,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 8.dp),
             )
         }
     }
@@ -255,7 +257,7 @@ private fun FrpRoomCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.md)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = room.name,
@@ -278,7 +280,7 @@ private fun FrpRoomCard(
                 RoomStatusBadge(room.status)
             }
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(QkSpacing.xxs))
             Text(
                 text = buildString {
                     if (room.gameName.isNotBlank()) append(room.gameName).append(" · ")
@@ -293,7 +295,7 @@ private fun FrpRoomCard(
 
             // 审核中的房间要说明原因 —— 否则用户以为「建了但用不了」是 bug
             if (room.reviewStatus == "pending") {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = if (room.reviewReason.isNotBlank()) {
                         stringResource(R.string.frp_rooms_reviewing_reason, room.reviewReason)
@@ -306,7 +308,7 @@ private fun FrpRoomCard(
             }
 
             if (note != null) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = note,
                     style = MaterialTheme.typography.bodySmall,
@@ -314,8 +316,8 @@ private fun FrpRoomCard(
                 )
             }
 
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(QkSpacing.sm))
+            Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
                 FilledTonalButton(onClick = {
                     if (!room.isHost && room.hasPassword) showPasswordDialog = true else onEnter()
                 }, enabled = !busy) {
@@ -402,7 +404,7 @@ private fun RoomStatusBadge(status: String) {
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = color,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+            modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 3.dp),
         )
     }
 }
@@ -433,7 +435,7 @@ private fun FrpCreateRoomDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
                 OutlinedTextField(
                     value = port,
                     onValueChange = { v -> port = v.filter { it.isDigit() } },
@@ -442,7 +444,7 @@ private fun FrpCreateRoomDialog(
                     supportingText = { Text(stringResource(R.string.frp_rooms_port_hint)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
@@ -451,14 +453,14 @@ private fun FrpCreateRoomDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(QkSpacing.md))
                 Text(
                     text = stringResource(R.string.frp_rooms_nodes),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 if (nodes.isEmpty()) {
                     Text(
                         text = stringResource(R.string.frp_rooms_no_nodes),
@@ -468,7 +470,7 @@ private fun FrpCreateRoomDialog(
                 } else {
                     // 节点可能多个，横向排列可滑
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScrollable(),
@@ -484,7 +486,7 @@ private fun FrpCreateRoomDialog(
                 }
 
                 if (error != null) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     Text(
                         text = error,
                         style = MaterialTheme.typography.bodySmall,

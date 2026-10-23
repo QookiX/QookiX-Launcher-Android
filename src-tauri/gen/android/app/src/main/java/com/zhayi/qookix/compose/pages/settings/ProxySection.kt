@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -68,8 +70,8 @@ fun ProxySection(
         ) {
             // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
              FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
              ) {
                 ProxyMode.entries.forEach { m ->
                     FilterChip(
@@ -84,7 +86,7 @@ fun ProxySection(
         // 自定义模式才显示地址输入 —— 其它模式填了也不生效，
         // 显示出来会让用户以为要填
         if (mode == "custom") {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp)) {
                 OutlinedTextField(
                     value = address,
                     onValueChange = onAddressChange,
@@ -110,7 +112,7 @@ fun ProxySection(
             subtitle = stringResource(R.string.settings_proxy_test_desc),
             showDivider = false,
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xxs)) {
                 // 「跟随系统」时给个探测按钮 —— 用户不知道系统代理是什么，
                 // 探测出来能显示实际读到的地址
                 if (mode == "system") {
@@ -142,7 +144,7 @@ fun ProxySection(
                 text = it,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 6.dp),
             )
         }
         error?.let {
@@ -150,7 +152,7 @@ fun ProxySection(
                 text = it,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 6.dp),
             )
         }
     }

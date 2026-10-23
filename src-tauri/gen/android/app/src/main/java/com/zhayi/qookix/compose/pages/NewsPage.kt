@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -56,7 +58,7 @@ fun NewsPage(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = QkSpacing.md, vertical = 4.dp),
             horizontalArrangement = Arrangement.End,
         ) {
             TextButton(onClick = onRefresh, enabled = !state.loading) {
@@ -76,7 +78,7 @@ fun NewsPage(
                 androidx.compose.foundation.layout.Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = QkSpacing.md),
                 ) {
                     com.zhayi.qookix.compose.ui.SkeletonList(rows = 4, rowHeight = 120.dp)
                 }
@@ -95,7 +97,7 @@ fun NewsPage(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 16.dp, end = 16.dp, bottom = 16.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             ) {
                 items(state.items, key = { it.url }) { n ->
                     NewsCard(n) { onOpen(n.url) }
@@ -122,7 +124,7 @@ private fun NewsCard(n: NewsItemUi, onClick: () -> Unit) {
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.sm)) {
             // 配图：有图才显示（用 Coil，带淡入 + 骨架）
             if (n.image.isNotBlank()) {
                 com.zhayi.qookix.compose.ui.QkImageWithSkeleton(
@@ -133,7 +135,7 @@ private fun NewsCard(n: NewsItemUi, onClick: () -> Unit) {
                         .height(160.dp),
                     cornerRadius = 10.dp,
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
             }
 
             Text(
@@ -143,7 +145,7 @@ private fun NewsCard(n: NewsItemUi, onClick: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (n.description.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = n.description,
                     style = MaterialTheme.typography.bodyMedium,
@@ -152,7 +154,7 @@ private fun NewsCard(n: NewsItemUi, onClick: () -> Unit) {
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(QkSpacing.xs))
             Text(
                 text = buildString {
                     append(n.date)

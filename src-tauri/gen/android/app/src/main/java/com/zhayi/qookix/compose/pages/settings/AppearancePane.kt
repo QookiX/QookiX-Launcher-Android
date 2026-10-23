@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -99,7 +101,7 @@ fun AppearancePane(
                 column = true,
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ThemeColorPresets.forEach { hex ->
@@ -148,8 +150,8 @@ fun AppearancePane(
             ) {
                 // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
                  FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                  ) {
                     ThemeMode.entries.forEach { m ->
                         FilterChip(
@@ -183,8 +185,8 @@ fun AppearancePane(
                 column = true,
             ) {
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                 ) {
                     PreviewRenderMode.entries.forEach { m ->
                         FilterChip(
@@ -212,7 +214,7 @@ fun AppearancePane(
             }
 
             // 滑杆单独一行（放进 trailing 会被压得太窄）
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp)) {
                 Slider(
                     value = state.uiScale.toFloat(),
                     onValueChange = { onChange(SettingsPatch.UiScale(it.toInt())) },
@@ -268,7 +270,7 @@ fun AppearancePane(
                 )
             }
 
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp)) {
                 Slider(
                     value = state.sidebarWidth.toFloat(),
                     onValueChange = { onChange(SettingsPatch.SidebarWidth(it.toInt())) },
@@ -731,7 +733,7 @@ private fun HslColorPickerDialog(
                     Text(
                         text = hex,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(start = 12.dp),
+                        modifier = Modifier.padding(start = QkSpacing.sm),
                     )
                 }
                 Spacer(Modifier.size(12.dp))
@@ -775,7 +777,7 @@ private fun SliderRow(
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(end = 8.dp),
+            modifier = Modifier.padding(end = QkSpacing.xs),
         )
         Slider(
             value = value,

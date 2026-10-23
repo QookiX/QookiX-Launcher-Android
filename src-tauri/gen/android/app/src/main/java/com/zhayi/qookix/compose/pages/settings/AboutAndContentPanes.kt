@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -106,7 +108,7 @@ fun AboutPane(
             Column {
                 AboutShowcase(height = 160)
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
 
                 // ⚠️ 不能同时用 verticalAlignment = CenterVertically 和 alignByBaseline ——
                 // 后者要求 Row 用默认（Top）对齐才会按基线排列。
@@ -128,13 +130,13 @@ fun AboutPane(
                         color = MaterialTheme.colorScheme.outline,
                         modifier = Modifier
                             .alignByBaseline()
-                            .padding(horizontal = 4.dp),
+                            .padding(horizontal = QkSpacing.xxs),
                     )
                 }
             }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(QkSpacing.lg))
 
         // ══════════════════════════════════════════════════════════════
         // 以下顺序与用户给的截图一致（2026-10-18）：
@@ -151,7 +153,7 @@ fun AboutPane(
             onToggleAutoCheck = onToggleAutoCheck,
         )
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
 
         // ── 开发者 + 社区贡献（一个卡片）────────────────────────────────
         //
@@ -184,7 +186,7 @@ fun AboutPane(
             ContributorSection(contributors = contributors)
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
 
         // ── 链接按钮（两列网格，与截图一致）──────────────────────────
         //
@@ -215,8 +217,8 @@ fun AboutPane(
         )
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
             maxItemsInEachRow = 2,
         ) {
             aboutLinks.forEach { link ->
@@ -238,7 +240,7 @@ fun AboutPane(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
 
         // ── 许可证 ────────────────────────────────────────────────────
         SettingsGroup(stringResource(R.string.about_this_project)) {
@@ -268,10 +270,10 @@ fun AboutPane(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
 
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
 
         // ── 开源协议与依赖清单（2026-10-17 补全）─────────────────────
         //
@@ -309,13 +311,13 @@ fun AboutPane(
                                     text = dep.license.substringBefore(' ').substringBefore('/'),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(horizontal = QkSpacing.xs, vertical = 2.dp),
                                 )
                             }
                         }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
             }
         }
 
@@ -324,7 +326,7 @@ fun AboutPane(
             text = stringResource(R.string.about_disclaimer),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = QkSpacing.xxs),
         )
     }
 }
@@ -413,8 +415,8 @@ fun ContentServicesPane(
                 //
                 // FlowRow 会自动换行：窄屏时"百度"换到第二行，全部完整可见。
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                 ) {
                     TranslateProvider.entries.forEach { t ->
                         androidx.compose.material3.FilterChip(
@@ -923,7 +925,7 @@ private fun DeveloperRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = QkSpacing.md, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // QkImage 加载失败时会画占位块；外面再套一层圆底色，
@@ -962,7 +964,7 @@ private fun DeveloperRow(
         }
         if (showDivider) {
             HorizontalDivider(
-                modifier = Modifier.padding(start = 16.dp),
+                modifier = Modifier.padding(start = QkSpacing.md),
                 color = MaterialTheme.colorScheme.outlineVariant,
             )
         }
@@ -1040,7 +1042,7 @@ private fun ContributorSection(contributors: List<String>) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { expanded = !expanded }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = QkSpacing.md, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -1076,7 +1078,7 @@ private fun ContributorSection(contributors: List<String>) {
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+                modifier = Modifier.padding(start = QkSpacing.md, end = 16.dp, bottom = 14.dp),
             )
         }
     }

@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.ui
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -122,7 +124,7 @@ fun QkWavyLoading(
     ) {
         QkWavyLoader(color = color, height = 10.dp, amplitude = 4.dp)
         if (text != null) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(QkSpacing.sm))
             androidx.compose.material3.Text(
                 text = text,
                 style = MaterialTheme.typography.bodySmall,

@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -123,8 +125,8 @@ fun ServerCreatePage(
             modifier = Modifier
                 .width(leftW)
                 .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 12.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(start = QkSpacing.lg, end = 12.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
         ) {
             OutlinedTextField(
                 value = state.name,
@@ -139,8 +141,8 @@ fun ServerCreatePage(
             QkFieldLabel(stringResource(R.string.create_server_core))
             // ⚠️ FlowRow 而非 Row：竖屏下三个 chip 可能放不下。
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
             ) {
                 ServerCore.entries.forEach { c ->
                     FilterChip(
@@ -186,14 +188,14 @@ fun ServerCreatePage(
                         text = err,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(QkSpacing.sm),
                     )
                 }
             }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
             ) {
                 OutlinedButton(onClick = onBack, enabled = !state.creating) {
                     Text(stringResource(R.string.create_server_cancel))
@@ -231,7 +233,7 @@ fun ServerCreatePage(
                 // fillMaxSize() 会和它抢宽度。
                 .weight(1f)
                 .fillMaxHeight()
-                .padding(end = 20.dp, bottom = 20.dp),
+                .padding(end = QkSpacing.lg, bottom = 20.dp),
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
         ) {
@@ -254,7 +256,7 @@ fun ServerCreatePage(
                 }
 
                 state.versionsError != null -> Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(20.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(QkSpacing.lg),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(

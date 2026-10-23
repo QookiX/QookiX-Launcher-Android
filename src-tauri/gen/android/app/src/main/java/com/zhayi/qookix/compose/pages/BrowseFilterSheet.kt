@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import com.zhayi.qookix.compose.theme.QkRadius
 
 import androidx.compose.foundation.background
@@ -124,14 +126,14 @@ fun BrowseFilterSheet(
                         .fillMaxWidth()
                         // 只有这一层 verticalScroll（两层必崩）
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp)
-                        .padding(top = 12.dp, bottom = 28.dp),
+                        .padding(horizontal = QkSpacing.lg)
+                        .padding(top = QkSpacing.sm, bottom = 28.dp),
                 ) {
                     // ── 拖动提示条（视觉上等价于 BottomSheet 的 dragHandle）──
                     Box(
                         modifier = Modifier
                             .align(Alignment.CenterHorizontally)
-                            .padding(bottom = 12.dp)
+                            .padding(bottom = QkSpacing.sm)
                             .width(32.dp)
                             .height(4.dp)
                             .background(
@@ -158,7 +160,7 @@ fun BrowseFilterSheet(
                         ) { Text(stringResource(R.string.browse_reset)) }
                     }
 
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
 
                     // ── 内容类型 ─────────────────────────────────────────
                     Text(
@@ -166,10 +168,10 @@ fun BrowseFilterSheet(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                        verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                     ) {
                         BrowseType.entries.forEach { t ->
                             FilterChip(
@@ -182,16 +184,16 @@ fun BrowseFilterSheet(
 
                     // ── 加载器（插件不显示）──────────────────────────────
                     if (!hideLoader) {
-                        Spacer(Modifier.height(18.dp))
+                        Spacer(Modifier.height(QkSpacing.lg))
                         Text(
                             text = stringResource(R.string.browse_mod_loader),
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(QkSpacing.xs))
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                         ) {
                             BrowseRepo.LOADERS.forEach { l ->
                                 FilterChip(
@@ -206,12 +208,12 @@ fun BrowseFilterSheet(
                         }
                     }
 
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(QkSpacing.xl))
                     Button(
                         onClick = onDismiss,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(stringResource(R.string.browse_done)) }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                 }
             }
         }

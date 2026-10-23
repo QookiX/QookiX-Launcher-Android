@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -89,7 +91,7 @@ fun PlaytimePage(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
+                .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -106,7 +108,7 @@ fun PlaytimePage(
 
         when {
             state.loading && state.totalSeconds == 0L ->
-                Column(modifier = Modifier.padding(20.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.lg)) {
                     SkeletonList(rows = 3, rowHeight = 80.dp)
                 }
 
@@ -120,7 +122,7 @@ fun PlaytimePage(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = stringResource(R.string.playtime_empty_hint),
                         style = MaterialTheme.typography.bodyMedium,
@@ -132,7 +134,7 @@ fun PlaytimePage(
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
             ) {
                 // ── 总时长（门面）────────────────────────────────────
                 item {
@@ -146,7 +148,7 @@ fun PlaytimePage(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(24.dp),
+                                .padding(QkSpacing.xl),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text(
@@ -154,7 +156,7 @@ fun PlaytimePage(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             // 大号等宽数字 —— 时长是本页主角，值得占满视觉重量
                             Text(
                                 // 数字滚动：从 0 平滑滚到当前时长，
@@ -195,7 +197,7 @@ fun PlaytimePage(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                             ),
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
+                            Column(modifier = Modifier.padding(QkSpacing.md)) {
                                 Text(
                                     text = stringResource(
                                         R.string.playtime_recent_days,
@@ -205,7 +207,7 @@ fun PlaytimePage(
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
-                                Spacer(Modifier.height(12.dp))
+                                Spacer(Modifier.height(QkSpacing.sm))
                                 DailyBars(state.byDay.map { it.seconds })
                             }
                         }
@@ -274,7 +276,7 @@ private fun InstancePlaytimeRow(inst: InstancePlaytimeUi) {
     ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(QkSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {

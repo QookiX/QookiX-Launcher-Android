@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -124,7 +126,7 @@ fun FileManagerPage(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(
@@ -166,7 +168,7 @@ fun FileManagerPage(
                         text = "/",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.padding(horizontal = 2.dp),
+                        modifier = Modifier.padding(horizontal = QkSpacing.xxs),
                     )
                     BreadcrumbChip(seg, isLast = target == state.path) { onBreadcrumb(target) }
                 }
@@ -193,7 +195,7 @@ fun FileManagerPage(
         // ── 列表 ──────────────────────────────────────────────────────
         when {
             state.loading && state.entries.isEmpty() ->
-                Column(modifier = Modifier.padding(20.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.lg)) {
                     SkeletonList(rows = 6, rowHeight = 52.dp)
                 }
 
@@ -308,7 +310,7 @@ private fun FileRow(
                     // 长按出菜单 —— MD3 列表的常规交互
                     onLongClick = { menu = true },
                 )
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = QkSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -380,7 +382,7 @@ private fun BreadcrumbChip(text: String, isLast: Boolean, onClick: () -> Unit) {
             color = if (isLast) MaterialTheme.colorScheme.onSecondaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = QkSpacing.xs, vertical = 4.dp),
         )
     }
 }

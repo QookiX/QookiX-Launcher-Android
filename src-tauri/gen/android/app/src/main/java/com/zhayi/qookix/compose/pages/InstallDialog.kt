@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -108,14 +110,14 @@ fun InstallDialog(
                         color = MaterialTheme.colorScheme.outline,
                     )
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
 
                 // 描述：译文优先（译文在上、原文在下）
                 if (descLoading) {
                     Text(stringResource(R.string.install_translating), style = MaterialTheme.typography.bodySmall)
                 } else if (!descZh.isNullOrBlank()) {
                     Text(descZh, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         project.description,
                         style = MaterialTheme.typography.bodySmall,
@@ -127,11 +129,11 @@ fun InstallDialog(
 
                 // 翻译按钮（内置/自定义服务可用时）
                 if (descZh.isNullOrBlank() && !descLoading) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     TextButton(onClick = onTranslate) { Text(stringResource(R.string.install_translate)) }
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
 
                 // ── 安装目标 ──────────────────────────────────────────────
                 //
@@ -152,8 +154,8 @@ fun InstallDialog(
                     } else {
                         // 同下：必须包 FlowRow，否则竖排 + width Spacer 失效
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                         ) {
                             servers.forEach { s ->
                                 FilterChip(
@@ -177,7 +179,7 @@ fun InstallDialog(
                         // 原来只有一句红字，没有任何可点的东西 —— 新用户只能退出对话框、
                         // 去实例页、新建、选 Fabric、等下载、再回来重新找这个模组。
                         if (onCreateTargetInstance != null) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             OutlinedButton(onClick = onCreateTargetInstance) {
                                 Text(stringResource(R.string.install_create_fabric_instance))
                             }
@@ -187,8 +189,8 @@ fun InstallDialog(
                         // 原来 FilterChip 和 Spacer 直接铺在 Column 里：选项竖排成一长串，
                         // 且 Spacer(width) 在 Column 里完全无效（Column 的间距走 height）。
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                         ) {
                             candidates.forEach { i ->
                                 FilterChip(
@@ -201,15 +203,15 @@ fun InstallDialog(
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
 
                 // ── 版本选择 ──────────────────────────────────────────────
                 if (!isPlugin) {
                     SectionLabel(stringResource(R.string.install_select_version))
                     // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
                      FlowRow(
-                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                         horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                      ) {
                         FilterChip(
                             selected = typeFilter == "all",
@@ -232,7 +234,7 @@ fun InstallDialog(
                             label = { Text(stringResource(R.string.install_type_alpha)) },
                         )
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
 
                     if (loadingVersions) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -263,7 +265,7 @@ fun InstallDialog(
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(
@@ -291,13 +293,13 @@ fun InstallDialog(
                                     )
                                 }
                             }
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(QkSpacing.xxs))
                         }
                     }
 
                     // ── 依赖 ──────────────────────────────────────────────
                     if (deps.isNotEmpty()) {
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(QkSpacing.sm))
                         SectionLabel(stringResource(R.string.install_dependencies))
                         deps.forEach { d ->
                             FilterChip(
@@ -311,7 +313,7 @@ fun InstallDialog(
                 }
 
                 if (error != null) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     Text(
                         text = error,
                         style = MaterialTheme.typography.bodySmall,
@@ -357,7 +359,7 @@ private fun SectionLabel(text: String) {
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.onSurface,
     )
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(QkSpacing.xs))
 }
 
 // ── UI 模型 ────────────────────────────────────────────────────────────────

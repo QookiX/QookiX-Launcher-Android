@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -166,14 +168,14 @@ fun ServerDetailPage(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = QkSpacing.md, vertical = 6.dp),
                 shape = MaterialTheme.shapes.small,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                 ),
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(QkSpacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -225,14 +227,14 @@ fun ServerDetailPage(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = QkSpacing.md, vertical = 4.dp),
                 shape = MaterialTheme.shapes.small,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 ),
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(QkSpacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -256,14 +258,14 @@ fun ServerDetailPage(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = QkSpacing.md, vertical = 4.dp),
                 shape = MaterialTheme.shapes.small,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 ),
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(QkSpacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -373,14 +375,14 @@ private fun ConsoleTab(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
                 shape = MaterialTheme.shapes.medium,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                 ),
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(QkSpacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -423,21 +425,21 @@ private fun ConsoleTab(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(horizontal = QkSpacing.sm, vertical = 4.dp),
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.md)) {
                     Text(
                         text = stringResource(R.string.server_detail_setup_help),
                         style = MaterialTheme.typography.labelLarge,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         text = stringResource(R.string.server_detail_suggested_memory, state.suggestedMemMin, state.suggestedMemMax),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     TextButton(onClick = onRequestBatteryUnrestricted) {
                         Text(stringResource(R.string.server_detail_request_battery))
                     }
@@ -452,7 +454,7 @@ private fun ConsoleTab(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = QkSpacing.sm, vertical = 8.dp),
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainerLowest,
         ) {
@@ -473,7 +475,7 @@ private fun ConsoleTab(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xxs),
                 ) {
                     items(state.logs) { line ->
                         Text(
@@ -496,9 +498,9 @@ private fun ConsoleTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp)
+                .padding(horizontal = QkSpacing.sm)
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
         ) {
             AssistChip(
                 onClick = { onQuickCommand("list") },
@@ -516,7 +518,7 @@ private fun ConsoleTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                .padding(start = QkSpacing.sm, end = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedTextField(
@@ -577,14 +579,14 @@ private fun SettingsTab(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(vertical = QkSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
     ) {
         // ── EULA 同意 ────────────────────────────────────────────────
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = QkSpacing.sm),
             shape = MaterialTheme.shapes.medium,
             colors = CardDefaults.cardColors(
                 containerColor = if (state.eulaAgreed) {
@@ -595,7 +597,7 @@ private fun SettingsTab(
                 },
             ),
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(QkSpacing.md)) {
                 // ⚠️ 2026-10-20 真机反馈修：整行都要能点。
                 //
                 // 原来只有最右侧那个 `Switch` 可点，卡片主体（标题和说明文字）
@@ -619,7 +621,7 @@ private fun SettingsTab(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(QkSpacing.xxs))
                         Text(
                             text = if (state.eulaAgreed) {
                                 stringResource(R.string.server_settings_eula_agreed)
@@ -656,7 +658,7 @@ private fun ShareCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = QkSpacing.sm),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = if (state.shareRoom.isNotBlank()) {
@@ -666,7 +668,7 @@ private fun ShareCard(
             },
         ),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.md)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -675,7 +677,7 @@ private fun ShareCard(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     // 文案优先级与旧 Vue 一致：房间码 > 错误 > 等待 > 说明
                     Text(
                         text = when {
@@ -700,7 +702,7 @@ private fun ShareCard(
             }
 
             if (state.shareBusy) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.server_detail_share_busy),
                     style = MaterialTheme.typography.bodySmall,
@@ -709,7 +711,7 @@ private fun ShareCard(
             }
 
             if (state.shareRoom.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 FilledTonalButton(onClick = { onCopyRoom(state.shareRoom) }) {
                     Text(stringResource(R.string.server_detail_copy_room))
                 }
@@ -733,8 +735,8 @@ private fun FilesTab(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(QkSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
     ) {
         item {
             // 内置文件浏览器：改配置、看日志、传插件都在这里
@@ -745,20 +747,20 @@ private fun FilesTab(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                 ),
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.md)) {
                     Text(
                         text = stringResource(R.string.server_detail_browse_files_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         text = stringResource(R.string.server_detail_browse_files_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     Button(onClick = onOpenFiles) {
                         Text(stringResource(R.string.server_detail_open_file_browser))
                     }
@@ -774,20 +776,20 @@ private fun FilesTab(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 ),
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.md)) {
                     Text(
                         text = stringResource(R.string.server_detail_system_file_manager_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         text = stringResource(R.string.server_detail_system_file_manager_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     FilledTonalButton(onClick = onOpenDirectory) {
                         Text(stringResource(R.string.server_detail_open_with_file_manager))
                     }
@@ -804,14 +806,14 @@ private fun FilesTab(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 ),
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.md)) {
                     Text(
                         text = stringResource(R.string.server_detail_server_logs_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         text = if (state.logs.isEmpty()) {
                             stringResource(R.string.server_detail_logs_empty)
@@ -825,7 +827,7 @@ private fun FilesTab(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     FilledTonalButton(onClick = onRefreshLogs) {
                         Text(stringResource(R.string.server_detail_refresh_logs))
                     }
@@ -847,20 +849,20 @@ private fun FilesTab(
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                 ),
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.md)) {
                     Text(
                         text = stringResource(R.string.server_detail_delete_server_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
                         text = stringResource(R.string.server_detail_delete_server_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
                     Button(
                         onClick = { confirmDelete = true },
                         // 服务器还在跑就别删：文件被 JVM 占着，
@@ -886,7 +888,7 @@ private fun FilesTab(
                         text = stringResource(R.string.server_detail_running_warning),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(QkSpacing.md),
                     )
                 }
             }
@@ -943,20 +945,20 @@ private fun MemoryCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.md)) {
             Text(
                 text = stringResource(R.string.server_detail_memory_title),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(QkSpacing.xxs))
             Text(
                 text = stringResource(R.string.server_detail_memory_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(QkSpacing.sm))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -1021,8 +1023,8 @@ private fun PluginsTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(QkSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -1032,7 +1034,7 @@ private fun PluginsTab(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(QkSpacing.xxs))
                 Text(
                     text = stringResource(R.string.server_detail_plugins_desc),
                     style = MaterialTheme.typography.bodySmall,
@@ -1062,7 +1064,7 @@ private fun PluginsTab(
             return@Column
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
             items(state.plugins, key = { it.fileName }) { p ->
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -1070,7 +1072,7 @@ private fun PluginsTab(
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -1114,7 +1116,7 @@ private fun ConfigTab(
     onToggleProperty: (key: String, value: Boolean) -> Unit = { _, _ -> },
 ) {
     if (state.loadingConfig) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(QkSpacing.lg)) {
             SkeletonList(rows = 6, rowHeight = 56.dp)
         }
         return
@@ -1137,7 +1139,7 @@ private fun ConfigTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
     ) {
         items(state.properties, key = { it.key }) { p ->
             Surface(
@@ -1157,14 +1159,14 @@ private fun ConfigTab(
                 val stack = screenW < 520.dp
 
                 if (stack) {
-                    Column(modifier = Modifier.padding(14.dp)) {
+                    Column(modifier = Modifier.padding(QkSpacing.md)) {
                         PropertyLabel(p)
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(QkSpacing.sm))
                         PropertyValue(p, onSetProperty, onToggleProperty)
                     }
                 } else {
                     Row(
-                        modifier = Modifier.padding(14.dp),
+                        modifier = Modifier.padding(QkSpacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -1212,7 +1214,7 @@ private fun PropertyValue(
             onCheckedChange = { onToggleProperty(p.key, it) },
         )
         PropKind.Choice -> Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
             // 选项多时（如 gameMode 4 个）窄屏会溢出，允许横向滚动
             modifier = Modifier.horizontalScroll(rememberScrollState()),
         ) {

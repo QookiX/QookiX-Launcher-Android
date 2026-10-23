@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,8 +69,8 @@ fun RendererPane(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(QkSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -78,8 +80,8 @@ fun RendererPane(
             ),
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(QkSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             ) {
                 Text(
                     text = stringResource(R.string.settings_renderer_title),
@@ -153,7 +155,7 @@ fun RendererPane(
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(QkSpacing.sm),
                 )
             }
         }

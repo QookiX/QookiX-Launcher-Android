@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -85,20 +87,20 @@ fun FirstRunSetup(
             Card(
                 modifier = Modifier
                     .fillMaxWidth(0.82f)
-                    .padding(24.dp),
+                    .padding(QkSpacing.xl),
                 shape = MaterialTheme.shapes.extraLarge,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ),
             ) {
-                Column(modifier = Modifier.padding(24.dp)) {
+                Column(modifier = Modifier.padding(QkSpacing.xl)) {
                     Text(
                         text = stringResource(R.string.first_run_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = when {
                             state.error != null -> state.error
@@ -111,9 +113,9 @@ fun FirstRunSetup(
                     )
 
                     if (state.planned.isNotEmpty()) {
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(QkSpacing.md))
                         // 逐项列出：装完的打勾、失败的标红、进行中的转圈
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
                             state.planned.forEach { name ->
                                 val st = when {
                                     state.doneIds.contains(name) -> ItemState.Done
@@ -166,7 +168,7 @@ fun FirstRunSetup(
                     }
 
                     if (state.running) {
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(QkSpacing.sm))
                         // 总进度：done 数 / 总数
                         val done = state.doneIds.size
                         val total = state.planned.size
@@ -175,7 +177,7 @@ fun FirstRunSetup(
                                 progress = { done.toFloat() / total },
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             Text(
                                 text = "$done / $total",
                                 style = MaterialTheme.typography.labelSmall,
@@ -184,7 +186,7 @@ fun FirstRunSetup(
                         }
                     }
 
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(QkSpacing.lg))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,

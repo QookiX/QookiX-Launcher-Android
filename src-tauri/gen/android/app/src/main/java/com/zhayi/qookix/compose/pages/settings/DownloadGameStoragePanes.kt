@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import com.zhayi.qookix.compose.bridge.friendlyError
 
 import androidx.annotation.StringRes
@@ -86,7 +88,7 @@ fun DownloadPane(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp)) {
                 Slider(
                     value = state.downloadThreads.toFloat(),
                     onValueChange = { onChange(SettingsPatch.DownloadThreads(it.toInt())) },
@@ -106,7 +108,7 @@ fun DownloadPane(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp)) {
                 Slider(
                     value = state.downloadChunkThreads.toFloat(),
                     onValueChange = { onChange(SettingsPatch.DownloadChunkThreads(it.toInt())) },
@@ -141,8 +143,8 @@ fun DownloadPane(
             ) {
                 // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
                  FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                  ) {
                     UpdateSource.entries.forEach { u ->
                         FilterChip(
@@ -276,7 +278,7 @@ fun GamePane(
                 }
                 Row(
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .padding(horizontal = QkSpacing.md, vertical = 4.dp)
                         // ⚠️ 必须能横向滚动（2026-10-16 修，用户报的 bug：
                         // 「渲染器只看到 GL4ES 和 MobileGlues，Vulkan 不见了」）。
                         //
@@ -287,7 +289,7 @@ fun GamePane(
                         //
                         // 这是本项目第 9 次踩同一类坑（详见各 Pane 的同类注释）。
                         .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                 ) {
                     Renderer.entries.forEach { r ->
                         FilterChip(
@@ -332,19 +334,19 @@ fun GamePane(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                            .padding(horizontal = QkSpacing.md, vertical = 6.dp),
                         shape = MaterialTheme.shapes.medium,
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         ),
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
+                        Column(modifier = Modifier.padding(QkSpacing.md)) {
                             Text(
                                 text = stringResource(R.string.settings_game_device_memory),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                             )
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             MemoryLine(
                                 stringResource(R.string.settings_game_total_memory),
                                 "${info.totalMb} MB",
@@ -357,9 +359,9 @@ fun GamePane(
                                 stringResource(R.string.settings_game_available_memory),
                                 "${info.availableMb} MB",
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
                             ) {
                                 FilledTonalButton(onClick = {
                                     onChange(SettingsPatch.MaxMemory(info.maxMb))
@@ -386,8 +388,8 @@ fun GamePane(
             ) {
                 // 加横向滚动：窄屏下 chip 会溢出，后面的选项点不到（详见 GeneralPane 的说明）
                  FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                  ) {
                     MemoryMode.entries.forEach { m ->
                         FilterChip(
@@ -409,7 +411,7 @@ fun GamePane(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp)) {
                 Slider(
                     value = state.maxMemoryMb.toFloat(),
                     onValueChange = { onChange(SettingsPatch.MaxMemory(it.toInt())) },
@@ -710,7 +712,7 @@ fun StoragePane(
                 text = msg,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp),
             )
         }
 

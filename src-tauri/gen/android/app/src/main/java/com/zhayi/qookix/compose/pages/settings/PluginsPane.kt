@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -76,7 +78,7 @@ fun PluginsPane(
                 ),
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(QkSpacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -92,7 +94,7 @@ fun PluginsPane(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(QkSpacing.xxs))
                         Text(
                             text = stringResource(R.string.plugins_not_initialized_desc),
                             style = MaterialTheme.typography.bodySmall,
@@ -101,7 +103,7 @@ fun PluginsPane(
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(QkSpacing.md))
 
             FilledTonalButton(
                 onClick = onInstallRecommended,
@@ -114,13 +116,13 @@ fun PluginsPane(
             }
             // 安装进度（审计 H-6）：显示正在装哪个、进度多少
             if (state.busy && (state.installMessage.isNotBlank() || state.installProgress > 0f)) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
                 Column {
                     LinearProgressIndicator(
                         progress = { state.installProgress.coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     Text(
                         text = state.installMessage.ifBlank {
                             stringResource(R.string.plugins_installing_progress)
@@ -130,14 +132,14 @@ fun PluginsPane(
                     )
                 }
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(QkSpacing.lg))
         }
 
         // ── 已装插件列表 ──────────────────────────────────────────────
         SettingsGroup(stringResource(R.string.plugins_installed_count, state.plugins.size)) {
             when {
                 state.loading && state.plugins.isEmpty() -> {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(QkSpacing.md)) {
                         SkeletonList(rows = 2, rowHeight = 56.dp)
                     }
                 }
@@ -146,7 +148,7 @@ fun PluginsPane(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(QkSpacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -176,7 +178,7 @@ fun PluginsPane(
 
         // ── 手动刷新 ──────────────────────────────────────────────────
         if (state.plugins.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
                 FilledTonalButton(onClick = onRefresh, enabled = !state.busy) {
                     Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
@@ -186,10 +188,10 @@ fun PluginsPane(
         }
 
         // ── 插件清单源（2026-10-21 补：后端 get/set_plugin_manifest_url 一直没 UI）───
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(QkSpacing.md))
         var manifestUrl by remember(state.manifestUrl) { mutableStateOf(state.manifestUrl) }
         SettingsGroup(stringResource(R.string.plugins_manifest_url)) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(QkSpacing.md)) {
                 OutlinedTextField(
                     value = manifestUrl,
                     onValueChange = { manifestUrl = it },
@@ -197,7 +199,7 @@ fun PluginsPane(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 TextButton(
                     onClick = { onSaveManifestUrl(manifestUrl.trim()) },
                     enabled = manifestUrl.trim() != state.manifestUrl,
@@ -209,7 +211,7 @@ fun PluginsPane(
 
         // ── 错误提示 ──────────────────────────────────────────────────
         if (state.error != null) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(QkSpacing.sm))
             Text(
                 text = state.error,
                 style = MaterialTheme.typography.bodySmall,
@@ -218,7 +220,7 @@ fun PluginsPane(
         }
 
         // ── 说明 ──────────────────────────────────────────────────────
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(QkSpacing.lg))
         Text(
             text = stringResource(R.string.plugins_about),
             style = MaterialTheme.typography.bodySmall,

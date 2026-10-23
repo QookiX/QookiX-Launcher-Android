@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.annotation.StringRes
 import androidx.compose.runtime.LaunchedEffect
@@ -71,7 +73,7 @@ fun MorePage(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            .padding(start = QkSpacing.md, end = 16.dp, top = 4.dp, bottom = 16.dp),
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -118,7 +120,7 @@ private fun MoreRow(e: MoreEntry) {
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable(onClick = e.onClick)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = QkSpacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(

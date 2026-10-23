@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkSpacing
+
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.remember
 import com.zhayi.qookix.compose.motion.pressScale
@@ -155,7 +157,7 @@ private fun FrpRoomsEntryTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(QkSpacing.xl),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -165,20 +167,20 @@ private fun FrpRoomsEntryTab(
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(QkSpacing.xs))
         Text(
             text = stringResource(R.string.multiplayer_frp_desc),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(QkSpacing.lg))
         Button(onClick = onOpenFrp) { Text(stringResource(R.string.multiplayer_frp_open_tunnel)) }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(QkSpacing.sm))
         OutlinedButton(onClick = onOpenRooms) {
             Text(stringResource(R.string.multiplayer_frp_open_rooms))
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(QkSpacing.xs))
         Text(
             text = stringResource(R.string.multiplayer_frp_rooms_desc),
             style = MaterialTheme.typography.bodySmall,
@@ -210,7 +212,7 @@ private fun ServersTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
+                .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedTextField(
@@ -237,7 +239,7 @@ private fun ServersTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = QkSpacing.lg),
             horizontalArrangement = Arrangement.End,
         ) {
             TextButton(onClick = { showDirectConnect = true }) {
@@ -263,7 +265,7 @@ private fun ServersTab(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         pingResult?.let {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(QkSpacing.xs))
                             Text(it, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -307,7 +309,7 @@ private fun ServersTab(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(QkSpacing.xs))
                     if (query.isBlank()) {
                         Text(
                             text = stringResource(R.string.multiplayer_empty_servers_desc),
@@ -320,7 +322,7 @@ private fun ServersTab(
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             ) {
                 items(filtered, key = { it.id }) { s ->
                     ServerCard(
@@ -361,7 +363,7 @@ private fun ServerCard(
         ),
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(QkSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 运行状态指示点（MD3：用色点表示状态，比文字徽标更直观）
@@ -386,7 +388,7 @@ private fun ServerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(QkSpacing.xxs))
                 Text(
                     text = buildString {
                         append(server.core)
@@ -482,8 +484,8 @@ private fun TunnelTab(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(QkSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
     ) {
         // ── 开房 ────────────────────────────────────────────────────────
         Card(
@@ -493,14 +495,14 @@ private fun TunnelTab(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             ),
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(QkSpacing.lg)) {
                 Text(
                     text = stringResource(R.string.multiplayer_host_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.multiplayer_host_desc),
                     style = MaterialTheme.typography.bodyMedium,
@@ -509,14 +511,14 @@ private fun TunnelTab(
 
                 // 房间码：出现了才显示（并给复制按钮）
                 if (state.tunnelRunning && state.roomCode.isNotBlank()) {
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(QkSpacing.md))
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = MaterialTheme.shapes.medium,
                         color = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Row(
-                            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                            modifier = Modifier.padding(start = QkSpacing.md, end = 8.dp, top = 12.dp, bottom = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
@@ -525,7 +527,7 @@ private fun TunnelTab(
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 )
-                                Spacer(Modifier.height(4.dp))
+                                Spacer(Modifier.height(QkSpacing.xxs))
                                 Text(
                                     text = state.roomCode,
                                     style = MaterialTheme.typography.headlineSmall.copy(
@@ -548,7 +550,7 @@ private fun TunnelTab(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(QkSpacing.md))
                 Button(
                     onClick = onToggle,
                     enabled = !busy,
@@ -586,20 +588,20 @@ private fun TunnelTab(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             ),
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(QkSpacing.lg)) {
                 Text(
                     text = stringResource(R.string.multiplayer_guest_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.multiplayer_guest_desc),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(QkSpacing.md))
 
                 OutlinedTextField(
                     value = roomInput,
@@ -613,7 +615,7 @@ private fun TunnelTab(
                         fontFamily = FontFamily.Monospace,
                     ),
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(QkSpacing.sm))
                 Button(
                     onClick = {
                         if (roomInput.isNotBlank()) onJoin(roomInput.trim())
