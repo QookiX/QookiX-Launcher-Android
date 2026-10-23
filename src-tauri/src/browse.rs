@@ -1259,6 +1259,31 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                             "[loader] 最终：已就绪 {} / 缺 {left2}",
                             ok2.len()
                         ));
+                        if left2 > 0 {
+                            // ⚠️ 2026-10-23（真机反馈「下载失败为什么没有提示」）：
+                            // 这里以前**只写日志**、然后照样返回 Ok —— 于是「缺 1 个依赖库」
+                            // 在界面上完全没有提示，用户只看到补全转完圈、文件依旧不完整。
+                            // 现在把**缺的文件名**抛回去，前端会显示「补全文件失败：…」。
+                            let missing: Vec<String> = libs
+                                .iter()
+                                .filter_map(|l| {
+                                    l.downloads
+                                        .as_ref()
+                                        .and_then(|d| d.artifact.as_ref())
+                                        .map(|a| (a.path.clone(), libs_dir.join(&a.path)))
+                                })
+                                .filter(|(_, p)| !p.exists())
+                                .map(|(path, _)| path)
+                                .collect();
+                            return Err(anyhow::anyhow!(
+                                "加载器依赖库还有 {left2} 个没下下来：{}。多半是网络/镜像问题，换节点后再点「补全游戏文件」。",
+                                if missing.is_empty() {
+                                    "（文件名未知）".to_string()
+                                } else {
+                                    missing.join("、")
+                                }
+                            ));
+                        }
                     } else {
                         crate::util::log_line(&format!(
                             "[loader] 加载器依赖齐备（{} 个）",
