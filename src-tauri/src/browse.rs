@@ -1413,7 +1413,13 @@ async fn run_official_installer(
         "jre": jre_home.to_string_lossy(),
         "classpath": installer_jar.to_string_lossy(),
         "mainClass": main_class,
-        "jvmArgs": [],
+        // AWT headless 必须显式给：installer 那个主类会去初始化 Swing，
+        // 安卓上没有 X11/headless 会让 JVM 直接崩掉（ZL2 跑 processors 时也带了这个思路）。
+        "jvmArgs": [
+            "-Djava.awt.headless=true",
+            format!("-Duser.home={}", data_dir.display()),
+            format!("-Djava.io.tmpdir={}", data_dir.join("cache").display()),
+        ],
         "gameArgs": ["--installClient", data_dir.to_string_lossy()],
         "workDir": data_dir.to_string_lossy(),
         "port": 0,
@@ -1425,19 +1431,83 @@ async fn run_official_installer(
     crate::android_bridge::start_jvm_install_service(&payload.to_string())
         .ok_or_else(|| anyhow::anyhow!("无法调用 JVM 安装服务（原生桥未就绪）"))?;
 
-    // 轮询结果文件（installer 可能要跑几分钟；上限 10 分钟）
+    // ⚠️ 不能等「退出码」：`JLI_Launch` 结束时是**直接 exit()**（不是 return），
+    // 所以 :jvm 服务里"跑完写结果文件"那段**永远不会执行** ✗（真机就这么静默消失的）。
+    // 改成按**产物**判断：installer 的 processors 会生成 client-extra.jar。
+    let libs_dir = data_dir.join("libraries");
+    let mut jvm_gone_rounds = 0u32;
     for _ in 0..600u32 {
+        // 结果文件（如果哪天能写出来就用它，双保险）
         if let Ok(s) = std::fs::read_to_string(&result_file) {
             if let Ok(code) = s.trim().parse::<i32>() {
-                if code == 0 {
-                    return Ok(());
-                }
-                return Err(anyhow::anyhow!("installer 退出码 {code}"));
+                return if code == 0 {
+                    Ok(())
+                } else {
+                    Err(anyhow::anyhow!("installer 退出码 {code}"))
+                };
+            }
+        }
+        if has_client_extra(&libs_dir) {
+            crate::util::log_line("[loader] installer 已产出 client-extra（processors 完成）");
+            return Ok(());
+        }
+        // :jvm 进程已经没了、产物又没有 → 判定失败（别让 UI 干等 10 分钟）
+        if !jvm_process_alive() {
+            jvm_gone_rounds += 1;
+            if jvm_gone_rounds >= 5 {
+                return Err(anyhow::anyhow!(
+                    "installer 进程已退出，但没有产出 client-extra（依赖补丁失败）"
+                ));
             }
         }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
     Err(anyhow::anyhow!("installer 超过 10 分钟仍未结束"))
+}
+
+/// `libraries/` 下有没有 `client-extra*.jar`（NeoForm processors 的产物之一）。
+fn has_client_extra(libs: &std::path::Path) -> bool {
+    fn walk(dir: &std::path::Path, depth: u32) -> bool {
+        if depth == 0 {
+            return false;
+        }
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if walk(&p, depth - 1) {
+                    return true;
+                }
+            } else if let Some(n) = p.file_name().and_then(|n| n.to_str()) {
+                if n.contains("client-extra") && n.ends_with(".jar") {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    walk(libs, 7)
+}
+
+/// `:jvm` 进程是否还活着（读 /proc，避免引入 libc 之外的依赖）。
+fn jvm_process_alive() -> bool {
+    let Ok(rd) = std::fs::read_dir("/proc") else {
+        return true; // 读不到就当作还活着，交给超时兜底
+    };
+    for e in rd.flatten() {
+        let name = e.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let cmdline = std::fs::read_to_string(e.path().join("cmdline")).unwrap_or_default();
+        if cmdline.contains("qookix") && cmdline.contains(":jvm") {
+            return true;
+        }
+    }
+    false
 }
 
 /// 读 jar 的 MANIFEST 里的 `Main-Class`（installer 的主类靠它）。
