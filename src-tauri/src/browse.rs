@@ -1390,8 +1390,12 @@ async fn run_official_installer(
     data_dir: &std::path::Path,
     installer_jar: &std::path::Path,
 ) -> Result<()> {
-    let (java, jre_lib) =
+    let (java, _jre_lib) =
         find_jre(data_dir).ok_or_else(|| anyhow::anyhow!("没有可用的 Java 运行时（runtimes/）"))?;
+    let jre_home = java
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| anyhow::anyhow!("JRE 路径异常：{}", java.display()))?;
 
     // Forge/NeoForge installer 要求目标目录里有 launcher_profiles.json，
     // 否则直接报 "There is no launcher_profiles.json in the target directory"。
@@ -1400,28 +1404,58 @@ async fn run_official_installer(
         let _ = std::fs::write(&lp, r#"{"profiles":{},"settings":{},"version":3}"#);
     }
 
-    let work = data_dir.to_string_lossy().to_string();
-    crate::util::log_line(&format!(
-        "[loader] 执行官方 installer：{} --installClient {}（java={}）",
-        installer_jar.display(),
-        work,
-        java.display()
-    ));
+    let main_class = read_jar_main_class(installer_jar)
+        .unwrap_or_else(|_| "net.neoforged.installer.Main".to_string());
+    let result_file = data_dir.join("logs").join("jvm-install-result.txt");
+    let _ = std::fs::remove_file(&result_file);
 
-    let jar = installer_jar.to_path_buf();
-    let work_for_task = work.clone();
-    tokio::task::spawn_blocking(move || {
-        crate::loader_install::run_installer(
-            &java,
-            &jre_lib,
-            &jar,
-            std::path::Path::new(&work_for_task),
-            &["--installClient".to_string(), work_for_task.clone()],
-        )
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("installer 任务 join 失败：{e}"))?
-    .map_err(|e| anyhow::anyhow!(e.to_string()))
+    let payload = serde_json::json!({
+        "jre": jre_home.to_string_lossy(),
+        "classpath": installer_jar.to_string_lossy(),
+        "mainClass": main_class,
+        "jvmArgs": [],
+        "gameArgs": ["--installClient", data_dir.to_string_lossy()],
+        "workDir": data_dir.to_string_lossy(),
+        "port": 0,
+    });
+    crate::util::log_line(&format!(
+        "[loader] 交 :jvm 独立进程跑 installer：mainClass={main_class} jar={}",
+        installer_jar.display()
+    ));
+    crate::android_bridge::start_jvm_install_service(&payload.to_string())
+        .ok_or_else(|| anyhow::anyhow!("无法调用 JVM 安装服务（原生桥未就绪）"))?;
+
+    // 轮询结果文件（installer 可能要跑几分钟；上限 10 分钟）
+    for _ in 0..600u32 {
+        if let Ok(s) = std::fs::read_to_string(&result_file) {
+            if let Ok(code) = s.trim().parse::<i32>() {
+                if code == 0 {
+                    return Ok(());
+                }
+                return Err(anyhow::anyhow!("installer 退出码 {code}"));
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    Err(anyhow::anyhow!("installer 超过 10 分钟仍未结束"))
+}
+
+/// 读 jar 的 MANIFEST 里的 `Main-Class`（installer 的主类靠它）。
+fn read_jar_main_class(jar: &std::path::Path) -> Result<String> {
+    let text = read_zip_entry_string(jar, "META-INF/MANIFEST.MF")
+        .map_err(|e| anyhow::anyhow!("读 {} 的 MANIFEST 失败：{e}", jar.display()))?;
+    for line in text.lines() {
+        if let Some(v) = line.strip_prefix("Main-Class:") {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Ok(v.to_string());
+            }
+        }
+    }
+    Err(anyhow::anyhow!(
+        "MANIFEST 缺少 Main-Class：{}",
+        jar.display()
+    ))
 }
 
 /// 跑 Forge / NeoForge 的 installer jar（headless），生成 profile。

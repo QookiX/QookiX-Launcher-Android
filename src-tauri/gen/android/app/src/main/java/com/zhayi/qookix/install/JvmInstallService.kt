@@ -109,6 +109,8 @@ class JvmInstallService : Service() {
             return START_NOT_STICKY
         }
         started.set(1)
+        // 先清掉上次的结果，避免 Rust 读到旧值就立刻判定"完成"
+        runCatching { java.io.File(filesDir, "logs/jvm-install-result.txt").delete() }
         startForeground(NOTI_ID, buildNotification("正在准备运行环境…"))
 
         val jre = intent.getStringExtra(EXTRA_JRE) ?: ""
@@ -127,6 +129,12 @@ class JvmInstallService : Service() {
                 -1
             }
             Log.i(TAG, "JVM 结束，退出码 $code")
+            // 结果落文件（Rust 侧轮询它）：比 UDP 回环简单，也不怕主进程那时正忙。
+            runCatching {
+                val f = java.io.File(filesDir, "logs/jvm-install-result.txt")
+                f.parentFile?.mkdirs()
+                f.writeText(code.toString())
+            }.onFailure { Log.w(TAG, "写结果文件失败", it) }
             sendCode(port, code)
             started.set(0)
             stopForeground(STOP_FOREGROUND_REMOVE)

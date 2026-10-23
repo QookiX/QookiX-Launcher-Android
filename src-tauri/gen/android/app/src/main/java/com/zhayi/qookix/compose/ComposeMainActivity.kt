@@ -59,6 +59,36 @@ class ComposeMainActivity : TauriActivity() {
     private var composeView: android.view.View? = null
     private val caps by lazy { HostCapabilities(this) }
 
+    /**
+     * Rust 侧通过 `android_bridge` 反射调用（单参数 JSON，返回 "ok" / "busy" / "error:…"）。
+     *
+     * 为什么走 Activity 方法：Rust 拿不到 Context，但 `android_bridge` 一直握着本 Activity
+     * （`call_activity_str`），这是既有通道，不用新造一套。
+     */
+    fun startJvmInstallService(json: String): String {
+        return try {
+            val o = org.json.JSONObject(json)
+            val args = o.optJSONArray("jvmArgs")
+            val gargs = o.optJSONArray("gameArgs")
+            fun list(a: org.json.JSONArray?): List<String> =
+                if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }
+            val ok = com.zhayi.qookix.install.JvmInstallService.start(
+                context = this,
+                jreHome = o.optString("jre"),
+                classpath = o.optString("classpath"),
+                mainClass = o.optString("mainClass"),
+                jvmArgs = list(args),
+                gameArgs = list(gargs),
+                workDir = o.optString("workDir"),
+                port = o.optInt("port", 0),
+            )
+            if (ok) "ok" else "busy"
+        } catch (t: Throwable) {
+            Log.w(TAG, "启动 JVM 安装服务失败", t)
+            "error:${t.message}"
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TauriBridge.attach(this)

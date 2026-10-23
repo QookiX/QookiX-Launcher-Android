@@ -219,6 +219,21 @@ pub fn vpn_consent_granted() -> bool {
         .unwrap_or(false)
 }
 
+/// 让 Kotlin 侧的 `JvmInstallService`（`:jvm` 独立进程）跑一次 JVM。
+///
+/// 用于 Forge/NeoForge 的 installer / processors：这些必须用 JVM 跑，但安卓禁止
+/// exec 私有目录里的 java，且 `JNI_CreateJavaVM` 一个进程只能成功一次，所以统一
+/// 丢给 `:jvm` 进程（见 `JvmInstallService` 的注释）。结果由服务写进
+/// `<data>/logs/jvm-install-result.txt`，调用方轮询那个文件即可。
+#[cfg(target_os = "android")]
+pub fn start_jvm_install_service(json: &str) -> Option<()> {
+    android::call_activity1(
+        "startJvmInstallService",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        json,
+    )
+}
+
 /// 导出（分享）某个目录里的日志：原生侧打成 zip 再弹系统分享。
 #[cfg(target_os = "android")]
 pub fn share_logs_zip(archive_name: &str, dir: &str) {
@@ -573,6 +588,19 @@ mod android {
             return None;
         }
         Some(unsafe { JObject::from_raw(raw) })
+    }
+
+    /// 一个字符串参数的版本（`startJvmInstallService(json)` 用）。
+    ///
+    /// 只负责"叫一声"：真正的结果由 `:jvm` 服务写进
+    /// `<data>/logs/jvm-install-result.txt`，Rust 侧轮询那个文件（比回传值可靠 ✗）。
+    pub fn call_activity1(name: &str, sig: &str, arg: &str) -> Option<()> {
+        let vm = java_vm()?;
+        let mut env = vm.attach_current_thread_as_daemon().ok()?;
+        let obj = activity()?;
+        let a: JString = env.new_string(arg).ok()?;
+        env.call_method(&obj, name, sig, &[JValue::Object(&a)]).ok()?;
+        Some(())
     }
 
     /// 两个字符串参数的版本（例如 startGameActivity(instanceId, accountUuid)）。
