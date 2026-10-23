@@ -265,6 +265,12 @@ private fun parseHexOrNull(hex: String): Color? {
  *        用户显式选的颜色优先级最高。
  * @param dynamicColor 是否启用 Material You 动态取色（仅当 themeColor 为空时生效）。
  */
+// ⚠️ 2026-10-23（分支 exp/kotlin-upgrade 记录）：试过切 `MaterialExpressiveTheme`，**失败** ——
+// material3 **1.4.0** 里它和 `ExperimentalMaterial3ExpressiveApi` 都是 **internal** ✗，
+// 编译期直接 "Cannot access ... it is internal in file"。
+// 公开的 expressive API 要更晚的版本，而那些版本要求 **AGP 9.1 + compileSdk 37** ✗（另一场大升级）。
+// 所以这条分支只保留 Kotlin 2.2.21 + Compose BOM 2025.09.01（能编过、Compose 更新到 1.9.2），
+// 主题仍是常规 MaterialTheme；Expressive 观感走「手工靠拢」那条路（见 master 的讨论）。
 @Composable
 fun QookiXTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
