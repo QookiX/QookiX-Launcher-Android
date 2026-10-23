@@ -76,6 +76,72 @@ pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeLaunchGame(
     result.unwrap_or(-1)
 }
 
+/// Kotlin 侧 `JvmInstallService`（**独立进程 `:jvm`**）调用：在该进程里用 JNI 起一个
+/// JVM 跑任意 `classpath + mainClass`（Forge/NeoForge 的 installer 与 processors 靠它）。
+///
+/// ## 为什么必须另开进程（2026-10-23，照 ZL2/Pojav 的做法）
+///
+/// ① 安卓**禁止 exec 应用私有目录里的 `java`** → `Command::new(bin/java)` 直接失败
+///    （真机日志：`启动 installer 失败`），所以只能走 `JNI_CreateJavaVM`。
+/// ② 但 `JNI_CreateJavaVM` **一个进程只能成功一次** —— 主进程要用它启动 MC，
+///    所以安装期的 JVM 必须放在**另一个进程**里（ZL2 用 `android:process=":jvm"`
+///    的 Service，退出码经 UDP 回环送回主进程）。
+///
+/// 参数里带列表的用 `\u{1f}`（Unit Separator）分隔，避免路径里的空格/冒号干扰。
+#[no_mangle]
+pub extern "C" fn Java_com_zhayi_qookix_install_JvmInstallService_nativeRunJvm(
+    mut env: JNIEnv,
+    _class: JClass,
+    jre_home: JString,
+    classpath: JString,
+    main_class: JString,
+    jvm_args: JString,
+    game_args: JString,
+    work_dir: JString,
+) -> jint {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let read = |env: &mut JNIEnv, js: &JString| -> String {
+            env.get_string(js)
+                .map(|v| v.to_str().unwrap_or("").to_string())
+                .unwrap_or_default()
+        };
+        let jre = read(&mut env, &jre_home);
+        let cp = read(&mut env, &classpath);
+        let mc = read(&mut env, &main_class);
+        let ja = read(&mut env, &jvm_args);
+        let ga = read(&mut env, &game_args);
+        let wd = read(&mut env, &work_dir);
+        let split = |raw: &str| -> Vec<String> {
+            raw.split('\u{1f}')
+                .filter(|x| !x.is_empty())
+                .map(|x| x.to_string())
+                .collect()
+        };
+        crate::util::log_line(&format!(
+            "[jvm-service] 启动 JVM：mainClass={mc} classpath 条目={} jre={jre}",
+            cp.split(':').count()
+        ));
+        match crate::jvm_launcher::JvmLauncher::launch(
+            std::path::Path::new(&jre),
+            &split(&ja),
+            &cp,
+            &mc,
+            &split(&ga),
+            &wd,
+        ) {
+            Ok(code) => {
+                crate::util::log_line(&format!("[jvm-service] JVM 退出，退出码 {code}"));
+                code
+            }
+            Err(e) => {
+                crate::util::log_line(&format!("[jvm-service] JVM 启动失败：{e}"));
+                -1
+            }
+        }
+    }));
+    result.unwrap_or(-1)
+}
+
 #[no_mangle]
 pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeKillGame(
     _env: JNIEnv,

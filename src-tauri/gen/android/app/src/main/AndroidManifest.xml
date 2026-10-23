@@ -252,7 +252,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Game Service (Foreground) -->
+        <!-- 安装期 JVM 服务（独立进程 :jvm）
+         为什么单独开进程：安卓禁止 exec 私有目录里的 java，安装只能用 JNI 起 JVM；
+         而 JNI_CreateJavaVM 一个进程只能成功一次 —— 主进程要留给 Minecraft。
+         ZL2 / Pojav 也是这个形态（服务跑完 exit 码回传后自杀）。 -->
+    <service
+        android:name=".install.JvmInstallService"
+        android:process=":jvm"
+        android:exported="false"
+        android:foregroundServiceType="specialUse" />
+
+    <!-- Game Service (Foreground) -->
         <!--
           foregroundServiceType 用 specialUse（Pojav 也是这么声明的）：
           dataSync 在 Android 15+ 有「6 小时/24 小时」上限，超时会被系统停掉，
