@@ -128,6 +128,25 @@ pub extern "C" fn Java_com_zhayi_qookix_install_JvmInstallService_nativeRunJvm(
             .join("logs")
             .join("jvm-install-stderr.log");
         let _guard = crate::launch::redirect_output_to_file(&log_path, "jvm-install");
+
+        // ⚠️ JRE 的原生库必须**自己预加载**（真机事故 2026-10-23）：
+        //   UnsatisfiedLinkError: …/lib/libnio.so: dlopen failed:
+        //     library "libnet.so" not found: needed by …/libnio.so
+        // 启动游戏那条路（launch.rs）在 JLI_Launch 前做了同样两件事，这里当初漏了 ✗。
+        // 安卓的 dlopen 不走系统库搜索路径，必须按依赖顺序 System.load + 给 LD_LIBRARY_PATH。
+        let jre_path = std::path::Path::new(&jre);
+        let lib_dir = jre_path.join("lib");
+        let mut lp = lib_dir.to_string_lossy().to_string();
+        if let Ok(old) = std::env::var("LD_LIBRARY_PATH") {
+            if !old.is_empty() {
+                lp = format!("{old}:{lp}");
+            }
+        }
+        std::env::set_var("LD_LIBRARY_PATH", &lp);
+        let n = crate::android_env::preload_jre_libraries(jre_path);
+        crate::util::log_line(&format!(
+            "[jvm-service] 预加载 JRE 内部库 {n} 个，LD_LIBRARY_PATH={lp}"
+        ));
         match crate::jvm_launcher::JvmLauncher::launch(
             std::path::Path::new(&jre),
             &split(&ja),
