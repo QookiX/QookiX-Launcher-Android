@@ -851,8 +851,17 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         //   「Launching target 'forgeclient'」之后进程直接没了 ——
         //   无 crash-report、无 Java 异常、连退出码都没有 ✗，完全查不到死因。
         // dup2 到文件后，至少能拿到 JVM 自己写的死因（hs_err / 信号 / 异常栈）。
+        // ⚠️ 2026-10-23 真机修（启动遮罩停在「正在初始化渲染器…126 秒」不收起）：
+        //
+        // 上面 `spawn_log_tail` 盯的是 `logs/launch-<实例>.log`，前端收到任何
+        // `launch://log` 就认为「启动成功」并收起遮罩。
+        // 我先前把 JVM 输出重定向到了 `logs/game-stderr.log` ✗ → tail 盯的文件永远没内容
+        // → 前端收不到任何 log → 遮罩不收起（游戏其实已经在主菜单了）。
+        // 所以这里必须写回 **tail 正在盯的那个文件**（内容一样，能拿到 stderr）。
         let stderr_guard = redirect_output_to_file(
-            &std::path::Path::new(&data_dir).join("logs/game-stderr.log"),
+            &std::path::Path::new(&data_dir)
+                .join("logs")
+                .join(format!("launch-{}.log", instance.id)),
             &instance.id,
         );
 
