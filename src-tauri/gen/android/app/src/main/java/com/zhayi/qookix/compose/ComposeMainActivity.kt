@@ -55,6 +55,46 @@ class ComposeMainActivity : TauriActivity() {
         private const val TAG = "ComposeMain"
     }
 
+    /**
+     * 游戏退出后自动重启进程。
+     *
+     * ## 为什么必须有（2026-10-23 真机事故）
+     *
+     * 同一个应用进程里**只能启动一次游戏** ✗：
+     *  - `JNI_CreateJavaVM` 一个进程只能成功一次；
+     *  - 更直接的是原生库：第二次启动时 LWJGL 会报
+     *    `UnsatisfiedLinkError: Native Library …/natives/liblwjgl.so
+     *     already loaded in another classloader`
+     *    （新 JVM 的 classloader 想再 dlopen 同一个 .so，被系统拒绝 ✓）。
+     *
+     * 表现就是：**第一次能进游戏 ✓，退出后再点启动 → 渲染线程初始化即崩 ✗**。
+     * 所以游戏一退出就重启进程（先拉起同一个 Activity，再 exit）✓。
+     */
+    private var exitWatcher: com.zhayi.qookix.compose.bridge.RustBridge? = null
+
+    private fun watchGameExitAndRestart() {
+        runCatching {
+            val b = com.zhayi.qookix.compose.bridge.RustBridge(this)
+            exitWatcher = b // 持有引用，避免被回收导致订阅丢失
+            b.listen("launch://exit") { restartForNextLaunch() }
+        }
+    }
+
+    private fun restartForNextLaunch() {
+        Log.i(TAG, "游戏已退出 → 重启应用进程（JVM / 原生库只能在一个进程里用一次）")
+        runCatching {
+            packageManager.getLaunchIntentForPackage(packageName)?.let { i ->
+                i.addFlags(
+                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                        android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                )
+                startActivity(i)
+            }
+        }.onFailure { Log.w(TAG, "拉起自身失败", it) }
+        // 给新界面一点启动时间再退出旧进程
+        android.os.Handler(mainLooper).postDelayed({ Runtime.getRuntime().exit(0) }, 800)
+    }
+
     private var composeOverlayAttached = false
     private var composeView: android.view.View? = null
     private val caps by lazy { HostCapabilities(this) }
@@ -92,6 +132,9 @@ class ComposeMainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TauriBridge.attach(this)
+
+        // 游戏退出后重启进程（否则第二次启动必崩，见 watchGameExitAndRestart 的注释）
+        watchGameExitAndRestart()
 
         // ⚠️ 2026-10-23（真机反馈「崩过一次后再点启动游戏没反应」）：
         // `game_running.marker` 是「游戏正在运行」的标记，正常退出时由
