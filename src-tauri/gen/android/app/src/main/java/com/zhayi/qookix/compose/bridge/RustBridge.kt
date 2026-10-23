@@ -175,6 +175,47 @@ fun findTauriWebView(activity: Activity): WebView? {
 
     private var nextId = 1
     private var ready = false
+        set(value) {
+            field = value
+            // 记录"曾经就绪过"：冷启动阶段 WebView 还没建好，不能算桥死。
+            if (value) everReady = true
+        }
+
+    /** 桥是否曾经就绪过（用于区分"冷启动未就绪"与"用着用着死掉"）。 */
+    private var everReady = false
+
+    /** 连续"WebView 不见了"的命中次数。 */
+    private var deadBridgeHits = 0
+
+    /** 上次自动重建的时间，用于避免连续重建。 */
+    private var lastRecoverAt = 0L
+
+    /**
+     * WebView 已经找不到时的自愈（⚠️ 2026-10-23 真机事故）。
+     *
+     * 现象：游戏崩溃回到启动器后，**内容页变空、点「启动游戏」没反应、其它页面也空**，
+     * logcat 里每条命令都是 `桥尚未就绪`。原因不是桥没初始化 —— 而是
+     * **WebView（及其渲染进程）被那次崩溃带走了**，`findTauriWebView` 返回 null，
+     * 于是 `invokeInternal` 在第一步就把每条命令判失败，且永远不会自愈
+     * （只能强杀应用重开）。
+     *
+     * 这里计数：连续 5 条命令都找不到 WebView → 重建 Activity，让 Tauri 重新建 WebView。
+     * 只在 `everReady == true` 时生效，避免冷启动阶段误判；20 秒内最多重建一次。
+     */
+    private fun noteDeadBridge() {
+        if (!everReady) return
+        deadBridgeHits++
+        if (deadBridgeHits < 5) return
+        val now = System.currentTimeMillis()
+        if (now - lastRecoverAt < 20_000L) return
+        lastRecoverAt = now
+        deadBridgeHits = 0
+        Log.w(TAG, "WebView 已消失（渲染进程退出？），自动重建界面以恢复 IPC")
+        activity.runOnUiThread {
+            runCatching { activity.recreate() }
+                .onFailure { Log.e(TAG, "重建界面失败：${it.message}") }
+        }
+    }
     private var injected = false
 
     val isReady: Boolean get() = ready
@@ -437,6 +478,10 @@ fun findTauriWebView(activity: Activity): WebView? {
     ) {
         val wv = findTauriWebView(activity)
         if (wv == null) {
+            // ⚠️ 这里是「用着用着突然点什么都没反应」的真正入口：
+            // WebView（含渲染进程）被游戏崩溃带走后，每条命令都在这里被判失败。
+            // 先尝试自愈（连续命中会重建界面），再如实返回失败。
+            noteDeadBridge()
             onResult(Result.failure(IllegalStateException(activity.getString(R.string.bridge_not_ready))))
             return
         }

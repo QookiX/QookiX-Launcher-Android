@@ -418,6 +418,79 @@ impl LoaderArguments {
 ///
 /// 之前的实现只并了 classpath 和 mainClass，参数一条都没带 ——
 /// 所以 Forge/NeoForge 实例即使 profile 生成了也起不来。
+/// 把 `net.neoforged.fancymodloader:earlydisplay` 从 profile json 的 `libraries`
+/// 里删掉（**就地改写**该 json），返回是否真的改了。
+///
+/// ## 为什么必须从 libraries 删（而不是从 `-p` 删）
+///
+/// 真机核对过：profile 的 `-p` 里**只有** bootstrapLauncher / securejarhandler /
+/// asm×5 / JarJarFileSystems ✗ 没有 earlydisplay；earlydisplay 是 `libraries` 里的
+/// 一条（`net.neoforged.fancymodloader:earlydisplay:4.0.44`），由
+/// `BootstrapLauncher` 按 `-DlibraryDirectory` 自己扫进 boot 层 ✓。
+/// 所以我先前那版「过滤 `-p`」是空转 ✗（日志里没有任何剔除记录，崩溃栈也完全没变）。
+///
+/// 删掉后：`ImmediateWindowHandler` 的 ServiceLoader 找不到 provider →
+/// 不创建加载窗口 → `acceptGameLayer` 走空分支 → 不再碰
+/// `DisplayWindow.updateModuleReads`（那里会 `Class.forName` 游戏层类 → 闪退）。
+/// 安卓上那个加载窗口本来也看不见（Compose 界面盖在上面）。
+pub fn strip_earlydisplay_library(profile_dir: &Path) -> bool {
+    let Some(name) = profile_dir.file_name().map(|n| n.to_string_lossy().to_string()) else {
+        return false;
+    };
+    let json = profile_dir.join(format!("{name}.json"));
+    let Ok(text) = std::fs::read_to_string(&json) else {
+        return false;
+    };
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    let Some(libs) = v.get_mut("libraries").and_then(|l| l.as_array_mut()) else {
+        return false;
+    };
+    let before = libs.len();
+    libs.retain(|l| {
+        let n = l.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        !n.contains("fancymodloader:earlydisplay") && !n.contains(":earlydisplay:")
+    });
+    if libs.len() == before {
+        return false;
+    }
+    let removed = before - libs.len();
+    match serde_json::to_string_pretty(&v) {
+        Ok(out) => match std::fs::write(&json, out) {
+            Ok(()) => {
+                crate::util::log_line(&format!(
+                    "[loader] 已从 profile {} 的 libraries 中移除 {removed} 条 earlydisplay（安卓上会导致启动崩溃）",
+                    json.display()
+                ));
+                true
+            }
+            Err(e) => {
+                crate::util::log_line(&format!("[loader] 改写 profile 失败（{e}），保留原样"));
+                false
+            }
+        },
+        Err(e) => {
+            crate::util::log_line(&format!("[loader] 序列化 profile 失败（{e}），保留原样"));
+            false
+        }
+    }
+}
+
+/// 从模块路径字符串里剔除**路径含 `needle`** 的分段，其余顺序保持不变。
+///
+/// 用途：把 `net.neoforged.fancymodloader:earlydisplay` 从 `-p` 里摘掉 ——
+/// 它是 NeoForge 开局那个 Swing/GL 加载窗口，在安卓上会直接把游戏打死（见
+/// `profile_arguments` 里的长注释）。模块路径是用平台分隔符（安卓上是 `:`）
+/// 串起来的一整串，所以要按分隔符切分、逐段过滤、再拼回去。
+pub fn strip_module(module_path: &str, needle: &str, sep: &str) -> String {
+    module_path
+        .split(sep)
+        .filter(|seg| !seg.is_empty() && !seg.contains(needle))
+        .collect::<Vec<_>>()
+        .join(sep)
+}
+
 pub fn profile_arguments(
     profile_dir: &Path,
     libraries_dir: &Path,
@@ -496,6 +569,77 @@ pub fn profile_arguments(
         }
     }
 
+    // ⚠️ 2026-10-23 真机崩溃修复：把 earlydisplay 从**模块路径** `-p` 里摘掉。
+    //
+    // 崩溃（NeoForge 1.21.1，`files/logs/game-stderr.log` 抓到）：
+    //   NoClassDefFoundError: net/minecraft/client/gui/screens/LoadingOverlay
+    //     at fml_earlydisplay@4.0.44/…DisplayWindow.updateModuleReads(DisplayWindow.java:605)
+    //     at fml_loader@4.0.44/…ImmediateWindowHandler.acceptGameLayer(ImmediateWindowHandler.java:94)
+    //     at …FMLLoader.beforeStart(FMLLoader.java:166)
+    // 也就是 earlydisplay 在 boot 层用 `Class.forName` 找**游戏层**的 MC 类，
+    // 类加载器看不到 → 抛错 → main 线程终止 → JVM 退出（同进程，等于闪退）。
+    //
+    // 为什么不能靠开关：`-Dfml.earlyprogresswindow=false` **一直有传**
+    // （启动日志 jvm_arg[19] 可见），NeoForge 21.1.251 **不认**它 ——
+    // stderr 里照样 `Loading ImmediateWindowProvider fmlearlywindow`。
+    //
+    // 为什么必须在 `-p` 上删、而不是 classpath：崩溃栈里的
+    // `MC-BOOTSTRAP/fml_earlydisplay@4.0.44/…` 说明它在 boot 层**模块路径**上，
+    // 之前的 classpath 过滤是空转（那段代码在 launch.rs::build_classpath）。
+    // 摘掉后 ServiceLoader 找不到 provider → 不创建加载窗口 → `acceptGameLayer`
+    // 走空分支，不再碰 `updateModuleReads`。安卓上本来也看不见那个窗口。
+    let mut filtered: Vec<String> = Vec::with_capacity(out.jvm.len());
+    let mut idx = 0usize;
+    while idx < out.jvm.len() {
+        let cur = out.jvm[idx].clone();
+        // 形态一：`-p <path>` / `--module-path <path>`（分两项）
+        if cur == "-p" || cur == "--module-path" {
+            if let Some(path) = out.jvm.get(idx + 1) {
+                let kept = strip_module(path, "earlydisplay", classpath_separator);
+                if kept.trim().is_empty() {
+                    crate::util::log_line(&format!(
+                        "[loader] 模块路径里只剩 earlydisplay，已整条移除（{cur}）"
+                    ));
+                } else if kept != *path {
+                    crate::util::log_line(&format!(
+                        "[loader] 从 {cur} 模块路径中剔除 earlydisplay（{} → {}）",
+                        path, kept
+                    ));
+                    filtered.push(cur);
+                    filtered.push(kept);
+                } else {
+                    filtered.push(cur);
+                    filtered.push(path.clone());
+                }
+                idx += 2;
+                continue;
+            }
+        }
+        // 形态二：`-p=...` / `--module-path=...`（内联）
+        for prefix in ["-p=", "--module-path="] {
+            if let Some(path) = cur.strip_prefix(prefix) {
+                let kept = strip_module(path, "earlydisplay", classpath_separator);
+                if kept.trim().is_empty() {
+                    crate::util::log_line(&format!(
+                        "[loader] 模块路径里只剩 earlydisplay，已整条移除（{prefix}）"
+                    ));
+                } else if kept != path {
+                    crate::util::log_line(&format!(
+                        "[loader] 从 {prefix} 模块路径中剔除 earlydisplay"
+                    ));
+                    filtered.push(format!("{prefix}{kept}"));
+                } else {
+                    filtered.push(cur.clone());
+                }
+                idx += 1;
+                continue;
+            }
+        }
+        filtered.push(cur);
+        idx += 1;
+    }
+    out.jvm = filtered;
+
     out
 }
 
@@ -503,6 +647,33 @@ pub fn profile_arguments(
 mod tests {
     use super::*;
     use std::fs;
+
+    // ── strip_module（把 earlydisplay 从 -p 里摘掉，否则 NeoForge 闪退）──
+    #[test]
+    fn strip_module_removes_only_the_earlydisplay_segment() {
+        // 中间那段被摘掉，其余顺序不变
+        assert_eq!(
+            strip_module("/libs/a.jar:/libs/earlydisplay-4.0.44.jar:/libs/b.jar", "earlydisplay", ":"),
+            "/libs/a.jar:/libs/b.jar"
+        );
+        // 不含该段 → 原样返回
+        let untouched = "/libs/a.jar:/libs/b.jar";
+        assert_eq!(strip_module(untouched, "earlydisplay", ":"), untouched);
+        // 只剩它 → 空串（调用方据此整条移除 -p，避免留下空模块路径）
+        assert_eq!(
+            strip_module("/libs/earlydisplay-4.0.44.jar", "earlydisplay", ":"),
+            ""
+        );
+        // maven 目录形态（真机上就是这个路径）
+        assert_eq!(
+            strip_module(
+                "/data/data/x/libraries/net/neoforged/fancymodloader/earlydisplay/4.0.44/earlydisplay-4.0.44.jar:/data/data/x/libraries/a.jar",
+                "earlydisplay",
+                ":"
+            ),
+            "/data/data/x/libraries/a.jar"
+        );
+    }
 
     // ── loader_version_id ────────────────────────────────────────────
     #[test]

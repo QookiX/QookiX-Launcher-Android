@@ -3530,11 +3530,33 @@ private fun InstanceDetailRoute(
                     onFailure = { state.copy(loading = false, error = context.getString(R.string.read_failed, friendlyError(context, it.message))) },
                 )
             }
-            InstanceTab.Content -> repo.loadContent(state.contentKind, instanceId) { r ->
-                state = r.fold(
-                    onSuccess = { state.copy(content = it, loading = false) },
-                    onFailure = { state.copy(loading = false, error = context.getString(R.string.read_failed, friendlyError(context, it.message))) },
-                )
+            InstanceTab.Content -> {
+                // ⚠️ 2026-10-23 真机反馈「列表里有 3 个模组，页签却写 模组 0 / 材质包 0 / 光影 0」：
+                // `contentKinds[].count` **从来没有任何写入点**（只有 DEFAULT_CONTENT_KINDS 里的 0），
+                // 因为这里只加载了「当前」kind。改成：三类各查一次条数写回 chips，
+                // 当前 kind 顺便把列表也填上（只多两次轻量查询，都是本地扫目录）。
+                state.contentKinds.forEach { k ->
+                    val isCurrent = k.id == state.contentKind
+                    repo.loadContent(k.id, instanceId) { r ->
+                        r.getOrNull()?.let { list ->
+                            state = state.copy(
+                                contentKinds = state.contentKinds.map { kk ->
+                                    if (kk.id == k.id) kk.copy(count = list.size) else kk
+                                },
+                            )
+                            if (isCurrent) {
+                                state = state.copy(content = list, loading = false)
+                            }
+                        }
+                        val err = r.exceptionOrNull()
+                        if (isCurrent && err != null) {
+                            state = state.copy(
+                                loading = false,
+                                error = context.getString(R.string.read_failed, friendlyError(context, err.message)),
+                            )
+                        }
+                    }
+                }
             }
             else -> state = state.copy(loading = false)
         }

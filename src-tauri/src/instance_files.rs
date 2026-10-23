@@ -336,11 +336,97 @@ async fn check_instance_files_inner(instance_id: String) -> Result<InstanceFileR
 #[tauri::command]
 pub async fn repair_instance_files(instance_id: String) -> Result<Value, String> {
     crate::fsutil::validate_id(&instance_id, "实例")?;
+
+    // 补全前先清一遍 mods 里的残废文件（真机事故，见 `sanitize_mods_dir` 注释）
+    if let Ok(inst_dir) = crate::settings::instance_dir(&instance_id).await {
+        let (parts, corrupt) = sanitize_mods_dir(&inst_dir.join("mods"));
+        if parts + corrupt > 0 {
+            crate::util::log_line(&format!(
+                "[mods] 清理半成品 {parts} 个、隔离损坏 jar {corrupt} 个"
+            ));
+        }
+    }
+
     let game = crate::browse::install_game(&instance_id)
         .await
         .map_err(|e| e.to_string())?;
     let java = ensure_instance_java(&instance_id).await?;
     Ok(serde_json::json!({ "game": game, "java": java }))
+}
+
+/// 清理/隔离 mods 目录里的残废文件，返回 `(删掉的 .part 数, 隔离的损坏 jar 数)`。
+///
+/// ## 为什么需要（真机事故，1.21.1 NeoForge 一个模组都不加载）
+///
+/// 游戏日志：
+/// ```text
+/// [EARLYDISPLAY] ERROR DISPLAY
+/// Failure details: An unexpected IO error occurred trying to setup the game directory
+/// zip END header not found
+/// ```
+/// 而 `mods/` 里躺着下载中断留下的 `kotlinforforge-5.12.0-all.jar.part`、
+/// `vivid_move-…jar.part`，以及可能被截断的 jar。FML 在 setup 阶段扫 mods 目录，
+/// 遇到打不开的 zip **直接中止整个加载体系** → 表面上就是「mod 全都没加载」。
+///
+/// 处理原则：
+///  - `.part`：**删掉**（它是半成品，下次补全会重下）；
+///  - `*.jar` 末尾 64KB 里找不到 zip 结束签名 `PK\x05\x06` → **改名成 `.corrupt`**
+///    （不直接删：留着证据；`.corrupt` 不会被 FML 当模组扫描）。
+pub(crate) fn sanitize_mods_dir_public(mods: &std::path::Path) -> (usize, usize) {
+    sanitize_mods_dir(mods)
+}
+
+fn sanitize_mods_dir(mods: &std::path::Path) -> (usize, usize) {
+    let Ok(rd) = std::fs::read_dir(mods) else {
+        return (0, 0);
+    };
+    let mut parts = 0usize;
+    let mut corrupt = 0usize;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.ends_with(".part") || name.ends_with(".part.tmp") {
+            if std::fs::remove_file(&path).is_ok() {
+                crate::util::log_line(&format!("[mods] 删除半成品 {name}"));
+                parts += 1;
+            }
+            continue;
+        }
+        if name.to_lowercase().ends_with(".jar") && !zip_ends_ok(&path) {
+            let bad = path.with_extension("jar.corrupt");
+            if std::fs::rename(&path, &bad).is_ok() {
+                crate::util::log_line(&format!("[mods] 隔离损坏 jar（zip 尾部缺失）：{name}"));
+                corrupt += 1;
+            }
+        }
+    }
+    (parts, corrupt)
+}
+
+/// 粗略判断一个 zip/jar 是否完整：末尾 64KB 内必须出现 `PK\x05\x06`（EOCD）。
+///
+/// 不解析中央目录，只挡「下载被截断」这一类 —— 真机上 `zip END header not found`
+/// 就是它，逐字节校验的代价在手机上不值得。
+fn zip_ends_ok(path: &std::path::Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let Ok(len) = f.metadata().map(|m| m.len()) else {
+        return false;
+    };
+    let tail = len.min(64 * 1024);
+    if f.seek(SeekFrom::Start(len - tail)).is_err() {
+        return false;
+    }
+    let mut buf = vec![0u8; tail as usize];
+    if f.read_exact(&mut buf).is_err() {
+        return false;
+    }
+    buf.windows(4).any(|w| w == b"PK\x05\x06")
 }
 
 /// 确保该实例有可用的 Java 运行时；没有就下一个（约 27MB）。

@@ -824,6 +824,13 @@ private fun ContentTab(
                         horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                     ) {
                         state.contentKinds.forEach { k ->
+                            // ⚠️ 2026-10-23 真机反馈「下面列着 3 个模组，页签却写 模组 0」：
+                            // `count` 是加载时统计出来的（PageHost 那侧写回），但操作后
+                            // （启用/删除/更新）可能滞后。当前分类以**实际列表条数**兜底，
+                            // 保证 chips 和下面的列表永远一致。
+                            val shownCount =
+                                if (k.id == state.contentKind) maxOf(k.count, state.content.size)
+                                else k.count
                             FilterChip(
                                 selected = state.contentKind == k.id,
                                 onClick = { onKindChange(k.id) },
@@ -832,7 +839,7 @@ private fun ContentTab(
                                         stringResource(
                                             R.string.instance_detail_kind_label_count,
                                             stringResource(k.labelRes),
-                                            k.count,
+                                            shownCount,
                                         )
                                     )
                                 },
@@ -850,6 +857,13 @@ private fun ContentTab(
                         horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
                     ) {
                         state.contentKinds.forEach { k ->
+                            // ⚠️ 2026-10-23 真机反馈「下面列着 3 个模组，页签却写 模组 0」：
+                            // `count` 是加载时统计出来的（PageHost 那侧写回），但操作后
+                            // （启用/删除/更新）可能滞后。当前分类以**实际列表条数**兜底，
+                            // 保证 chips 和下面的列表永远一致。
+                            val shownCount =
+                                if (k.id == state.contentKind) maxOf(k.count, state.content.size)
+                                else k.count
                             FilterChip(
                                 selected = state.contentKind == k.id,
                                 onClick = { onKindChange(k.id) },
@@ -858,7 +872,7 @@ private fun ContentTab(
                                         stringResource(
                                             R.string.instance_detail_kind_label_count,
                                             stringResource(k.labelRes),
-                                            k.count,
+                                            shownCount,
                                         )
                                     )
                                 },

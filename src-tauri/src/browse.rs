@@ -1187,6 +1187,48 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
         }
     }
 
+    // ── 跑一次官方 installer 的 processors 链（Forge / NeoForge）──────
+    //
+    // ⚠️ 2026-10-23 关键修复（NeoForge 1.21.1「一个模组都不加载 / 闪退」的根）。
+    //
+    // 之前这里**只**调 `install_forge_like` —— 它从 installer 里解出 version.json
+    // 就完事，**从不执行 processors 链** ✗。于是 `libraries/` 里没有打过补丁的客户端、
+    // 也没有 `client-extra.jar` → FML 的 ModList 里 `minecraft` / `neoforge`
+    // 两个模组**根本不存在** → 每个模组的依赖都判 `[MISSING]`
+    // → `ModSorter: Missing or unsupported mandatory dependencies`
+    // → `NoSuchElementException` → 闪退。
+    //（真机证据：所有 `Found mod file` 都来自 mods 文件夹；libraries 里找不到
+    //  client-extra/neoform 产物；1.21.1.jar 一直是原版大小。）
+    //
+    // 桌面端是**重写整套 processors**（见 QookiX-Launcher/src-tauri/src/install.rs
+    // ::run_forge_processors）；安卓这边更省事：直接跑官方 installer 的
+    // `--installClient`，它自己会解包 data/、下工具、跑 processors，产出打补丁的
+    // client 与 client-extra.jar（Pojav 也是这么做的 ✓）。
+    //
+    // ⚠️ **必须在 `if !profile_exists` 外面**：老实例的 profile 早就存在了
+    //（之前"只解包"那版生成的），但 processors 从没跑过 —— 放在里面会被整段跳过 ✗
+    //（2026-10-23 就因为这个白跑了一轮）。用标记文件记录"本机成功跑过 processors"。
+    if matches!(loader, "forge" | "neoforge") {
+        let patch_marker = std::path::Path::new(&data_dir)
+            .join("libraries")
+            .join(format!(".qookix-processors-{loader}-{loader_version}.done"));
+        if !patch_marker.exists() {
+            match run_official_installer(std::path::Path::new(&data_dir), &dest).await {
+                Ok(()) => {
+                    let _ = std::fs::write(&patch_marker, b"1");
+                    crate::util::log_line(
+                        "[loader] 官方 installer 执行完成（processors 产物已就绪）",
+                    );
+                }
+                Err(e) => crate::util::log_line(&format!(
+                    "[loader] 官方 installer 失败（{e}）—— 模组本体仍会缺失，先不写标记以便下次重试"
+                )),
+            }
+        } else {
+            crate::util::log_line("[loader] processors 产物标记已存在，跳过 installer");
+        }
+    }
+
     // ── 下载加载器 profile 里声明的依赖库 ────────────────────────────
     //
     // ⚠️ 光有 profile 不够：它声明的 asm / sponge-mixin / intermediary 等
@@ -1313,6 +1355,75 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
     Ok(())
 }
 
+/// 在数据目录的 `runtimes/` 下找一个可用的 JRE，返回 `(bin/java, lib)`。
+///
+/// 安卓上不能 `exec` 应用私有目录里的二进制，但**作为子进程用 `LD_LIBRARY_PATH`
+/// 拉起 java 是允许的**（`run_installer` 就是这么做的，installer 也依赖这条路）。
+fn find_jre(data_dir: &std::path::Path) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let runtimes = data_dir.join("runtimes");
+    let mut homes: Vec<std::path::PathBuf> = std::fs::read_dir(&runtimes)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    // 优先较高的 JRE 名（JRE-21 > JRE-17 > JRE-8），NeoForge 需要 21
+    homes.sort();
+    homes.reverse();
+    for home in homes {
+        let bin = home.join("bin").join("java");
+        if bin.is_file() {
+            return Some((bin, home.join("lib")));
+        }
+    }
+    None
+}
+
+/// 跑官方 Forge/NeoForge installer 的 `--installClient`，让它的 processors 链
+/// 产出打补丁的客户端与 `client-extra.jar`（FML 的 `minecraft`/`neoforge` 模组靠它）。
+///
+/// ## 为什么必须做（真机事故 2026-10-23）
+/// 只解包 `version.json` 不跑 processors → `libraries/` 里没有补丁产物
+/// → FML 里 `minecraft`/`neoforge` 报 `[MISSING]` → ModSorter 判依赖失败
+/// → `NoSuchElementException` → 闪退。
+async fn run_official_installer(
+    data_dir: &std::path::Path,
+    installer_jar: &std::path::Path,
+) -> Result<()> {
+    let (java, jre_lib) =
+        find_jre(data_dir).ok_or_else(|| anyhow::anyhow!("没有可用的 Java 运行时（runtimes/）"))?;
+
+    // Forge/NeoForge installer 要求目标目录里有 launcher_profiles.json，
+    // 否则直接报 "There is no launcher_profiles.json in the target directory"。
+    let lp = data_dir.join("launcher_profiles.json");
+    if !lp.exists() {
+        let _ = std::fs::write(&lp, r#"{"profiles":{},"settings":{},"version":3}"#);
+    }
+
+    let work = data_dir.to_string_lossy().to_string();
+    crate::util::log_line(&format!(
+        "[loader] 执行官方 installer：{} --installClient {}（java={}）",
+        installer_jar.display(),
+        work,
+        java.display()
+    ));
+
+    let jar = installer_jar.to_path_buf();
+    let work_for_task = work.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::loader_install::run_installer(
+            &java,
+            &jre_lib,
+            &jar,
+            std::path::Path::new(&work_for_task),
+            &["--installClient".to_string(), work_for_task.clone()],
+        )
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("installer 任务 join 失败：{e}"))?
+    .map_err(|e| anyhow::anyhow!(e.to_string()))
+}
+
 /// 跑 Forge / NeoForge 的 installer jar（headless），生成 profile。
 /// Forge / NeoForge：解压 installer jar 里的 `install_profile.json`，生成加载器 profile。
 ///
@@ -1390,6 +1501,31 @@ async fn install_forge_like(
         "arguments": version_info.get("arguments"),
         "libraries": version_info.get("libraries"),
     });
+    // ⚠️ 2026-10-23：生成 profile 时就把 `earlydisplay` 摘掉。
+    //
+    // 它是 NeoForge 开局那个 Swing/GL 加载窗口。安卓上它会在
+    // `DisplayWindow.updateModuleReads` 里 `Class.forName` 去找游戏层的
+    // `net.minecraft.client.gui.screens.LoadingOverlay` → 类加载器看不到 →
+    // NoClassDefFoundError → main 线程终止 → 闪退
+    //（真机 `files/logs/game-stderr.log` 抓到）。
+    // 它由 BootstrapLauncher 按 libraries 加载，所以只能从 profile 的 libraries 删；
+    // `-Dfml.earlyprogresswindow=false` 传了也没用（NeoForge 21.1 不认）。
+    if let Some(libs) = patched
+        .get_mut("libraries")
+        .and_then(|l| l.as_array_mut())
+    {
+        let before = libs.len();
+        libs.retain(|l| {
+            let n = l.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            !n.contains("fancymodloader:earlydisplay") && !n.contains(":earlydisplay:")
+        });
+        if libs.len() != before {
+            crate::util::log_line(&format!(
+                "[loader] profile 生成时移除 {} 条 earlydisplay（安卓会导致启动崩溃）",
+                before - libs.len()
+            ));
+        }
+    }
     // 去掉 null 字段（versionInfo 里可能没有）
     if let Some(obj) = patched.as_object_mut() {
         obj.retain(|_, v| !v.is_null());

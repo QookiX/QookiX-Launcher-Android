@@ -344,6 +344,13 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
                     &loader_str,
                     &instance.mc_version,
                 ) {
+                    // ⚠️ 2026-10-23 崩溃修复（第二次尝试，第一次方向错了）：
+                    // earlydisplay 不在 `-p` 上，而是 profile `libraries` 里的一条，
+                    // 由 BootstrapLauncher 按 `-DlibraryDirectory` 自己加载 →
+                    // 必须先就地把 json 里的这条删掉，后面的参数解析才不会再带上它。
+                    // 幂等：已经清过就什么都不做（只读一次 json）。
+                    crate::loader_install::strip_earlydisplay_library(&profile);
+
                     let libs_dir = Path::new(&data_dir).join("libraries");
                     let ldr_args = crate::loader_install::profile_arguments(
                         &profile,
@@ -582,7 +589,50 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         // 原版的 `net.minecraft.client.main.Main` 会直接跑原版 MC，
         // Forge 要用 BootstrapLauncher、Fabric 要用 KnotClient ——
         // 这是「加载器真正生效」的关键一步。
+        // 启动前清一遍 mods 里的残废文件：`.part` 半成品 + 尾部截断的 jar。
+        // 真机事故：NeoForge 在 setup 阶段扫到打不开的 zip 就中止整个 mod 加载
+        // （日志只有一句 `zip END header not found`，表现是「一个模组都不加载」）。
+        if let Ok(inst_dir) = crate::settings::instance_dir(&instance_id).await {
+            crate::instance_files::sanitize_mods_dir_public(&inst_dir.join("mods"));
+        }
+
         let loader_str2 = loader_name(&instance.loader);
+
+        // ── NeoForge / Forge 的补丁产物前置校验（2026-10-23）──────────────
+        //
+        // 崩溃链（真机日志闭环，已确认）：
+        //   processors 没跑 → libraries 里没有打补丁的 client / client-extra.jar
+        //   → FML 的 ModList 里 `minecraft`/`neoforge` 不存在
+        //   → `ModSorter: Missing or unsupported mandatory dependencies`
+        //   → `Optional.orElseThrow → NoSuchElementException` → 进程闪退
+        //
+        // 而「跑 installer」在安卓上有硬限制：**不允许 exec 应用私有目录里的 java**
+        // （子进程方式直接 `启动 installer 失败`），只能用同进程 JVM ——
+        // 但 JNI_CreateJavaVM 一个进程只能调一次，装完必须重启 App 才能进游戏。
+        // 这套流程还没实现（见 CHANGELOG / 待办），所以这里**先明确拒绝启动**，
+        // 而不是让用户对着"闪退"猜。
+        if matches!(loader_str2.as_str(), "forge" | "neoforge") {
+            let loader_ver = instance.loader_version.clone().unwrap_or_default();
+            let patch_marker = Path::new(&data_dir)
+                .join("libraries")
+                .join(format!(
+                    ".qookix-processors-{loader_str2}-{loader_ver}.done"
+                ));
+            if !patch_marker.exists() {
+                let msg = format!(
+                    "{loader_str2} 需要先跑官方的补丁（processors）才能加载模组，\
+                     这一步在当前版本里还没打通（安卓不允许直接执行 java）。\
+                     现在启动会闪退，所以先不启动。\
+                     临时方案：改用 Fabric 版整合包，或在电脑上用官方启动器玩这个包。"
+                );
+                crate::util::log_line(&format!(
+                    "[launcher] {msg}（缺少标记 {}）",
+                    patch_marker.display()
+                ));
+                return Err(anyhow::anyhow!(msg));
+            }
+        }
+
         let main_class = if loader_str2 != "vanilla" {
             let versions_dir = Path::new(&data_dir).join("versions");
             match crate::loader_install::find_loader_profile(
@@ -666,10 +716,36 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             // 必须落到 launch-<id>.log 里。
             println!(
                 "[launcher] classpath 条目 {}，java {} @ {}",
+            // （见下方 2026-10-23 的明细日志）
                 classpath.matches(':').count() + 1,
                 runtime.java_version,
                 runtime.path
             );
+
+            // ⚠️ 2026-10-23：把 classpath 明细 + 两个「本体」jar 的存在性落盘。
+            //
+            // 真机现象：FML 只从 `mods/` 扫到模组，`minecraft` / `neoforge` 全部报
+            // `[MISSING]`（→ ModSorter 判依赖失败 → NoSuchElementException → 闪退）。
+            // 唯一能定性的是：`1.21.1.jar` 与 `neoforge-…-universal.jar` 到底有没有
+            // 进到 classpath。这两行就是为此加的，别删。
+            crate::util::log_line(&format!(
+                "[launcher] classpath 明细：{}",
+                classpath.split(':').collect::<Vec<_>>().join(" | ")
+            ));
+            for p in classpath.split(':') {
+                let name = p.rsplit('/').next().unwrap_or(p);
+                if name.ends_with(".jar")
+                    && (name.contains("1.21.1")
+                        || name.contains("neoforge")
+                        || name.contains("client-extra"))
+                {
+                    crate::util::log_line(&format!(
+                        "[launcher] 关键 jar name={name} exists={} path={p}",
+                        std::path::Path::new(p).is_file()
+                    ));
+                }
+            }
+
             // ── 加载器摘要（写进启动日志，2026-10-19 加）──────────────────
             //
             // 排查「加载器装了还是跑原版」时，这三行就够了：
@@ -768,6 +844,18 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             jvm_args.len() + game_args.len() + 3
         );
 
+        // ⚠️ 2026-10-23：把 JVM 的 stdout/stderr 落一份到 `<data>/logs/game-stderr.log`。
+        //
+        // 为什么必须这么做：启动是**同进程 JNI**（`JLI_Launch`），JVM 的 stderr
+        // **不进** logcat 的 RustStdoutStderr。真机现象是
+        //   「Launching target 'forgeclient'」之后进程直接没了 ——
+        //   无 crash-report、无 Java 异常、连退出码都没有 ✗，完全查不到死因。
+        // dup2 到文件后，至少能拿到 JVM 自己写的死因（hs_err / 信号 / 异常栈）。
+        let stderr_guard = redirect_output_to_file(
+            &std::path::Path::new(&data_dir).join("logs/game-stderr.log"),
+            &instance.id,
+        );
+
         let launch_outcome = JvmLauncher::launch(
             jre_home,
             &jvm_args,
@@ -776,6 +864,10 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             &game_args,
             &game_dir,
         );
+
+        if let Some(restore) = stderr_guard {
+            restore();
+        }
 
         match &launch_outcome {
             Ok(code) => println!("[launcher] JLI_Launch 返回，退出码 {code}"),
@@ -853,6 +945,70 @@ pub fn get_game_status() -> GameStatus {
     GAME_STATUS.get().unwrap().lock().unwrap().clone()
 }
 
+/// 把本进程的 stdout/stderr 重定向到文件（追加），返回「恢复」闭包。
+///
+/// 游戏是**同进程 JNI** 启动的，JVM 的输出不走 logcat；真机上「启动后立刻退出」
+/// 因此毫无线索（无 crash-report / 无异常 / 无退出码）。用 `dup2` 把 fd 1/2 接到
+/// 文件上，跑完再恢复 —— 这是唯一能在不改启动方式的前提下拿到 JVM 死因的办法。
+///
+/// 只在 unix 下有效；其它平台返回 `None`（不影响启动）。
+fn redirect_output_to_file(
+    path: &std::path::Path,
+    instance_id: &str,
+) -> Option<Box<dyn FnOnce()>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        // 每次启动写一个分隔头，方便区分多次运行
+        let mut file = match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                crate::util::log_line(&format!("[launcher] 无法写 game-stderr.log：{e}"));
+                return None;
+            }
+        };
+        use std::io::Write;
+        let _ = writeln!(
+            file,
+            "\n===== {} 启动实例 {} =====",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            instance_id
+        );
+        let fd = file.as_raw_fd();
+        let saved_out = unsafe { libc::dup(1) };
+        let saved_err = unsafe { libc::dup(2) };
+        if saved_out < 0 || saved_err < 0 {
+            crate::util::log_line("[launcher] dup 失败，跳过输出重定向");
+            return None;
+        }
+        unsafe {
+            libc::dup2(fd, 1);
+            libc::dup2(fd, 2);
+        }
+        // fd 要一直有效到恢复为止，所以不 drop（文件句柄交给闭包之外的生命周期）
+        std::mem::forget(file);
+        crate::util::log_line(&format!(
+            "[launcher] JVM 输出已重定向到 {}",
+            path.display()
+        ));
+        Some(Box::new(move || unsafe {
+            libc::dup2(saved_out, 1);
+            libc::dup2(saved_err, 2);
+            libc::close(saved_out);
+            libc::close(saved_err);
+        }))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, instance_id);
+        None
+    }
+}
+
 async fn build_classpath(
     version_info: &MinecraftVersion,
     data_dir: &str,
@@ -875,6 +1031,17 @@ async fn build_classpath(
             // 补丁版前面进 classpath，native 符号对不上直接
             // `UnsatisfiedLinkError: DefaultSysImplementation.getPointerSize`（实测）。
             if lib.name.starts_with("org.lwjgl:") || lib.name.starts_with("org.lwjgl.lwjgl:") {
+                continue;
+            }
+            // ⚠️ 2026-10-23 更正：earlydisplay 真正的位置是 **boot 层模块路径 `-p`**，
+            // 不是 classpath。真机崩溃栈里是
+            //   `MC-BOOTSTRAP/fml_earlydisplay@4.0.44/…DisplayWindow.updateModuleReads`
+            // 配合启动日志 `JVM 参数 38 条（含 -p 1 条）` 就能看出来。
+            // 所以**真正的过滤在 `loader_install::profile_arguments`**（它处理 `-p`）。
+            // 这里保留一份过滤只是防止同一个 jar 既上模块路径又上 classpath（多一份冗余），
+            // 不要指望它解决问题 —— 之前就是在这里空转，浪费了一轮排查。
+            if lib.name.contains("fancymodloader:earlydisplay") {
+                crate::util::log_line("[launcher] classpath 里跳过 earlydisplay（真正的过滤在 -p 上）");
                 continue;
             }
             if let Some(downloads) = &lib.downloads {

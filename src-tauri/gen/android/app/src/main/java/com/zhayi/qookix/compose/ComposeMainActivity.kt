@@ -63,6 +63,22 @@ class ComposeMainActivity : TauriActivity() {
         super.onCreate(savedInstanceState)
         TauriBridge.attach(this)
 
+        // ⚠️ 2026-10-23（真机反馈「崩过一次后再点启动游戏没反应」）：
+        // `game_running.marker` 是「游戏正在运行」的标记，正常退出时由
+        // GameGuardService 清掉。但游戏是**同进程 JNI** 启动的 —— JVM 崩溃时
+        // 收尾代码根本没机会跑，标记就留在盘上，于是启动器一直以为游戏还在跑，
+        // 「启动游戏」被静默拦掉（用户看到的就是"点了没反应"）。
+        //
+        // 不变量：本进程是**新建的** ⇒ 不可能有游戏在跑（JVM 就在本进程里）。
+        // 所以冷启动时无条件清掉它；真有残留的运行中状态，Rust 侧的
+        // `get_game_status().is_running`（内存态）才是判据。
+        runCatching {
+            val marker = com.zhayi.qookix.services.GameGuardService.markerFile(this)
+            if (marker.exists() && marker.delete()) {
+                Log.i(TAG, "清理上次异常退出残留的游戏运行标记")
+            }
+        }.onFailure { Log.w(TAG, "清理运行标记失败", it) }
+
         // ⚠️⚠️ 必须在这里初始化 Pojav 的平台上下文（2026-10-16 修，游戏启动崩溃的根因）。
         //
         // ── 崩溃现象 ───────────────────────────────────────────────────
