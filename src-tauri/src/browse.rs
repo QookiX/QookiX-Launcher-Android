@@ -1049,6 +1049,18 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
                     Ok(()) => println!("[install] install_loader 完成"),
                     Err(e) => {
                         println!("[install] install_loader 失败: {e:#}");
+                        // ⚠️ 2026-10-23 真机修：这里原来直接 `return Err` ✗，**没有发终止事件**。
+                        // 后果（用户实测）：
+                        //   ① 顶部任务横幅永远停在「正在安装加载器…885.1/885.1 MB」✗
+                        //   ② `TasksRepo` 里一直挂着一个"活跃任务" → 之后点「补全」被
+                        //      `hasActiveTaskFor` 防重入判断直接跳过 → **点了没反应** ✗✗
+                        crate::progress::emit_install_done(
+                            &ctx,
+                            false,
+                            &format!("加载器安装失败：{e:#}"),
+                            2,
+                            3,
+                        );
                         return Err(e);
                     }
                 }
