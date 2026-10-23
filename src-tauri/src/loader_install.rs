@@ -640,6 +640,24 @@ pub fn profile_arguments(
     }
     out.jvm = filtered;
 
+    // ⚠️ 2026-10-23（照 ZL2 `Install.ForgeLike.kt` 的做法）：
+    // 新 bootstraplauncher（≥0.1.17）要求 `-DignoreList` 里**再追加 `${primary_jar_name}`**。
+    // NeoForge 的 profile 只写了 `-DignoreList=client-extra,${version_name}.jar` ✗，
+    // 少了主 jar 名 → FML 扫描 classpath 时的"主 jar"处理不对，
+    // `minecraft` / `neoforge` 两个内置模组可能因此注册不上（每个模组的依赖都判 [MISSING]）。
+    // 注意 `${primary_jar_name}` 是 **FML 自己的占位符**，要原样传下去（不能被我们替换掉）。
+    for arg in out.jvm.iter_mut() {
+        if let Some(rest) = arg.strip_prefix("-DignoreList=") {
+            if !rest.contains("${primary_jar_name}") {
+                let new_val = format!("{rest},${{primary_jar_name}}");
+                crate::util::log_line(&format!(
+                    "[loader] ignoreList 追加主 jar 名：{rest} → {new_val}"
+                ));
+                *arg = format!("-DignoreList={new_val}");
+            }
+        }
+    }
+
     out
 }
 
