@@ -3763,6 +3763,28 @@ private fun InstanceDetailRoute(
         }
     }
 
+    // ── 补全进度（2026-10-23）─────────────────────────────────────────
+    // 横幅上原来只有一个转圈，用户看不出"到底在下什么、还要多久"。
+    // 后端在补全时一直发 `install://progress`（阶段文案 + done/total），
+    // 这里转成「阶段 + 百分比」，横幅据此画确定进度条。
+    // 注意只在 `repairing` 时采纳：别的任务（导入、装插件）也发同一个事件。
+    var repairStage by remember { mutableStateOf("") }
+    var repairFraction by remember { mutableStateOf(-1f) }
+    DisposableEffect(bridge) {
+        bridge.listen("install://progress") { payload ->
+            runCatching {
+                val o = org.json.JSONObject(payload)
+                Triple(o.optString("message"), o.optInt("done", 0), o.optInt("total", 0))
+            }.getOrNull()?.let { (msg, done, total) ->
+                if (repairing) {
+                    repairStage = msg
+                    repairFraction = if (total > 0) done.toFloat() / total else -1f
+                }
+            }
+        }
+        onDispose { bridge.unlisten("install://progress") }
+    }
+
     // ── 把实例信息注册到顶栏（2026-10-17）────────────────────────────
     //
     // 用户反馈：「实例详情页左上角有个返回，还有实例名字和原版，
@@ -3811,6 +3833,8 @@ private fun InstanceDetailRoute(
         instanceTask = instanceTask,
         onCancelTask = instanceTask?.let { t -> { tasksRepo.cancel(t.id) } },
         repairing = repairing,
+        repairStage = repairStage,
+        repairFraction = repairFraction,
         onCopyCrashText = { text ->
             // 复制到剪贴板（写走 Rust 的 writeClipboardText 桥）
             QookixApi(bridge).writeClipboard(text) { _ -> }

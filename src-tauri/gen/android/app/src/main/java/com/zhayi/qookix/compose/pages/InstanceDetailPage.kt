@@ -120,6 +120,10 @@ fun InstanceDetailPage(
     onRepair: (() -> Unit)? = null,
     /** 补全进行中（按钮显示转圈）。 */
     repairing: Boolean = false,
+    /** 补全进度：当前阶段文案（来自 install://progress 的 message） */
+    repairStage: String = "",
+    /** 补全进度：0..1；负值表示未知（画不确定进度条） */
+    repairFraction: Float = -1f,
     /**
      * 这个实例**正在进行中**的任务（下载 / 安装 / 补全文件）。
      *
@@ -305,6 +309,32 @@ fun InstanceDetailPage(
                         if (report.advice.isNotBlank()) {
                             Text(
                                 text = report.advice,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                        // 补全进行中：阶段 + 百分比 + 确定进度条（以前只有转圈，看不出进度）
+                        if (repairing) {
+                            val stageText = repairStage.ifBlank {
+                                stringResource(R.string.instance_detail_repairing)
+                            }
+                            Spacer(Modifier.height(QkSpacing.xxs))
+                            if (repairFraction >= 0f) {
+                                LinearProgressIndicator(
+                                    progress = { repairFraction },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                )
+                            } else {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            }
+                            Spacer(Modifier.height(QkSpacing.xxs))
+                            Text(
+                                text = if (repairFraction >= 0f) {
+                                    "$stageText ${(repairFraction * 100).toInt()}%"
+                                } else {
+                                    stageText
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                             )
