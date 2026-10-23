@@ -50,6 +50,7 @@ import net.kdt.pojavlaunch.CustomControlsActivity
  */
 class ComposeMainActivity : TauriActivity() {
 
+
     companion object {
         private const val TAG = "ComposeMain"
     }
@@ -202,6 +203,14 @@ class ComposeMainActivity : TauriActivity() {
         super.onWebViewCreate(webView)
         webView.alpha = 0f
         Log.i(TAG, "Rust WebView 已设为透明（保留 IPC，不参与显示）")
+
+        // 「界面冻住」自愈：这是唯一能可靠拿到 WebView 实例的地方
+        // （`findTauriWebView` 遍历视图树找不到它，实测 3/8/15 秒都是 null）。
+        // 真机上「帧不动、点击无反应、进程活着且无 ANR」就是渲染进程挂了 →
+        // 收到回调后自动 `recreate()`，不用强杀重开。
+        runCatching {
+            RustBridge(this).installRenderProcessWatcher(webView) { recreate() }
+        }
     }
 
     private fun attachComposeOverlay(attempt: Int) {
@@ -230,16 +239,10 @@ class ComposeMainActivity : TauriActivity() {
                 val host: ViewGroup = found
                 val cv = androidx.compose.ui.platform.ComposeView(this).apply {
                     // 「界面冻住」自愈：WebView 渲染进程死亡/无响应时重建界面（不用强杀）。
-        // 延迟 3 秒等 Rust 把 WebView 挂进视图树（findTauriWebView 靠遍历 View 树找）。
-        window?.decorView?.postDelayed(
-            {
-                runCatching {
-                    // 临时实例就够：installRenderProcessWatcher 只用它的 activity 找 WebView
-                    RustBridge(this@ComposeMainActivity).installRenderProcessWatcher { recreate() }
-                }
-            },
-            3_000L,
-        )
+        //
+        // ⚠️ 钩在 `onWebViewCreate` 上（见下面那个 override），**不要**靠
+        // `findTauriWebView` 遍历视图树 —— 实测它在 3/8/15 秒都返回 null
+        // （Tauri 的 WebView 不在这个 Activity 的视图树里），于是回调永远装不上。
         setContent {
                         QookiXTheme {
                             // ⚠️ 必须 remember：RustBridge 内部有 `ready` 状态，

@@ -52,11 +52,10 @@ class RustBridge(private val activity: Activity) {
      *
      * @param onDead 判定异常后的恢复动作（调用方传 `recreate`）
      */
-    fun installRenderProcessWatcher(onDead: () -> Unit) {
+    fun installRenderProcessWatcher(webView: android.webkit.WebView, onDead: () -> Unit) {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
-        val wv = findTauriWebView(activity) ?: return
         runCatching {
-            wv.webViewRenderProcessClient = object : android.webkit.WebViewRenderProcessClient() {
+            webView.webViewRenderProcessClient = object : android.webkit.WebViewRenderProcessClient() {
                 // 注意：`onRenderProcessGone` 属于 WebViewClient，这个类只有这一个回调；
                 // 渲染进程真正死掉时，系统通常先回调 `onRenderProcessUnresponsive`。
                 override fun onRenderProcessUnresponsive(
