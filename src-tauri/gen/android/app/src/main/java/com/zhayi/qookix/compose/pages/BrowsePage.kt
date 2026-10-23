@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkRadius
+
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.zhayi.qookix.compose.motion.pressScale
 import androidx.compose.foundation.clickable
@@ -600,7 +602,7 @@ private fun ProjectRowCompact(p: ProjectUi, onClick: () -> Unit, onInstall: () -
                 contentDescription = null,
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(RoundedCornerShape(6.dp)),
+                    .clip(RoundedCornerShape(QkRadius.small)),
                 cornerRadius = 6.dp,
             )
 

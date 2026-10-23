@@ -24,11 +24,13 @@ import androidx.compose.ui.unit.sp
  *   extraLarge 28dp   ← 底部弹层 / 大容器（MD3 标志性大圆角）
  */
 val QookiXShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),
-    small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    // 全部取自 `QkRadius`（见 Tokens.kt）—— 以后调圆角只改那一处，
+    // 不再需要翻遍所有页面找 `RoundedCornerShape(16.dp)`。
+    extraSmall = RoundedCornerShape(QkRadius.badge),
+    small = RoundedCornerShape(QkRadius.small),
+    medium = RoundedCornerShape(QkRadius.medium),
+    large = RoundedCornerShape(QkRadius.large),
+    extraLarge = RoundedCornerShape(QkRadius.sheet),
 )
 
 /**

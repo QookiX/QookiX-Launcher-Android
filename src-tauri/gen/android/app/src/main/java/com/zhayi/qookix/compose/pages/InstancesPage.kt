@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkRadius
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.LocalIndication
@@ -415,12 +417,12 @@ private fun InstanceCard(
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(10.dp)),
+                    .clip(RoundedCornerShape(QkRadius.medium)),
                 contentAlignment = Alignment.Center,
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(QkRadius.medium),
                     color = parseHexColor(inst.colorHex)
                         ?: MaterialTheme.colorScheme.primaryContainer,
                 ) {

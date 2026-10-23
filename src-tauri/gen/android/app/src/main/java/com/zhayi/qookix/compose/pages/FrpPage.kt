@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkRadius
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -465,7 +467,7 @@ private fun StatusBadge(status: String) {
         else -> MaterialTheme.colorScheme.surfaceVariant to
             MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Surface(shape = RoundedCornerShape(999.dp), color = bg) {
+    Surface(shape = RoundedCornerShape(QkRadius.pill), color = bg) {
         Text(
             text = status.ifBlank { stringResource(R.string.frp_status_unknown) },
             style = MaterialTheme.typography.labelSmall,

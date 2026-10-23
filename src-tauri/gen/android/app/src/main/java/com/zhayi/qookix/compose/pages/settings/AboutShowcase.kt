@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.theme.QkRadius
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -109,7 +111,7 @@ fun AboutShowcase(
         modifier = modifier
             .fillMaxWidth()
             .height(height.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(QkRadius.card))
             // 彩蛋入口：900ms 内连点 7 次 → 炸碎 → 苦力怕偷走
             //
             // ⚠️ 用 `clickable` 而不是 `pointerInput { detectTapGestures {} }`：

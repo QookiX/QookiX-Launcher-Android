@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.theme.QkRadius
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -383,7 +385,7 @@ private fun CurrentInstanceCard(
             Surface(
                 modifier = Modifier
                     .size(96.dp)
-                    .clip(RoundedCornerShape(20.dp)),
+                    .clip(RoundedCornerShape(QkRadius.card)),
                 color = MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -503,7 +505,7 @@ private fun RecentInstanceCard(inst: InstanceUi, onClick: () -> Unit) {
             Surface(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(RoundedCornerShape(QkRadius.medium)),
                 color = MaterialTheme.colorScheme.secondaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
