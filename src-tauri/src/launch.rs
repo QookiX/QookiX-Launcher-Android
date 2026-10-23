@@ -952,7 +952,7 @@ pub fn get_game_status() -> GameStatus {
 /// 文件上，跑完再恢复 —— 这是唯一能在不改启动方式的前提下拿到 JVM 死因的办法。
 ///
 /// 只在 unix 下有效；其它平台返回 `None`（不影响启动）。
-fn redirect_output_to_file(
+pub(crate) fn redirect_output_to_file(
     path: &std::path::Path,
     instance_id: &str,
 ) -> Option<Box<dyn FnOnce()>> {

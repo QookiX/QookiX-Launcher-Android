@@ -121,6 +121,13 @@ pub extern "C" fn Java_com_zhayi_qookix_install_JvmInstallService_nativeRunJvm(
             "[jvm-service] 启动 JVM：mainClass={mc} classpath 条目={} jre={jre}",
             cp.split(':').count()
         ));
+        // ⚠️ 必须把 JVM 的输出落盘：`JLI_Launch` 结束时是**直接 exit()**，
+        // 进程消失后 logcat 里什么都留不下（真机就因此完全看不到 installer 为什么退）。
+        // 复用启动游戏那套 dup2 重定向（同一份实现，launch.rs）。
+        let log_path = std::path::Path::new(&wd)
+            .join("logs")
+            .join("jvm-install-stderr.log");
+        let _guard = crate::launch::redirect_output_to_file(&log_path, "jvm-install");
         match crate::jvm_launcher::JvmLauncher::launch(
             std::path::Path::new(&jre),
             &split(&ja),
