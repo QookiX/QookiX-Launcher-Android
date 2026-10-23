@@ -40,6 +40,46 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class RustBridge(private val activity: Activity) {
 
+    /**
+     * 监听 WebView 渲染进程的**无响应/死亡**，用于「界面冻住」的自愈。
+     *
+     * ## 为什么不是"帧看门狗"
+     * Compose 静止页面**本来就不出帧**，数帧的方案会把正常页面误判成冻结
+     * （每 15 秒重建一次界面）。`onRenderProcessUnresponsive` 是系统给的准确信号。
+     *
+     * 现象（真机反复遇到）：进程活着、Activity 在前台、无 ANR，但帧不动、点击没反应，
+     * `ps -A` 里渲染进程已消失 → 只能强杀重开。装上这个回调后会自动 `recreate()`。
+     *
+     * @param onDead 判定异常后的恢复动作（调用方传 `recreate`）
+     */
+    fun installRenderProcessWatcher(onDead: () -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
+        val wv = findTauriWebView(activity) ?: return
+        runCatching {
+            wv.webViewRenderProcessClient = object : android.webkit.WebViewRenderProcessClient() {
+                // 注意：`onRenderProcessGone` 属于 WebViewClient，这个类只有这一个回调；
+                // 渲染进程真正死掉时，系统通常先回调 `onRenderProcessUnresponsive`。
+                override fun onRenderProcessUnresponsive(
+                    view: android.webkit.WebView,
+                    renderer: android.webkit.WebViewRenderProcess?,
+                ) {
+                    Log.w("QookiX-Render", "WebView 渲染进程无响应 → 自愈（重建界面）")
+                    onDead()
+                }
+
+                // 这个类有两个抽象成员，必须都实现（虽然"恢复响应"这里不需要做事）
+                override fun onRenderProcessResponsive(
+                    view: android.webkit.WebView,
+                    renderer: android.webkit.WebViewRenderProcess?,
+                ) {
+                    Log.i("QookiX-Render", "WebView 渲染进程恢复响应")
+                }
+            }
+            Log.i("QookiX-Render", "已安装渲染进程监听")
+        }.onFailure { Log.w("QookiX-Render", "安装渲染进程监听失败", it) }
+    }
+
+
     companion object {
         private const val TAG = "RustBridge"
         private const val JS_INTERFACE_NAME = "QookiXNative"
@@ -52,7 +92,24 @@ class RustBridge(private val activity: Activity) {
          * 与 MainActivity.findWebView 同源做法：Rust 的 WebView 由 wry 在
          * onCreate 之后加进 decorView，所以要递归找（且可能要重试 —— 见 start()）。
          */
-        fun findTauriWebView(activity: Activity): WebView? {
+            /**
+     * 监听 WebView 渲染进程的**死亡 / 无响应**，用于「界面冻住」的自愈。
+     *
+     * ## 为什么是它，而不是"帧看门狗"
+     *
+     * 真机反复遇到：进程活着、Activity 在前台、logcat 无 ANR，但界面帧不再更新、
+     * 点击全无反应（`ps -A` 里渲染进程已消失）→ 只能强杀重开。
+     *
+     * 我先想过用 Choreographer 数帧：**推演后否了** —— Compose 静止页面本来就不出帧，
+     * 15 秒没帧会被误判成冻结，反而每 15 秒重建一次界面。
+     * `onRenderProcessUnresponsive` / `onRenderProcessGone` 是系统给的**准确**信号，
+     * 只在渲染进程真的出问题时触发。
+     *
+     * @param onDead 判定异常后的恢复动作（调用方一般传 `recreate`）
+     */
+// installRenderProcessWatcher 现在在 class RustBridge 内部（需要 activity 与 WebView 查找）。
+
+fun findTauriWebView(activity: Activity): WebView? {
             val root = activity.window?.decorView ?: return null
             return search(root)
         }

@@ -229,7 +229,18 @@ class ComposeMainActivity : TauriActivity() {
                 }
                 val host: ViewGroup = found
                 val cv = androidx.compose.ui.platform.ComposeView(this).apply {
-                    setContent {
+                    // 「界面冻住」自愈：WebView 渲染进程死亡/无响应时重建界面（不用强杀）。
+        // 延迟 3 秒等 Rust 把 WebView 挂进视图树（findTauriWebView 靠遍历 View 树找）。
+        window?.decorView?.postDelayed(
+            {
+                runCatching {
+                    // 临时实例就够：installRenderProcessWatcher 只用它的 activity 找 WebView
+                    RustBridge(this@ComposeMainActivity).installRenderProcessWatcher { recreate() }
+                }
+            },
+            3_000L,
+        )
+        setContent {
                         QookiXTheme {
                             // ⚠️ 必须 remember：RustBridge 内部有 `ready` 状态，
                             // 而 `start()` 只在首次 LaunchedEffect 里跑一次。
