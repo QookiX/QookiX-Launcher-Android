@@ -1497,16 +1497,18 @@ async fn prefill_installer_libs(
         .map_err(|e| anyhow::anyhow!("读 install_profile.json 失败：{e}"))?;
     let v: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("解析 install_profile 失败：{e}"))?;
-    let libs_json = serde_json::json!({
-        "libraries": v.get("libraries").cloned().unwrap_or(serde_json::Value::Null)
-    });
-    let tmp = data_dir.join("logs").join("installer-libs.json");
-    if let Some(p) = tmp.parent() {
-        let _ = std::fs::create_dir_all(p);
-    }
-    std::fs::write(&tmp, serde_json::to_string(&libs_json)?)?;
-    let libs = crate::loader_install::profile_libraries(&tmp);
-    let _ = std::fs::remove_file(&tmp);
+    // ⚠️ 别用 `profile_libraries()`：它接受的是**目录**（内部拼 `<名>/<名>.json`），
+    // 传文件进去会直接返回空 —— 2026-10-23 就是这么白跑的（日志里一条都不打）。
+    // 这里直接按 `crate::version::Library` 反序列化。
+    let libs: Vec<crate::version::Library> = v
+        .get("libraries")
+        .and_then(|l| l.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|l| serde_json::from_value::<crate::version::Library>(l.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default();
     if libs.is_empty() {
         return Ok(());
     }
