@@ -146,13 +146,11 @@ dependencies {
 
     // ── Jetpack Compose + Material 3（启动器界面重构）────────────────────────
     // Compose 编译器随 Kotlin 版本走（本工程 = 2.0.21，由 plugin.compose 提供）。
-    // 2026-10-23（分支 exp/kotlin-upgrade）：2025.04.01 → 2025.09.01
-    //
-    // ⚠️ 选版本的过程（记下来，免得下次又踩）：
-    //   · 2026.09.00（最新）→ material3 1.4.x 但要求 **compileSdk 37 + AGP 9.1** ✗（另一场大手术）
-    //   · **2025.09.01** → material3 **1.4.0**（带 `MaterialExpressiveTheme`）+ Compose UI 1.9.2，
-    //     仍兼容 AGP 8.x / compileSdk 36 ✓ —— 这是"能拿到 Expressive 且改动最小"的那一版。
-    implementation(platform("androidx.compose:compose-bom:2025.09.01"))
+    // 2026-10-23：随 Kotlin 一起退回 2025.04.01（原因见根 build.gradle.kts 的注释：
+    // Kotlin 2.2 编出的代码需要新版 coroutines，运行时是旧版 → 切页面闪退）。
+    // 试过的结论：BOM 2025.09.01 的 material3 1.4.0 里 `MaterialExpressiveTheme` 是 internal，
+    // 拿不到 Expressive；要它只能上 compileSdk 37 + AGP 9，已放弃。
+    implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
