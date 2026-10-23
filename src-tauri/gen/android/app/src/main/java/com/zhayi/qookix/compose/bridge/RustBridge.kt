@@ -205,7 +205,8 @@ fun findTauriWebView(activity: Activity): WebView? {
     private fun noteDeadBridge() {
         if (!everReady) return
         deadBridgeHits++
-        if (deadBridgeHits < 5) return
+        // 2 条就重建：原来 5 条意味着用户要先白点 5 下才有反应（真机反馈"点什么都没反应"）。
+        if (deadBridgeHits < 2) return
         val now = System.currentTimeMillis()
         if (now - lastRecoverAt < 20_000L) return
         lastRecoverAt = now
