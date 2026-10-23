@@ -1409,6 +1409,16 @@ async fn run_official_installer(
     let result_file = data_dir.join("logs").join("jvm-install-result.txt");
     let _ = std::fs::remove_file(&result_file);
 
+    // ⚠️ 预下载 installer 自己要用的库（2026-10-23 真机事故）：
+    // installer 会**直连** maven.neoforged.net 下载 installertools / jarsplitter 等，
+    // 真机上直接 `SocketTimeoutException: Connect timed out`（那条线路不通 ✗），
+    // 然后报 `There was an error during installation`。
+    // 我们的下载器有镜像回退 ✓，所以先用它把这些库填好 —— installer 发现有就跳过 ✓
+    //（它日志里会打 "… exists. Checksum valid."）。
+    if let Err(e) = prefill_installer_libs(data_dir, installer_jar).await {
+        crate::util::log_line(&format!("[loader] 预下载 installer 依赖失败（继续尝试）：{e}"));
+    }
+
     let payload = serde_json::json!({
         "jre": jre_home.to_string_lossy(),
         "classpath": installer_jar.to_string_lossy(),
@@ -1463,6 +1473,46 @@ async fn run_official_installer(
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
     Err(anyhow::anyhow!("installer 超过 10 分钟仍未结束"))
+}
+
+/// 把 installer `install_profile.json` 里声明的库，用**我们自己的下载器**（带镜像回退）
+/// 提前下好，避免 installer 直连 maven 超时（真机 c12 那条线路不通 ✗）。
+async fn prefill_installer_libs(
+    data_dir: &std::path::Path,
+    installer_jar: &std::path::Path,
+) -> Result<()> {
+    let text = read_zip_entry_string(installer_jar, "install_profile.json")
+        .map_err(|e| anyhow::anyhow!("读 install_profile.json 失败：{e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("解析 install_profile 失败：{e}"))?;
+    let libs_json = serde_json::json!({
+        "libraries": v.get("libraries").cloned().unwrap_or(serde_json::Value::Null)
+    });
+    let tmp = data_dir.join("logs").join("installer-libs.json");
+    if let Some(p) = tmp.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
+    std::fs::write(&tmp, serde_json::to_string(&libs_json)?)?;
+    let libs = crate::loader_install::profile_libraries(&tmp);
+    let _ = std::fs::remove_file(&tmp);
+    if libs.is_empty() {
+        return Ok(());
+    }
+    crate::util::log_line(&format!(
+        "[loader] 预下载 installer 依赖 {} 个（避开它的直连超时）",
+        libs.len()
+    ));
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(300),
+        crate::download::download_libraries(&libs, &data_dir.to_string_lossy()),
+    )
+    .await
+    {
+        Ok(Ok(())) => crate::util::log_line("[loader] installer 依赖预下载完成"),
+        Ok(Err(e)) => crate::util::log_line(&format!("[loader] installer 依赖预下载部分失败：{e}")),
+        Err(_) => crate::util::log_line("[loader] installer 依赖预下载超时（继续）"),
+    }
+    Ok(())
 }
 
 /// `libraries/` 下有没有 `client-extra*.jar`（NeoForm processors 的产物之一）。
