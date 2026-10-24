@@ -337,15 +337,12 @@ class ComposeMainActivity : ComponentActivity() {
                 // 正解：遍历 decorView 找到装了 RustWebView 的容器，
                 // 直接把 ComposeView addView 进去 —— 与 WebView 同层，
                 // 我们后加所以必然在上层。
-                val found = findWebViewContainer(window?.decorView)
-                // 阶段 4：没有 wry 容器是**正常情况**（不再启动 Tauri）——
-                // 只在前几次重试一下（兼容「Tauri 还没建好」的旧路径），
-                // 之后就把 Compose 直接 setContentView，走纯原生模式。
-                if (found == null && attempt < 10) {
-                    window?.decorView?.postDelayed({ attachComposeOverlay(attempt + 1) }, 100)
-                    return@runOnUiThread
-                }
-                val host: ViewGroup? = found
+                // 阶段 4（2026-10-25）：工程里已经没有 wry 容器了 —— 直接 setContentView。
+                //
+                // 旧写法会先「找容器 → 找不到就每 100ms 重试，最多 10 次」✗，
+                // 现在那条路径永远走空，白白让冷启动慢 1 秒 ✗（用户体验上是
+                // 「点了图标要愣一下才出界面」）。这里直接走纯原生分支 ✓。
+                val host: ViewGroup? = null
                 val cv = androidx.compose.ui.platform.ComposeView(this).apply {
                     // 「界面冻住」自愈：WebView 渲染进程死亡/无响应时重建界面（不用强杀）。
         //
