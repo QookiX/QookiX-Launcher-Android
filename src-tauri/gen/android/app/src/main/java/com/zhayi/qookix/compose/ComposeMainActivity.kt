@@ -32,7 +32,16 @@ import com.zhayi.qookix.HostCapabilities
 import com.zhayi.qookix.PendingLaunch
 import com.zhayi.qookix.R
 import com.zhayi.qookix.ServerDocsProvider
-import com.zhayi.qookix.TauriActivity
+// ⚠️ 阶段 4（2026-10-25）：**不再继承 TauriActivity**。
+//
+// TauriActivity 的意义只有一个：创建一个隐藏 WebView 当 IPC 通道。
+// 现在 154 条命令 + 全部事件都走 JNI 直连（`TauriBridge.nativeInvoke` /
+// `onCoreEvent`），WebView 已无任何业务用途 ✗ —— 留着它反而带来
+// 「渲染进程被杀 → 界面冻住 / 点不动」那一整类问题。
+//
+// 换成普通的 ComponentActivity：Compose 自己就是全部 UI，
+// 不创建 WebView，也就没有"网页没加载好"这个失败模式。
+import androidx.activity.ComponentActivity
 import com.zhayi.qookix.GameActivity
 import com.zhayi.qookix.compose.bridge.QookixApi
 import com.zhayi.qookix.compose.bridge.RustBridge
@@ -48,7 +57,7 @@ import net.kdt.pojavlaunch.CustomControlsActivity
 /**
  * 启动器主入口（LAUNCHER）。
  */
-class ComposeMainActivity : TauriActivity() {
+class ComposeMainActivity : ComponentActivity() {
 
 
     companion object {
@@ -310,19 +319,9 @@ class ComposeMainActivity : TauriActivity() {
      * 正解：**alpha = 0f**。它仍然参与渲染（JS 照常跑），
      * 只是完全透明看不见 —— Compose 在它上层，用户只看得到 Compose。
      */
-    override fun onWebViewCreate(webView: android.webkit.WebView) {
-        super.onWebViewCreate(webView)
-        webView.alpha = 0f
-        Log.i(TAG, "Rust WebView 已设为透明（保留 IPC，不参与显示）")
-
-        // 「界面冻住」自愈：这是唯一能可靠拿到 WebView 实例的地方
-        // （`findTauriWebView` 遍历视图树找不到它，实测 3/8/15 秒都是 null）。
-        // 真机上「帧不动、点击无反应、进程活着且无 ANR」就是渲染进程挂了 →
-        // 收到回调后自动 `recreate()`，不用强杀重开。
-        runCatching {
-            RustBridge(this).installRenderProcessWatcher(webView) { recreate() }
-        }
-    }
+    // ⚠️ 阶段 4（2026-10-25）：`onWebViewCreate` 已删除。
+    // 不再创建 WebView，所以"把 WebView 设透明 + 装渲染进程看门狗"这套
+    // 兜底逻辑一起退场 —— 没有网页，就没有"网页挂了界面冻住"这件事。
 
     private fun attachComposeOverlay(attempt: Int) {
         if (composeOverlayAttached) return
@@ -339,15 +338,14 @@ class ComposeMainActivity : TauriActivity() {
                 // 直接把 ComposeView addView 进去 —— 与 WebView 同层，
                 // 我们后加所以必然在上层。
                 val found = findWebViewContainer(window?.decorView)
-                if (found == null) {
-                    if (attempt < 30) {
-                        window?.decorView?.postDelayed({ attachComposeOverlay(attempt + 1) }, 100)
-                    } else {
-                        android.util.Log.e(TAG, "找不到 wry 容器，Compose 无法挂载")
-                    }
+                // 阶段 4：没有 wry 容器是**正常情况**（不再启动 Tauri）——
+                // 只在前几次重试一下（兼容「Tauri 还没建好」的旧路径），
+                // 之后就把 Compose 直接 setContentView，走纯原生模式。
+                if (found == null && attempt < 10) {
+                    window?.decorView?.postDelayed({ attachComposeOverlay(attempt + 1) }, 100)
                     return@runOnUiThread
                 }
-                val host: ViewGroup = found
+                val host: ViewGroup? = found
                 val cv = androidx.compose.ui.platform.ComposeView(this).apply {
                     // 「界面冻住」自愈：WebView 渲染进程死亡/无响应时重建界面（不用强杀）。
         //
@@ -381,19 +379,29 @@ class ComposeMainActivity : TauriActivity() {
                     }
                 }
                 composeView = cv
-                host.addView(
-                    cv,
-                    ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                    ),
-                )
+                if (host != null) {
+                    host.addView(
+                        cv,
+                        ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                    android.util.Log.i(
+                        TAG,
+                        "Compose 已挂到 wry 容器（${host.javaClass.simpleName}，第 $attempt 次）",
+                    )
+                    // 记下容器与 WebView，供「3D 预览提层」用（见 setSkinPreviewVisible）
+                    overlayHost = host
+                    tauriWebView = findWebViewIn(host)
+                } else {
+                    // 阶段 4：纯原生模式 —— 没有 WebView，Compose 就是唯一 UI
+                    setContentView(cv)
+                    android.util.Log.i(TAG, "Compose 已 setContentView（纯原生模式，无 WebView）")
+                    overlayHost = null
+                    tauriWebView = null
+                }
                 composeOverlayAttached = true
-                android.util.Log.i(TAG, "Compose 已挂到 wry 容器（${host.javaClass.simpleName}，第 $attempt 次）")
-
-                // 记下容器与 WebView，供「3D 预览提层」用（见 setSkinPreviewVisible）
-                overlayHost = host
-                tauriWebView = findWebViewIn(host)
             } catch (e: Exception) {
                 android.util.Log.w(TAG, "attachComposeOverlay 失败（attempt=$attempt）", e)
                 if (attempt < 20) {

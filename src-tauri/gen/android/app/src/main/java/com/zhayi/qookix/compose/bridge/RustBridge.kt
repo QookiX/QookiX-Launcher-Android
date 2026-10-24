@@ -273,7 +273,31 @@ fun findTauriWebView(activity: Activity): WebView? {
             onReady()
             return
         }
+
+        // ⚠️ 阶段 4（2026-10-25）：**先探测 JNI 直连**。
+        //
+        // 154 条命令与全部事件都已走 JNI（`TauriBridge.nativeInvoke` /
+        // `onCoreEvent`），不再需要 WebView。如果 JNI 通，就直接判定就绪，
+        // 绝不能再等那个**永远不会出现**的 WebView ——
+        // 否则 UI 会永远卡在加载态（真机实测：`等不到 Rust 创建的 WebView（已重试 60 次）`
+        // 之后界面一直不加载数据 ✗）。
+        if (jniPing()) {
+            Log.i(TAG, "JNI 直连可用（无需 WebView）→ 桥就绪")
+            ready = true
+            onReady()
+            return
+        }
+
         attemptInject(0, maxAttempts, onReady)
+    }
+
+    /** 用一条最轻的命令探测 JNI 通道是否可用。 */
+    private fun jniPing(): Boolean = try {
+        val raw = com.zhayi.qookix.tauri.TauriBridge.nativeInvoke("get_pins", "{}")
+        raw.contains("\"ok\":true")
+    } catch (t: Throwable) {
+        Log.w(TAG, "JNI 探测失败", t)
+        false
     }
 
     private fun attemptInject(attempt: Int, max: Int, onReady: () -> Unit) {
