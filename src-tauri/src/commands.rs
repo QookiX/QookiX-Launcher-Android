@@ -1244,6 +1244,318 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
+            // ── 收尾批 A（阶段 3 第十一批）──────────────────────────────
+            "install_version" => {
+                let Some(vid) = sarg(&p, &["versionId", "version_id", "id"]) else {
+                    return err("缺少 versionId");
+                };
+                match install_version(vid).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "update_instance" => {
+                let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
+                match update_instance(patch).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "get_game_status" => match get_game_status().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "download_file" => {
+                let (Some(url), Some(dest)) = (sarg(&p, &["url"]), sarg(&p, &["dest"])) else {
+                    return err("缺少 url / dest");
+                };
+                match download_file(url, dest, sarg(&p, &["sha1"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "cancel_download" => {
+                let Some(tid) = sarg(&p, &["taskId", "task_id"]) else {
+                    return err("缺少 taskId");
+                };
+                match cancel_download(tid).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "hangar_search_plugins" => {
+                let Some(query) = sarg(&p, &["query"]) else {
+                    return err("缺少 query");
+                };
+                let page = iarg(&p, &["page"]).unwrap_or(0) as u32;
+                let size = iarg(&p, &["pageSize", "page_size"]).unwrap_or(20) as u32;
+                match hangar_search_plugins(query, Some(page), Some(size)).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_server_plugins" => {
+                let Some(sid) = sarg(&p, &["serverId", "server_id"]) else {
+                    return err("缺少 serverId");
+                };
+                match list_server_plugins(sid) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "delete_server_plugin" => {
+                let (Some(sid), Some(fname)) = (
+                    sarg(&p, &["serverId", "server_id"]),
+                    sarg(&p, &["fileName", "file_name", "filename"]),
+                ) else {
+                    return err("缺少 serverId / fileName");
+                };
+                match delete_server_plugin(sid, fname) {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "frp_running" => ok(frp_running()),
+            "frp_tunnel_log" => {
+                let Some(tid) = iarg(&p, &["tunnelId", "tunnel_id", "id"]) else {
+                    return err("缺少 tunnelId");
+                };
+                match frp_tunnel_log(tid) {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "install_mod" => {
+                let (Some(id), Some(mid), Some(url)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["modId", "mod_id"]),
+                    sarg(&p, &["modUrl", "mod_url"]),
+                ) else {
+                    return err("缺少 instanceId / modId / modUrl");
+                };
+                match install_mod(id, mid, url).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "uninstall_mod" => {
+                let (Some(id), Some(mid)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["modId", "mod_id"]),
+                ) else {
+                    return err("缺少 instanceId / modId");
+                };
+                match uninstall_mod(id, mid).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "install_content" => {
+                let (Some(id), Some(provider), Some(pid), Some(vid), Some(kind)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["provider"]),
+                    sarg(&p, &["projectId", "project_id"]),
+                    sarg(&p, &["versionId", "version_id"]),
+                    sarg(&p, &["kind"]),
+                ) else {
+                    return err("缺少 instanceId / provider / projectId / versionId / kind");
+                };
+                match install_content(id, provider, pid, vid, kind).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "report_translation_stale" => {
+                let (Some(provider), Some(slug)) = (sarg(&p, &["provider"]), sarg(&p, &["slug"]))
+                else {
+                    return err("缺少 provider / slug");
+                };
+                match report_translation_stale(provider, slug).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "report_translation_quality" => {
+                let (Some(provider), Some(slug), Some(issue)) = (
+                    sarg(&p, &["provider"]),
+                    sarg(&p, &["slug"]),
+                    sarg(&p, &["issueType", "issue_type"]),
+                ) else {
+                    return err("缺少 provider / slug / issueType");
+                };
+                match report_translation_quality(
+                    provider,
+                    slug,
+                    issue,
+                    sarg(&p, &["userSuggestion", "user_suggestion"]),
+                    sarg(&p, &["userComment", "user_comment"]),
+                )
+                .await
+                {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            // ── 收尾批 B（阶段 3 第十一批）──────────────────────────────
+            "clear_translation_cache" => {
+                match clear_translation_cache(sarg(&p, &["service"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "test_translate_api" => {
+                let (Some(base), Some(key), Some(model)) = (
+                    sarg(&p, &["base"]),
+                    sarg(&p, &["key"]),
+                    sarg(&p, &["model"]),
+                ) else {
+                    return err("缺少 base / key / model");
+                };
+                match test_translate_api(base, key, model).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "create_instance_group" => {
+                let Some(name) = sarg(&p, &["name"]) else {
+                    return err("缺少 name");
+                };
+                match create_instance_group(name, sarg(&p, &["color"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "rename_instance_group" => {
+                let (Some(id), Some(name)) = (sarg(&p, &["id"]), sarg(&p, &["name"])) else {
+                    return err("缺少 id / name");
+                };
+                match rename_instance_group(id, name, sarg(&p, &["color"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "delete_instance_group" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match delete_instance_group(id).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "reorder_instance_groups" => {
+                match reorder_instance_groups(svec(&p, &["ids"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "test_mirror" => {
+                let base = sarg(&p, &["base"]).unwrap_or_default();
+                match test_mirror(base).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "test_proxy" => {
+                let mode = sarg(&p, &["proxyMode", "proxy_mode"]).unwrap_or_default();
+                match test_proxy(mode, sarg(&p, &["proxy"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "auto_detect_memory" => match auto_detect_memory() {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "is_game_running" => ok(is_game_running()),
+            "refresh_storage_stats" => match refresh_storage_stats().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "list_instance_folders" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match list_instance_folders(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "create_instance_entry" => {
+                let (Some(id), Some(rel)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["rel"]),
+                ) else {
+                    return err("缺少 instanceId / rel");
+                };
+                let is_dir = p.get("isDir").or_else(|| p.get("is_dir"))
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false);
+                match create_instance_entry(id, rel, is_dir).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "import_instance_image" => {
+                let Some(src) = sarg(&p, &["sourcePath", "source_path"]) else {
+                    return err("缺少 sourcePath");
+                };
+                match import_instance_image(src).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "import_background_image" => {
+                let Some(src) = sarg(&p, &["sourcePath", "source_path"]) else {
+                    return err("缺少 sourcePath");
+                };
+                match import_background_image(src).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "check_renderer_health_latest" => match check_renderer_health_latest().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            // ── 最后一条：新建实例（14 个参数，含 renderer）─────────────
+            // ⚠️ 参数必须**全部**透传：Tauri 按签名反序列化，漏掉 `renderer`
+            // 会让新实例 renderer=null → 自动判给 GL4ES → 1.21.x 一启动就崩
+            //（`Can't map buffer, opengl error 0`，见上面那个函数的注释）。
+            "create_instance" => {
+                let Some(name) = sarg(&p, &["name"]) else {
+                    return err("缺少 name");
+                };
+                let Some(mc) = sarg(&p, &["mcVersion", "mc_version"]) else {
+                    return err("缺少 mcVersion");
+                };
+                let loader = sarg(&p, &["loader"]).unwrap_or_default();
+                let resolution: Option<Vec<i64>> = p
+                    .get("resolution")
+                    .and_then(|x| x.as_array())
+                    .map(|a| a.iter().filter_map(|v| v.as_i64()).collect());
+                match create_instance(
+                    name,
+                    mc,
+                    loader,
+                    sarg(&p, &["loaderVersion", "loader_version"]),
+                    sarg(&p, &["javaDir", "java_dir"]),
+                    sarg(&p, &["javaArgs", "java_args"]),
+                    sarg(&p, &["gameArgs", "game_args"]),
+                    resolution,
+                    iarg(&p, &["maxMemoryMb", "max_memory_mb"]),
+                    sarg(&p, &["memoryMode", "memory_mode"]),
+                    sarg(&p, &["accountId", "account_id"]),
+                    sarg(&p, &["icon"]),
+                    sarg(&p, &["group"]),
+                    sarg(&p, &["renderer"]),
+                )
+                .await
+                {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })
