@@ -132,6 +132,23 @@ class QookixApi(private val bridge: RustBridge) {
             "frp_room_host_start",
             "frp_room_visitor_start",
             "frp_room_stop",
+            // 阶段 3 第九批（账号 / 皮肤 / 服务端）
+            "add_account",
+            "remove_account",
+            "select_account",
+            "login_ms_start",
+            "login_ms_poll",
+            "read_skin_data_url",
+            "save_skin_from_data",
+            "download_skin_from_url",
+            "delete_skin",
+            "apply_skin_to_account",
+            "apply_cape_to_account",
+            "apply_skin_offline",
+            "get_offline_skin",
+            "install_server_content",
+            "install_server_plugin",
+            "ping_mc_server",
         )
     }
 
