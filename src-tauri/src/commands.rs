@@ -396,6 +396,126 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
+            // ── 生命周期 + 内容操作 + 文件读写（阶段 3 第四批）──────────
+            "launch_game" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match launch_game(id, sarg(&p, &["world"]), sarg(&p, &["server"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "import_modpack" => {
+                let Some(path) = sarg(&p, &["filePath", "file_path"]) else {
+                    return err("缺少 filePath");
+                };
+                match import_modpack(path).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "install_game" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match install_game(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "uninstall_content" => {
+                let (Some(id), Some(kind), Some(file)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["kind"]),
+                    sarg(&p, &["filename"]),
+                ) else {
+                    return err("缺少 instanceId / kind / filename");
+                };
+                match uninstall_content(id, kind, file).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "identify_content" => {
+                let (Some(id), Some(kind)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["kind"]),
+                ) else {
+                    return err("缺少 instanceId / kind");
+                };
+                match identify_content(id, kind).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "toggle_content_enabled" => {
+                let (Some(id), Some(kind), Some(file)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["kind"]),
+                    sarg(&p, &["filename"]),
+                ) else {
+                    return err("缺少 instanceId / kind / filename");
+                };
+                let enabled = p
+                    .get("enabled")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false);
+                match toggle_content_enabled(id, kind, file, enabled).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "read_instance_file" => {
+                let (Some(id), Some(rel)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["rel"]),
+                ) else {
+                    return err("缺少 instanceId / rel");
+                };
+                match read_instance_file(id, rel).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "write_instance_file" => {
+                let (Some(id), Some(rel), Some(content)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["rel"]),
+                    sarg(&p, &["content"]),
+                ) else {
+                    return err("缺少 instanceId / rel / content");
+                };
+                match write_instance_file(id, rel, content).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "delete_instance_path" => {
+                let (Some(id), Some(rel)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["rel"]),
+                ) else {
+                    return err("缺少 instanceId / rel");
+                };
+                match delete_instance_path(id, rel).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "rename_instance_path" => {
+                let (Some(id), Some(rel), Some(new_name)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["rel"]),
+                    sarg(&p, &["newName", "new_name"]),
+                ) else {
+                    return err("缺少 instanceId / rel / newName");
+                };
+                match rename_instance_path(id, rel, new_name).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })

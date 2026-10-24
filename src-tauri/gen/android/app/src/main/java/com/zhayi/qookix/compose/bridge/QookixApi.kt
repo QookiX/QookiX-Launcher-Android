@@ -69,6 +69,17 @@ class QookixApi(private val bridge: RustBridge) {
             "set_pins",
             "set_orientation",
             "check_renderer_health",
+            // 阶段 3 第四批（生命周期 / 内容 / 文件）
+            "launch_game",
+            "import_modpack",
+            "install_game",
+            "uninstall_content",
+            "identify_content",
+            "toggle_content_enabled",
+            "read_instance_file",
+            "write_instance_file",
+            "delete_instance_path",
+            "rename_instance_path",
         )
     }
 
