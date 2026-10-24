@@ -516,6 +516,89 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
+            // ── 内容中心 / 版本 / 皮肤（阶段 3 第五批）──────────────────
+            "get_version_manifest" => match get_version_manifest().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "get_version_info" => {
+                let Some(vid) = sarg(&p, &["versionId", "version_id", "id"]) else {
+                    return err("缺少 versionId");
+                };
+                match get_version_info(vid).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "curseforge_categories" => match curseforge_categories().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "project_info" => {
+                let (Some(provider), Some(pid)) =
+                    (sarg(&p, &["provider"]), sarg(&p, &["projectId", "project_id"]))
+                else {
+                    return err("缺少 provider / projectId");
+                };
+                match project_info(provider, pid).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "project_versions" => {
+                let (Some(provider), Some(pid)) =
+                    (sarg(&p, &["provider"]), sarg(&p, &["projectId", "project_id"]))
+                else {
+                    return err("缺少 provider / projectId");
+                };
+                let mc = sarg(&p, &["mcVersion", "mc_version"]).unwrap_or_default();
+                let loader = sarg(&p, &["loader"]).unwrap_or_default();
+                match project_versions(provider, pid, mc, loader).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "project_dependencies" => {
+                let (Some(provider), Some(pid)) =
+                    (sarg(&p, &["provider"]), sarg(&p, &["projectId", "project_id"]))
+                else {
+                    return err("缺少 provider / projectId");
+                };
+                let vid = sarg(&p, &["versionId", "version_id"]);
+                match project_dependencies(provider, pid, vid).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            // 返回 `Result<String, String>` 的命令要按 Tauri 的形状**再包一层字符串**，
+            // 否则 Kotlin 侧的「去引号」逻辑与旧通道不一致（多行文本/URL）。
+            "fetch_image_data_url" => {
+                let Some(url) = sarg(&p, &["url"]) else {
+                    return err("缺少 url");
+                };
+                match fetch_image_data_url(url).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "fetch_player_skin" => {
+                let Some(name) = sarg(&p, &["username"]) else {
+                    return err("缺少 username");
+                };
+                match fetch_player_skin(name).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "fetch_player_capes" => {
+                let Some(uuid) = sarg(&p, &["accountUuid", "account_uuid"]) else {
+                    return err("缺少 accountUuid");
+                };
+                match fetch_player_capes(uuid).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })

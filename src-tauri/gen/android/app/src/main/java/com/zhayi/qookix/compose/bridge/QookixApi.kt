@@ -80,6 +80,16 @@ class QookixApi(private val bridge: RustBridge) {
             "write_instance_file",
             "delete_instance_path",
             "rename_instance_path",
+            // 阶段 3 第五批（内容中心 / 版本 / 皮肤）
+            "get_version_manifest",
+            "get_version_info",
+            "curseforge_categories",
+            "project_info",
+            "project_versions",
+            "project_dependencies",
+            "fetch_image_data_url",
+            "fetch_player_skin",
+            "fetch_player_capes",
         )
     }
 
