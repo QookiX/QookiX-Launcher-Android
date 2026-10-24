@@ -84,6 +84,18 @@ object TauriBridge {
 
     fun isPojavBridgeAvailable(): Boolean = pojavLoaded
 
+    /**
+     * 通用命令入口（阶段 1：绕开 WebView）。
+     *
+     * 返回 `{"ok":true,"data":…}` 或 `{"ok":false,"error":"…"}`。
+     * 现有 Tauri 的 `#[tauri::command]` 只能由隐藏 WebView 里的 `index.html`
+     * 触发 —— 那条链一断就是「桥尚未就绪 / 点击没反应」。这个方法**不经过网页**，
+     * 直接 JNI 调 Rust 的 `commands::native_invoke`。
+     *
+     * 目前 Rust 侧已实现：list_instances / get_settings / fetch_news / list_content。
+     */
+    external fun nativeInvoke(cmd: String, payload: String): String
+
     external fun nativeGetVersionList(): String
     external fun nativeLaunchGame(instanceId: String, accountUuid: String): Int
     external fun nativeKillGame(): Int

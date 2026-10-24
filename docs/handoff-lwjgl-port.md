@@ -6,6 +6,48 @@
 
 ---
 
+## 0. 【2026-10-24 重大更新】路线 B 的前提已经被推翻 —— 不需要换 LWJGL
+
+真机实验（OnePlus 8，SD865）证明本文档 §2 的判断**只对了一半**：
+
+- **PreLaunchChecks（LWJGL 版本串）早已通过**：随包的 `lwjgl-glfw-classes.jar` 报告的版本串
+  已经满足 `startsWith("3.3.3")`（实测 Sodium 0.8.13 没有走 PreLaunch 中止分支）。
+- 真正卡住的是 **`PostLaunchChecks.isUsingPojavLauncher()`**（`onContextInitialized` 里）：
+  ```java
+  if (System.getenv("POJAV_RENDERER") != null) return true;   // ← 我们命中这条
+  // 另一条：java.library.path 含 /data/user/<n>/net.kdt.pojavlaunch —— 我们不命中
+  ```
+  它只看**环境变量名是否存在**，与启动器品牌、版本串无关。
+- **修复（已实施并验证）**：把环境变量改名 `POJAV_RENDERER` → `QOOKIX_RENDERER`，C 侧同步：
+  - C 源码 3 处 `getenv("POJAV_RENDERER")`：`jni/egl_bridge.c:185`、`jni/ctxbridges/gl_bridge.c:83`、`jni/perf_counters.c:116`
+  - Rust 侧：`launch.rs`（约 445 行，env_map.insert）
+  - 改完 `cargo build` + `gradlew assembleArm64Debug` 即可，**无需构建 LWJGL fork**。
+- §5.1 先验实验结论：**值得做且已经做完** —— Sodium 0.8.13 / sodium-extra / reeses 全部正常加载，
+  Zink + Turnip 渲染器（插件 `qookix-renderer-zink-osmesa` + `qookix-driver-turnip`）60 FPS 渲染，
+  窗口创建、资源重载完成，无任何 Pojav 中止。
+
+### 实验遗留的独立问题（与 LWJGL/Sodium 无关）
+
+进主菜单前的红色 Mojang 加载屏**长时间不消失**（>50 分钟），Render 线程与
+"KubeJS 2101.7.2" 线程持续 100% CPU。注意：
+- KubeJS 脚本本身 2.3s 就加载完了（`logs/kubejs/*.log`），不是脚本慢；
+- 资源重载已完成（`Client resource reload complete!`）；
+- 该实例 `total_play_time=0`，**历史上从未成功进过主菜单**（GL4ES 时代也 crash 过，
+  见 `crash-reports/crash-2026-10-23_11.50.59`），怀疑是整合包在 8G 内存的手机上
+  本来就到不了主菜单（系统已用 1.5G swap）。**待查，别算在 LWJGL 头上。**
+
+### 设备上做过的临时改动（复现/回退用）
+
+| 改动 | 位置 |
+|---|---|
+| 实例渲染器设为 `vulkan_zink` | `instance.json` 的 `"renderer"`（原 null） |
+| 实例别名 `testlwjgl` | `instance.json` 的 `"alias"`（原 null） |
+| sodium / sodium-extra / reeses 移回 `mods/` | iris、podium 仍在 `mods.disabled/` |
+| Zink+Turnip 插件手动安装 | `files/plugins/qookix-renderer-zink-osmesa/`、`files/plugins/qookix-driver-turnip/`（state.json + 1.0.1/libs/，等价于「设置 → 插件」安装） |
+| 离线账号 `Tester123` | `files/accounts/3eef578c-343e-34ae-9ad4-2be348cfe932.json`（UUID v3 of `OfflinePlayer:Tester123`） |
+
+---
+
 ## 1. 目标
 
 让 **Sodium 0.8.13（NeoForge 1.21.1）不再判定"这是 Pojav 启动器"而中止**，并且**真的能跑**。

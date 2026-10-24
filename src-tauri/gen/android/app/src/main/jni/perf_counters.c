@@ -113,7 +113,7 @@ const char* perf_snapshot(void) {
     }
 
     if (renderer == NULL) {
-        const char* env = getenv("POJAV_RENDERER");
+        const char* env = getenv("QOOKIX_RENDERER");
         renderer = (env != NULL && env[0] != '\0') ? env : "?";
     }
 

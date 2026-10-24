@@ -442,8 +442,12 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         );
         // Pojav 的 Java 层会设这些变量，libpojavexec 的 pojavInitOpenGL 直接读它们：
         // 读不到就是 NULL，`strcmp(NULL,...)` 会段错误（不是可选优化，是必须项）。
+        // 2026-10-24 改名 POJAV_RENDERER → QOOKIX_RENDERER：Sodium 0.8.13 的
+        // PostLaunchChecks.isUsingPojavLauncher() 只要发现 POJAV_RENDERER 这个
+        // 环境变量就直接中止（PreLaunchChecks 的 LWJGL 版本串检查早已通过），
+        // 所以 C 侧源码（egl_bridge.c 等 3 处）同步改读新名字。
         env_map.insert(
-            "POJAV_RENDERER".to_string(),
+            "QOOKIX_RENDERER".to_string(),
             renderer_c_name(&renderer).to_string(),
         );
         // 26.3：把「游戏会加载的那份 libSDL3」的绝对路径告诉 C 层。

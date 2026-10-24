@@ -76,6 +76,39 @@ pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeLaunchGame(
     result.unwrap_or(-1)
 }
 
+/// Kotlin → Rust 的**通用命令入口**（阶段 1：绕开 WebView）。
+///
+/// 与 `nativeLaunchGame` 等专用方法不同，这里走一条通用 JSON 通道：
+/// `nativeInvoke(cmd, payload) -> {"ok":true,"data":…} | {"ok":false,"error":"…"}`。
+///
+/// 已经实现的命令见 `commands.rs::native_invoke`（目前 4 个试点）。
+/// 这样 Compose 侧不依赖隐藏 WebView 里的 `index.html` 也能调 Rust ——
+/// 那条链一断就是「桥尚未就绪 / 点了没反应」（真机反复遇到）。
+#[no_mangle]
+pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeInvoke(
+    mut env: JNIEnv,
+    _class: JClass,
+    cmd: JString,
+    payload: JString,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let cmd: String = env
+            .get_string(&cmd)
+            .map(|s| s.to_str().unwrap_or("").to_string())
+            .unwrap_or_default();
+        let payload: String = env
+            .get_string(&payload)
+            .map(|s| s.to_str().unwrap_or("").to_string())
+            .unwrap_or_default();
+        crate::commands::native_invoke(&cmd, &payload)
+    }))
+    .unwrap_or_else(|_| r#"{"ok":false,"error":"nativeInvoke panic"}"#.to_string());
+
+    env.new_string(result)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
 /// Kotlin 侧 `JvmInstallService`（**独立进程 `:jvm`**）调用：在该进程里用 JNI 起一个
 /// JVM 跑任意 `classpath + mainClass`（Forge/NeoForge 的 installer 与 processors 靠它）。
 ///

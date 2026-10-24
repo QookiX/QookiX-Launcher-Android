@@ -80,7 +80,7 @@ gl_render_window_t* gl_init_context(gl_render_window_t *share) {
     {
         // 注意：getenv 未设置时返回 NULL，strncmp/strtol 直接 SIGSEGV（fault addr 0x0）。
         // Pojav 那边由 Java 层保证这些变量存在，我们这里做兜底。
-        const char *renderer = getenv("POJAV_RENDERER");
+        const char *renderer = getenv("QOOKIX_RENDERER");
         EGLBoolean bindResult;
         if (renderer != NULL && strncmp(renderer, "opengles3_desktopgl", 19) == 0) {
             printf("EGLBridge: Binding to desktop OpenGL\n");

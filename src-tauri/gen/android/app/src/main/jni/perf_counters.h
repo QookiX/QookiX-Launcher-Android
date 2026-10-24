@@ -33,7 +33,7 @@ void perf_frame(void);
  *   avgMs   窗口内平均帧间隔（毫秒，1 位小数）
  *   low1Fps 按「最差 1% 帧间隔」折算的帧数（1% low）
  *   maxMs   窗口内最差的一帧（毫秒）
- *   renderer POJAV_RENDERER 的原值（C 层逻辑名），Java 侧负责转成显示名
+ *   renderer QOOKIX_RENDERER 的原值（原 POJAV_RENDERER，改名避开 Sodium PostLaunchChecks 的 Pojav 检测）（C 层逻辑名），Java 侧负责转成显示名
  * 返回的是静态缓冲，调用方不必释放，但不要长期持有。
  */
 const char* perf_snapshot(void);

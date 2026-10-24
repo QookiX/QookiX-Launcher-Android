@@ -182,7 +182,7 @@ int pojavInitOpenGL() {
         pojav_environ->force_vsync = true;
 
     // NOTE: Override for now.
-    const char *renderer = getenv("POJAV_RENDERER");
+    const char *renderer = getenv("QOOKIX_RENDERER");
     if (renderer == NULL) renderer = "opengles2";
     printf("pojavInitOpenGL: renderer=%s vsync=%s\n", renderer,
            forceVsync != NULL ? forceVsync : "(unset)");

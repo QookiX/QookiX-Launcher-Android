@@ -126,6 +126,68 @@ pub async fn delete_instance(id: String) -> Result<(), String> {
     instances::delete_instance(&id, false).await.map_err(|e| e.to_string())
 }
 
+// ── JNI 直连入口（阶段 1：绕开 WebView）──────────────────────────────
+//
+// ## 为什么需要
+//
+// 现在所有 `#[tauri::command]` 只能由 **Tauri 的 JS IPC** 触发，而那条链必须
+// 先加载隐藏 WebView 里的 `index.html`。一旦这个网页/渲染进程出问题，
+// 全部功能立刻变成「点了没反应」（真机反复遇到，日志里只有 `桥尚未就绪`）。
+//
+// 这里提供一个**与 Tauri 无关**的 JSON 入口：
+//   `native_invoke(cmd, payload) -> {"ok":true,"data":…} | {"ok":false,"error":"…"}`
+// 由 Kotlin 通过 JNI 直接调用（见 `jni_bridge.rs` 的 `nativeInvoke`）。
+//
+// 阶段 1 只接 4 个命令做试点（实例列表 / 设置 / 内容列表 / 新闻）；
+// 验证通之后，再按模块把全部 58 个命令迁过来，最终删掉 Tauri。
+pub fn native_invoke(cmd: &str, payload: &str) -> String {
+    fn ok<T: serde::Serialize>(v: T) -> String {
+        match serde_json::to_value(v) {
+            Ok(v) => serde_json::json!({ "ok": true, "data": v }).to_string(),
+            Err(e) => serde_json::json!({ "ok": false, "error": format!("序列化失败：{e}") }).to_string(),
+        }
+    }
+    fn err(e: impl std::fmt::Display) -> String {
+        serde_json::json!({ "ok": false, "error": e.to_string() }).to_string()
+    }
+
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => return err(format!("创建运行时失败：{e}")),
+    };
+    rt.block_on(async move {
+        match cmd {
+            "list_instances" => match list_instances().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "get_settings" => match get_settings().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "fetch_news" => match fetch_news().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "list_content" => {
+                let v: serde_json::Value = match serde_json::from_str(payload) {
+                    Ok(v) => v,
+                    Err(e) => return err(format!("payload 不是合法 JSON：{e}")),
+                };
+                let Some(instance_id) = v.get("instanceId").and_then(|x| x.as_str()) else {
+                    return err("缺少 instanceId");
+                };
+                let kind = v.get("kind").and_then(|x| x.as_str()).unwrap_or("mods");
+                match list_content(instance_id.to_string(), kind.to_string()).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            other => err(format!("native_invoke 未实现的命令：{other}")),
+        }
+    })
+}
+
 #[command]
 pub async fn list_instances() -> Result<Vec<MinecraftProfile>, String> {
     instances::list_instances().await.map_err(|e| e.to_string())
