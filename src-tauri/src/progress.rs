@@ -14,8 +14,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
-use tauri::{AppHandle, Emitter};
-
 lazy_static::lazy_static! {
     /// 安装任务的取消标志，key 与前端 `TaskEntry.id` / `TaskCtx.task_id` 同值。
     ///
@@ -39,20 +37,15 @@ pub fn cancel_install(task_id: u64) -> bool {
     }
 }
 
-static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
 /// 由 `lib.rs` 在 setup 阶段注入；没有它时所有事件静默丢弃（例如单元测试）。
-pub fn set_app_handle(handle: AppHandle) {
-    let _ = APP_HANDLE.set(handle);
-}
+// 阶段 4：set_app_handle 已删除（事件全走 JNI）
 
 /// 全局 AppHandle。供 `browse.rs` 之类模块发送自己的业务事件
 /// （如 `content::identified` / `content://update-finished`）——
 /// 没有它时事件静默丢弃（例如单元测试环境）。
-pub fn app() -> Option<&'static AppHandle> {
-    APP_HANDLE.get()
-}
+
 
 /// 生成一个自增的任务 id（与桌面端 `state.next_task_id()` 语义一致）。
 pub fn next_task_id() -> u64 {
@@ -114,6 +107,10 @@ impl TaskCtx {
 /// 阶段 2（2026-10-24）：事件原来是 `AppHandle.emit` → 走隐藏 WebView 的 JS 通道。
 /// 那个网页/渲染进程一挂，进度条与状态角标就全停（真机反复遇到「点了没反应」）。
 /// 现在优先走 JNI：`TauriBridge.onCoreEvent(event, json)`，失败才回落到 Tauri。
+pub fn push_ser<T: serde::Serialize>(event: &str, value: T) {
+    push(event, serde_json::to_value(value).unwrap_or(serde_json::Value::Null));
+}
+
 pub fn push(event: &str, payload: serde_json::Value) {
     #[cfg(target_os = "android")]
     {
@@ -121,10 +118,7 @@ pub fn push(event: &str, payload: serde_json::Value) {
         if crate::android_bridge::push_event_to_kotlin(event, &json).is_some() {
             return;
         }
-    }
-    if let Some(app) = app() {
-        let _ = app.emit(event, payload);
-    }
+    }
 }
 
 /// 安装阶段进度（步骤型）。

@@ -106,7 +106,6 @@ fn count_missing_assets(data_dir: &std::path::Path, version_json: &std::path::Pa
 ///
 /// **只读，不下载** —— UI 用它决定要不要显示「补全游戏文件」按钮，
 /// 以及告诉用户到底缺什么（避免「点了没反应」或「下完还是黑屏」）。
-#[tauri::command]
 pub async fn check_instance_files(instance_id: String) -> Result<InstanceFileReport, String> {
     // 诊断：这个命令是启动前的必经一步，卡住会直接表现为「点启动没反应」。
     // 进来和出去各记一行，才能区分「根本没执行」和「执行了但没返回」。
@@ -333,7 +332,6 @@ async fn check_instance_files_inner(instance_id: String) -> Result<InstanceFileR
 /// 少了 ② 的后果是真机实测踩到的：补全跑完（游戏文件其实都在，一个字节都没下）、
 /// 检查依旧报「已就绪 4/5 · 缺 1 项」，用户永远补不上 —— 也就是「点了补全也补不全」。
 /// 实现与服务器托管那条路对齐（见 `servers::ensure_server_jre`）。
-#[tauri::command]
 pub async fn repair_instance_files(instance_id: String) -> Result<Value, String> {
     crate::fsutil::validate_id(&instance_id, "实例")?;
 
@@ -561,7 +559,6 @@ fn instances_versions(data_dir: &std::path::Path) -> Vec<(String, String)> {
 
 /// 共享文件占用：版本目录与 Java 运行时可归属到具体实例；`libraries/` `assets/`
 /// 是跨版本共享池，只报总量（没法说"这 194MB 是某个实例的"）。
-#[tauri::command]
 pub async fn shared_game_usage(instance_id: String) -> Result<Value, String> {
     crate::fsutil::validate_id(&instance_id, "实例")?;
     let dir = data_dir().await?;
@@ -585,7 +582,6 @@ pub async fn shared_game_usage(instance_id: String) -> Result<Value, String> {
 
 /// 删实例前先算：这套共享文件能不能顺带清掉。
 /// 判据是"还有没有别的实例在用同一个 MC 版本 / 同一个 Java 大版本"。
-#[tauri::command]
 pub async fn plan_instance_cleanup(instance_id: String) -> Result<Value, String> {
     crate::fsutil::validate_id(&instance_id, "实例")?;
     let dir = data_dir().await?;
@@ -630,7 +626,6 @@ pub async fn plan_instance_cleanup(instance_id: String) -> Result<Value, String>
 
 /// 清掉该实例独占的共享文件（版本目录 / 没人再用的 JRE）。
 /// 只删 plan 里判定为"没人用"的那些；删不动也不报错（最多是没释放空间）。
-#[tauri::command]
 pub async fn cleanup_instance_shared(instance_id: String) -> Result<Value, String> {
     crate::fsutil::validate_id(&instance_id, "实例")?;
     let plan = plan_instance_cleanup(instance_id.clone()).await?;

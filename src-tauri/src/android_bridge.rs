@@ -18,7 +18,7 @@ pub fn init(vm: jni::JavaVM, env: &mut jni::JNIEnv, activity: &jni::objects::JOb
     // 两份各自的 `pojav_environ` 不共享，GL 初始化直接 SIGSEGV(fault addr 0x0)。
     // 提前在应用启动时做完，之后谁加载的都是同一份文件，竞态消失。
     std::thread::spawn(|| {
-        let result = tauri::async_runtime::block_on(async {
+        let result = crate::util::block_on(async {
             match crate::settings::get_data_dir().await {
                 Ok(dir) => crate::android_env::resolve_native_lib_dir(&dir)
                     .await
@@ -190,7 +190,6 @@ pub fn ensure_tunnel_service() {
 
 /// 告诉原生「日志页在前台」，之后音量- / 音量+ 会被转成缩放事件派给 WebView。
 /// 离开日志页一定要关掉，否则游戏里按音量+-会失效。
-#[tauri::command]
 pub fn set_log_zoom_capture(on: bool) {
     #[cfg(target_os = "android")]
     {

@@ -88,9 +88,8 @@ fn local_apk_path(data_dir: &str, version: &str) -> PathBuf {
 }
 
 /// 检查更新。`data_dir` 用来判断这个版本的包是不是已经下过了。
-#[tauri::command]
-pub async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
-    let current = app.package_info().version.to_string();
+pub async fn check_for_update() -> Result<UpdateInfo, String> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
     let url = format!("{API_LATEST}/{REPO}/releases/latest");
     let data_dir = crate::settings::data_dir_sync().unwrap_or_default();
 
@@ -204,12 +203,9 @@ pub async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, Strin
 /// 这样即使中途又检查了别的版本，也不会下错。
 ///
 /// `version` 传空串时回退到 `PENDING`（保持对旧调用的兼容）。
-#[tauri::command]
 pub async fn download_update(
-    app: tauri::AppHandle,
     version: Option<String>,
 ) -> Result<String, String> {
-    use tauri::Emitter as _;
 
     let pending_all = PENDING
         .lock()
@@ -257,7 +253,7 @@ pub async fn download_update(
         done += chunk.len() as u64;
         if last_emit.elapsed().as_millis() >= 200 {
             last_emit = std::time::Instant::now();
-            let _ = app.emit(
+            crate::progress::push_ser(
                 PROGRESS_EVENT,
                 UpdateProgress {
                     downloaded: done,
@@ -269,7 +265,7 @@ pub async fn download_update(
     use std::io::Write as _;
     file.flush().ok();
     drop(file);
-    let _ = app.emit(
+    crate::progress::push_ser(
         PROGRESS_EVENT,
         UpdateProgress {
             downloaded: done,
@@ -299,7 +295,6 @@ pub async fn download_update(
 }
 
 /// 交给系统安装器（会弹「是否安装」确认，安卓不允许静默装）。
-#[tauri::command]
 pub fn install_update(path: String) -> Result<(), String> {
     crate::android_bridge::install_apk(&path)
 }

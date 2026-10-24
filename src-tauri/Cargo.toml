@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "qookix-launcher"
 version = "1.8.0"
@@ -6,7 +8,6 @@ rust-version = "1.77"
 description = "QookiX Launcher - Minecraft Launcher for Android and Desktop"
 authors = ["Qookix Team"]
 license = "MIT"
-build = "src/build.rs"
 
 [lib]
 name = "qookix_lib"
@@ -17,7 +18,6 @@ crate-type = ["staticlib", "cdylib", "lib"]
 # protocol-asset：启用 `asset:` / `http://asset.localhost` 协议。
 # 前端 6 处用 convertFileSrc() 显示导入的图标/背景/截图，没有这个 feature
 # 那些图片在 WebView 里会被 CSP 拦掉（导入成功但显示不出来）。
-tauri = { version = "2", features = ["devtools", "protocol-asset"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -75,8 +75,6 @@ zip = { version = "0.6", features = ["deflate"] }
 base64 = "0.22"
 
 # Tauri plugins
-tauri-plugin-opener = "2"
-tauri-plugin-dialog = "2"
 
 # JNI for Android
 jni = { version = "0.21", features = ["invocation"] }
@@ -92,15 +90,12 @@ nix = { version = "0.27", features = ["signal"] }
 libc = "0.2"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 tempfile = "3"
 
 [features]
-default = ["desktop"]
-desktop = ["tauri/custom-protocol"]
-
+default = []
 # 发布构建瘦身：lto + 单编译单元 + 剥符号，把 195MB 的 libqookix_lib.so 砍到两位数 MB。
 # 注意：**故意不加 panic="abort"** —— 启动器与游戏 JVM 同进程，abort 会让任何一次
 # Rust panic 连游戏一起带走；也**不加 opt-level="z"** —— 保持默认 3，解压运行库等

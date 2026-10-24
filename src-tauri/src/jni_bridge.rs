@@ -10,7 +10,7 @@ fn launch_game_blocking(instance_id: String, account_uuid: String) -> i32 {
     // 那是每次启动/强制关闭都新建一个线程池，而且一旦创建失败就在 JNI 边界上 panic ——
     // panic 跨 JNI 会 abort 整个进程，表现成「点启动直接闪退」，没有任何提示。
     // 直接复用 Tauri 自己的运行时，既没有这个风险，也不用反复建池。
-    let result = tauri::async_runtime::block_on(async {
+    let result = crate::util::block_on(async {
         let account = if account_uuid.is_empty() {
             None
         } else {

@@ -72,13 +72,11 @@ async fn state() -> Result<GameDirState, String> {
 }
 
 /// 当前「游戏目录」状态。
-#[tauri::command]
 pub async fn get_game_dir_state() -> Result<GameDirState, String> {
     state().await
 }
 
 /// 可选目录（内部存储 + 各卷的应用专属外部目录，含剩余空间）。
-#[tauri::command]
 pub fn get_game_dir_options() -> Vec<GameDirOption> {
     #[cfg(target_os = "android")]
     {
@@ -93,20 +91,17 @@ pub fn get_game_dir_options() -> Vec<GameDirOption> {
 }
 
 /// 「所有文件访问」是否已授权。
-#[tauri::command]
 pub fn has_all_files_access() -> bool {
     all_files_access()
 }
 
 /// 跳到系统设置页申请「所有文件访问」（Android 11+）。
-#[tauri::command]
 pub fn request_all_files_access() {
     #[cfg(target_os = "android")]
     crate::android_bridge::request_all_files_access();
 }
 
 /// 弹出系统的目录选择器（异步；结果用 [`take_picked_game_dir`] 取回）。
-#[tauri::command]
 pub fn pick_game_dir() -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
@@ -122,7 +117,6 @@ pub fn pick_game_dir() -> Result<(), String> {
 /// 取回系统选择器刚选中的目录（**取即清空**，只生效一次）。
 ///
 /// 原生侧结果文件：`<files>/game-dir-pick.json`（`{"path","error"}`）。
-#[tauri::command]
 pub async fn take_picked_game_dir() -> Result<Option<String>, String> {
     let data_dir = crate::settings::get_data_dir()
         .await
@@ -151,7 +145,6 @@ pub async fn take_picked_game_dir() -> Result<Option<String>, String> {
 ///
 /// `migrate = true` 时把已有实例搬到新目录（同分区是 `rename`，跨分区回退复制+删除）。
 /// **先搬成功再落盘设置** —— 搬失败就保持原设置不动，免得把界面指向一个半空的目录。
-#[tauri::command]
 pub async fn set_game_dir(root: Option<String>, migrate: bool) -> Result<GameDirState, String> {
     let mut new_root: Option<String> = match root.as_deref().map(str::trim) {
         None | Some("") => None,
