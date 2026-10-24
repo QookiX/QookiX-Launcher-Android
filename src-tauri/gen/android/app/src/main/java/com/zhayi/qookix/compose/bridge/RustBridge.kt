@@ -86,6 +86,41 @@ class RustBridge(private val activity: Activity) {
         private const val WEBVIEW_ID = "main"
 
         /**
+         * **静态**事件订阅表（阶段 2，2026-10-24）。
+         *
+         * Rust 侧 `progress::push()` 现在优先经 JNI 调
+         * `TauriBridge.onCoreEvent(event, json)` → [deliverEvent]。
+         * 这条路没有 Kotlin 实例上下文（Rust 手上只有 Activity），
+         * 所以订阅必须落在**静态表**里；实例表 `eventHandlers` 留给旧的
+         * WebView 通道 —— 两套并行，迁移期走哪条通道都能收到。
+         */
+        private val globalHandlers =
+            java.util.concurrent.ConcurrentHashMap<String, MutableList<(String) -> Unit>>()
+
+        /**
+         * Rust 经 JNI 推事件进来 → 分发给所有订阅者（统一切到主线程）。
+         *
+         * 用显式 for 循环而不是嵌套 `forEach { h -> ... post { h(...) } }`：
+         * 后者在 Kotlin 里出现过 `Unresolved reference 'h'`（嵌套 lambda 捕获问题）。
+         */
+        @JvmStatic
+        fun deliverEvent(event: String, payload: String) {
+            // 每种事件名只打一次日志：用来确认「事件真的走 JNI 通道进来了」
+            // （旧通道是 WebView → JS → onEvent，出问题时完全没痕迹）。
+            if (loggedEvents.add(event)) {
+                android.util.Log.i(TAG, "JNI 事件通道路由成功：$event（订阅者 ${globalHandlers[event]?.size ?: 0} 个）")
+            }
+            val list = globalHandlers[event]?.toList() ?: return
+            val main = android.os.Handler(android.os.Looper.getMainLooper())
+            for (handler in list) {
+                main.post { runCatching { handler(payload) } }
+            }
+        }
+
+        /** 已打过日志的事件名（避免每条进度都刷屏）。 */
+        private val loggedEvents = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+        /**
          * 从 Activity 的 View 树里找 Rust 创建的那个 WebView。
          *
          * 与 MainActivity.findWebView 同源做法：Rust 的 WebView 由 wry 在
@@ -769,6 +804,13 @@ fun findTauriWebView(activity: Activity): WebView? {
      */
     fun listen(event: String, onPayload: (String) -> Unit) {
         eventHandlers.getOrPut(event) { mutableListOf() }.add(onPayload)
+        // 阶段 2：同时注册到**静态表** —— Rust 现在优先走 JNI 推事件
+        // （`progress::push` → `TauriBridge.onCoreEvent` → `deliverEvent`），
+        // 那条路只能看到静态表；旧的 WebView 通道继续用实例表。两套并存，不重不漏
+        // （Rust 侧 JNI 成功就直接 return，不会再走 Tauri emit）。
+        globalHandlers
+            .getOrPut(event) { java.util.Collections.synchronizedList(mutableListOf<(String) -> Unit>()) }
+            .add(onPayload)
 
         // 每个事件名只向 Tauri 注册一次
         if (subscribedEvents.contains(event)) return
@@ -790,6 +832,8 @@ fun findTauriWebView(activity: Activity): WebView? {
     /** 取消某个事件的所有 Kotlin 处理器（不向 Tauri unlisten，留给进程结束）。 */
     fun unlisten(event: String) {
         eventHandlers.remove(event)
+        // 静态表也要清，否则页面销毁后 JNI 事件仍会投递给已废弃的订阅者
+        globalHandlers.remove(event)
     }
 
     /** 主动 emit 一个事件（自检或 Compose → WebView 通知用）。 */

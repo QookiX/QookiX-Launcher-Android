@@ -129,6 +129,17 @@ class ComposeMainActivity : TauriActivity() {
         }
     }
 
+    /**
+     * Rust 侧事件经 **JNI 直连**进来（阶段 2，2026-10-24）。
+     *
+     * `progress::push()` 优先调这里（`android_bridge::push_event_to_kotlin`，
+     * 方法名/签名必须与那侧一致）；JNI 不可用才回落到 Tauri 的 WebView 通道。
+     * 事件进 `RustBridge` 的静态订阅表，再由它切主线程分发。
+     */
+    fun onCoreEvent(event: String, payload: String) {
+        com.zhayi.qookix.compose.bridge.RustBridge.deliverEvent(event, payload)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TauriBridge.attach(this)
