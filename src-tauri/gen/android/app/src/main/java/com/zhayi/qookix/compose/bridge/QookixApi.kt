@@ -100,6 +100,17 @@ class QookixApi(private val bridge: RustBridge) {
             "write_clipboard",
             "clear_cache",
             "detect_system_proxy",
+            // 阶段 3 第七批（插件系统）
+            "get_plugin_setup_status",
+            "install_recommended_plugins",
+            "dismiss_plugin_setup",
+            "refresh_plugin_manifest",
+            "install_plugin",
+            "install_plugin_from_file",
+            "uninstall_plugin",
+            "set_plugin_enabled",
+            "get_plugin_manifest_url",
+            "set_plugin_manifest_url",
         )
     }
 

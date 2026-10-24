@@ -669,6 +669,74 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
             },
             // 注意：这条是 async（返回 Option<String>），要 await
             "detect_system_proxy" => ok(detect_system_proxy().await),
+            // ── 插件系统（阶段 3 第七批）───────────────────────────────
+            "get_plugin_setup_status" => match get_plugin_setup_status().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "install_recommended_plugins" => match install_recommended_plugins().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "dismiss_plugin_setup" => match dismiss_plugin_setup().await {
+                Ok(()) => ok(()),
+                Err(e) => err(e),
+            },
+            "refresh_plugin_manifest" => match refresh_plugin_manifest().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "install_plugin" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match install_plugin(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "install_plugin_from_file" => {
+                let Some(path) = sarg(&p, &["path", "filePath", "file_path"]) else {
+                    return err("缺少 path");
+                };
+                match install_plugin_from_file(path).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "uninstall_plugin" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match uninstall_plugin(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "set_plugin_enabled" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                let enabled = p.get("enabled").and_then(|x| x.as_bool()).unwrap_or(false);
+                match set_plugin_enabled(id, enabled).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            // 这两条返回 Result<String,_>，按 Tauri 形状再包一层字符串
+            "get_plugin_manifest_url" => match get_plugin_manifest_url().await {
+                Ok(v) => ok(serde_json::Value::String(v)),
+                Err(e) => err(e),
+            },
+            "set_plugin_manifest_url" => {
+                let Some(url) = sarg(&p, &["url"]) else {
+                    return err("缺少 url");
+                };
+                match set_plugin_manifest_url(url).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })
