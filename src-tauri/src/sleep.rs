@@ -146,7 +146,7 @@ pub fn arm_supervisor(id: &str) {
     let cancel = Cancel::new();
     lock(supervisors()).insert(id.to_string(), cancel.clone());
     let sid = id.to_string();
-    tauri::async_runtime::spawn(async move { supervise(sid, cancel).await });
+    crate::util::spawn(async move { supervise(sid, cancel).await });
 }
 
 /// 停止巡检（手动停服、休眠、删除服务器）。
@@ -283,7 +283,7 @@ pub fn arm_wake_listener(id: &str, port: u16) {
     let cancel = Cancel::new();
     lock(listeners()).insert(id.to_string(), cancel.clone());
     let sid = id.to_string();
-    tauri::async_runtime::spawn(async move { listen(sid, port, cancel).await });
+    crate::util::spawn(async move { listen(sid, port, cancel).await });
 }
 
 pub fn cancel_wake_listener(id: &str) {

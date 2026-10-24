@@ -234,13 +234,9 @@ fn total_device_memory_mb() -> Option<u32> {
 }
 
 // ── Tauri 命令 ────────────────────────────────────────────────────────
-
-#[tauri::command]
 pub fn list_hosted_servers() -> Vec<ServerConfig> {
     list_servers().into_iter().map(with_props).collect()
 }
-
-#[tauri::command]
 pub fn get_hosted_server(id: String) -> Result<ServerConfig, String> {
     Ok(with_props(get_server(&id)?))
 }
@@ -257,8 +253,6 @@ fn with_props(mut s: ServerConfig) -> ServerConfig {
     s.max_players = read_server_property(&s.id, "max-players").and_then(|v| v.trim().parse().ok());
     s
 }
-
-#[tauri::command]
 pub fn create_hosted_server(
     name: String,
     core: String,
@@ -305,8 +299,6 @@ pub fn create_hosted_server(
     ensure_server_files(&s.id, &s)?;
     Ok(s)
 }
-
-#[tauri::command]
 pub fn update_hosted_server(patch: serde_json::Value) -> Result<ServerConfig, String> {
     let id = patch
         .get("id")
@@ -378,8 +370,6 @@ pub fn update_hosted_server(patch: serde_json::Value) -> Result<ServerConfig, St
     save_server(&s)?;
     Ok(with_props(s))
 }
-
-#[tauri::command]
 pub fn delete_hosted_server(id: String) -> Result<(), String> {
     validate_server_id(&id)?;
     // 先撤掉后台任务：休眠中的服务器有监听占着游戏端口，目录删了、监听还在，
@@ -391,8 +381,6 @@ pub fn delete_hosted_server(id: String) -> Result<(), String> {
     }
     Ok(())
 }
-
-#[tauri::command]
 pub fn suggest_server_memory() -> serde_json::Value {
     let (min_mb, max_mb) = suggest_memory_mb();
     serde_json::json!({ "minMemoryMb": min_mb, "maxMemoryMb": max_mb })
@@ -631,7 +619,6 @@ fn prop_value(spec: &PropSpec, raw: &str) -> serde_json::Value {
 }
 
 /// 读设置页要用的那几项 `server.properties`。
-#[tauri::command]
 pub fn get_hosted_server_properties(id: String) -> Result<serde_json::Value, String> {
     validate_server_id(&id)?;
     server_dir(&id)?;
@@ -648,7 +635,6 @@ pub fn get_hosted_server_properties(id: String) -> Result<serde_json::Value, Str
 
 /// 写设置页来的那几项。只认白名单里的键，逐项校验后再落盘。
 /// 返回写入后的完整值，前端直接用返回值刷新界面（避免「界面和文件不一致」）。
-#[tauri::command]
 pub fn set_hosted_server_properties(
     id: String,
     patch: serde_json::Value,
@@ -842,7 +828,6 @@ const PAPERMC_UA: &str =
 /// （`1.8.9` 不存在；两者客户端协议相同，1.8.9 的客户端照样能进 1.8.8 服务器）。
 /// 拿 1.8.9 去问 builds 接口只会 404，所以创建服务器时用这份清单限制下拉，
 /// 从源头上就选不到「没有构建」的版本。
-#[tauri::command]
 pub async fn list_paper_versions() -> Result<Vec<String>, String> {
     let meta = meta_client().await?;
     let url = format!("{PAPERMC_API}/paper");
@@ -1586,7 +1571,6 @@ lazy_static::lazy_static! {
 }
 
 /// 下载/安装服务端核心。Paper 与原版是单文件；Fabric 下组装好的 launcher jar。
-#[tauri::command]
 pub async fn install_hosted_server_core(id: String) -> Result<String, String> {
     let _guard = INSTALL_LOCK.lock().await;
     let s = get_server(&id)?;
@@ -1612,8 +1596,6 @@ pub async fn install_hosted_server_core(id: String) -> Result<String, String> {
     ensure_server_files(&id, &s)?;
     Ok(res)
 }
-
-#[tauri::command]
 pub fn hosted_server_core_installed(id: String) -> bool {
     core_installed(&id)
 }
@@ -1739,7 +1721,6 @@ async fn ensure_server_jre(id: &str, mc_version: &str) -> Result<String, String>
 /// 顺序很重要：**先 RCON `stop`（服务端自己存盘关世界）**，只有在 RCON 不可用
 /// 或超时后才退回 IPC `System.exit(0)`。后者实测不会触发 `Saving worlds`，
 /// 等于直接杀进程 —— 玩家建筑会回档。
-#[tauri::command]
 pub async fn stop_hosted_server(id: String) -> Result<String, String> {
     // 手动停服就不再巡检了：用户要的是「停下来」，而空闲巡检的目标是「没人才停」，
     // 两者目的相反。留着巡检还会让一台停着的服务器被写进 sleep.json（显示成休眠）。
@@ -1841,7 +1822,6 @@ pub fn ensure_rcon_props(dir: &Path, game_port: u16) -> Result<crate::rcon::Rcon
 }
 
 /// 执行一条服务端控制台命令（RCON）。
-#[tauri::command]
 pub fn server_console_command(id: String, command: String) -> Result<String, String> {
     let cmd = command.trim().to_string();
     if cmd.is_empty() {
@@ -1866,7 +1846,6 @@ pub fn ipc_alive(port: u16, token: &str) -> bool {
 }
 
 /// 服务器运行态（UI 轮询用）。
-#[tauri::command]
 pub fn hosted_server_runtime(id: String) -> Option<ServerRuntime> {
     server_runtime(&id)
 }
@@ -1966,7 +1945,6 @@ fn ipc_status(port: u16, token: &str) -> Option<String> {
 }
 
 /// 读服务端日志尾部（Paper 写自己的 logs/latest.log，这里只取最后 n 行）。
-#[tauri::command]
 pub fn hosted_server_log(id: String, lines: Option<usize>) -> Result<Vec<String>, String> {
     let dir = server_dir(&id)?;
     // Paper 1.17+ 的日志布局
@@ -2035,7 +2013,6 @@ fn newest_log_in(logs_dir: &Path) -> Option<PathBuf> {
 /// 取得本机在局域网里的地址，用于显示「朋友用这个地址连进来」。
 ///
 /// 优先 wlan0（WiFi）；数据网（移动网络）没法让人直连，所以只给 WiFi 地址。
-#[tauri::command]
 pub fn hosted_server_address(id: String) -> Option<String> {
     let s = get_server(&id).ok()?;
     let ip = local_wifi_ip()?;
@@ -2046,20 +2023,17 @@ pub fn hosted_server_address(id: String) -> Option<String> {
 ///
 /// 配合 `server_process::clamp_server_heap_mb` 的钳制。只钳制不提示的话，用户会以为
 /// 自己填的 4G 在跑、实际只有 1.5G，出问题都不知道该调哪个旋钮。
-#[tauri::command]
 pub fn device_available_memory_mb() -> Option<u64> {
     crate::server_process::device_available_memory_mb()
 }
 
 /// 系统「电池优化」是否已对本应用放行。false = 后台服务可能被 ROM 省电策略掐掉
 /// （ColorOS/OnePlus 息屏一会儿就动手），表现是「开服玩一会儿服自己没了」。
-#[tauri::command]
 pub fn battery_unrestricted() -> bool {
     crate::android_bridge::is_battery_unrestricted()
 }
 
 /// 弹系统「忽略电池优化」请求页，用户点「允许」后长期有效。
-#[tauri::command]
 pub fn request_battery_unrestricted() {
     crate::android_bridge::request_ignore_battery_optimizations()
 }
@@ -2067,7 +2041,6 @@ pub fn request_battery_unrestricted() {
 /// 设备当前热状态：0 正常 … 2 中等 … 4 危急 … 6 关机（读不到＝0）。
 ///
 /// 界面拿它提示「服务器变卡可能是手机过热降频」，免得用户以为是服务器坏了。
-#[tauri::command]
 pub fn device_thermal_status() -> i32 {
     crate::android_bridge::thermal_status()
 }
@@ -2078,7 +2051,6 @@ pub fn device_thermal_status() -> i32 {
 /// `content://` 目录 URI（`file_paths.xml` 里的 `servers` 一项）。**能否真的打开
 /// 取决于本机装了哪个管理器**，返回值让前端能兜底：
 /// 1 = 已交给外部应用；0 = 本机没有能打开文件夹的应用；-1 = 目录还没生成。
-#[tauri::command]
 pub fn open_hosted_server_directory(id: String) -> Result<i32, String> {
     let dir = server_dir(&id)?;
     if !dir.is_dir() {
@@ -2101,7 +2073,6 @@ fn local_wifi_ip() -> Option<String> {
 }
 
 /// 列出本机所有 IPv4（非 127.0.0.1），用于排查「该用哪个地址连」
-#[tauri::command]
 pub fn hosted_server_addresses() -> Vec<String> {
     local_wifi_ip().into_iter().collect()
 }
@@ -2118,7 +2089,6 @@ pub fn hosted_server_addresses() -> Vec<String> {
 // 这里按 UI 的契约补一层，不去改已经写好的前端。
 
 /// 启动服务器（UI 契约：返回 `{ pid }`）
-#[tauri::command]
 pub async fn start_hosted_server(id: String) -> Result<serde_json::Value, String> {
     // 复用已实现的启动流程
     let s = get_server(&id)?;
@@ -2441,13 +2411,11 @@ fn patched_core_jar(dir: &Path) -> Option<PathBuf> {
 }
 
 /// 服务器是否在运行（UI 契约：boolean）
-#[tauri::command]
 pub fn is_hosted_server_running(id: String) -> bool {
     server_runtime(&id).map(|r| r.running).unwrap_or(false)
 }
 
 /// 读服务器日志（UI 契约：string[]）
-#[tauri::command]
 pub fn read_hosted_server_log(id: String) -> Vec<String> {
     let sid = id.clone();
     match hosted_server_log(id, Some(300)) {

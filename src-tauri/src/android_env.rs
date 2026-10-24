@@ -1005,7 +1005,7 @@ pub fn spawn_log_tail(log_path: PathBuf, instance_id: String) {
                     crate::util::log_line(&msg);
                     crate::progress::emit_launch_log(&instance_id, "out", &msg);
                     // kill_game 是 async：这里在普通线程里，借用 Tauri 的全局运行时
-                    tauri::async_runtime::spawn(async {
+                    crate::util::spawn(async {
                         let _ = crate::launch::kill_game().await;
                     });
                 }

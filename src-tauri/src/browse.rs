@@ -2356,13 +2356,12 @@ pub async fn check_updates(instance_id: &str, kind: &str) -> Result<Vec<Value>, 
 /// 但这个事件**后端此前从来不发**（监听器一直挂着空等）。表现就是：用户点了「更新」之后
 /// 界面毫无反馈，必须手动退出再进这个页签才知道到底成没成。
 fn emit_update_finished(filename: &str, result: &Result<Value>) {
-    let Some(app) = crate::progress::app() else { return };
-    use tauri::Emitter;
+    
     let payload = match result {
         Ok(_) => serde_json::json!({ "filename": filename, "ok": true }),
         Err(e) => serde_json::json!({ "filename": filename, "ok": false, "error": e.to_string() }),
     };
-    let _ = app.emit("content://update-finished", payload);
+    crate::progress::push_ser("content://update-finished", payload);
 }
 
 /// 应用更新：后台下载新版本并移除旧文件，返回 `{ queued: true }`。
@@ -2424,9 +2423,8 @@ pub async fn identify_content(instance_id: &str, kind: &str) -> Result<(), Strin
     // 这个事件此前同样**从不发送**，所以「识别」按钮在界面上等于没有可见效果（只能整页重刷）。
     // pass1（hash 命中）和 pass2（名称搜索）都要用，所以收在一处，避免两边各写一遍。
     let emit_identified = |rec: &crate::models::InstalledContent| {
-        let Some(app) = crate::progress::app() else { return };
-        use tauri::Emitter;
-        let _ = app.emit(
+        
+        crate::progress::push_ser(
             "content::identified",
             serde_json::json!({
                 "instanceId": instance_id,

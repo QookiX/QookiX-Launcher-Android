@@ -541,3 +541,14 @@ pub fn fill_content_from_jar(rec: &mut crate::models::InstalledContent, jar_path
         if !pretty.is_empty() { rec.name = Some(pretty); }
     }
 }
+
+// ── 全局 tokio 运行时（阶段 4：替代 tauri::async_runtime）──
+static QK_RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+
+pub fn runtime() -> &'static tokio::runtime::Runtime {
+    QK_RT.get_or_init(|| tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime"))
+}
+
+pub fn block_on<F: std::future::Future>(f: F) -> F::Output { runtime().block_on(f) }
+
+pub fn spawn<F>(f: F) where F: std::future::Future<Output = ()> + Send + 'static { runtime().spawn(f); }

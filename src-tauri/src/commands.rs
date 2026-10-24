@@ -11,17 +11,12 @@ use crate::frp;
 use crate::browse;
 use crate::{pins, groups, mirror, storage, crash, skins, servers, world_backup, playtime, util, fsutil};
 use serde_json::{json, Value};
-use tauri::command;
-
 // ==================== Version Commands ====================
-
-#[command]
 pub async fn get_version_list() -> Result<crate::version::VersionList, String> {
     version::fetch_manifest().await.map_err(|e| e.to_string())
 }
 
 /// 版本清单（前端 CreateInstanceView 使用），返回与前端 `getVersionManifest` 期望一致的字段名。
-#[command]
 pub async fn get_version_manifest() -> Result<Value, String> {
     let list = version::fetch_manifest().await.map_err(|e| e.to_string())?;
     Ok(json!({
@@ -36,13 +31,9 @@ pub async fn get_version_manifest() -> Result<Value, String> {
         },
     }))
 }
-
-#[command]
 pub async fn get_version_info(version_id: String) -> Result<crate::version::MinecraftVersion, String> {
     version::get_version_info(&version_id).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn install_version(version_id: String) -> Result<(), String> {
     // 带上 TaskCtx。以前这里是 `version::install_version(...)`（内部传 ctx = None），
     // 于是从「创建实例」或安装对话框发起的版本安装在「下载中心」里**完全没有进度**，
@@ -71,8 +62,6 @@ pub async fn install_version(version_id: String) -> Result<(), String> {
 }
 
 // ==================== Instance Commands ====================
-
-#[command]
 pub async fn create_instance(
     name: String,
     mc_version: String,
@@ -120,8 +109,6 @@ pub async fn create_instance(
     });
     instances::create_instance(config).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn delete_instance(id: String) -> Result<(), String> {
     instances::delete_instance(&id, false).await.map_err(|e| e.to_string())
 }
@@ -1977,21 +1964,13 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                 }
             }
             // 自更新（这三条是 Tauri 时代留下的，需要 AppHandle 才能拉 release 信息）
-            "check_for_update" => match crate::progress::app().cloned() {
-                Some(app) => match crate::updater::check_for_update(app).await {
-                    Ok(v) => ok(v),
-                    Err(e) => err(e),
-                },
-                None => err("自更新需要 AppHandle（当前进程未初始化 Tauri）"),
+            "check_for_update" => match crate::updater::check_for_update().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
             },
-            "download_update" => match crate::progress::app().cloned() {
-                Some(app) => {
-                    match crate::updater::download_update(app, sarg(&p, &["version"])).await {
-                        Ok(v) => ok(serde_json::Value::String(v)),
-                        Err(e) => err(e),
-                    }
-                }
-                None => err("自更新需要 AppHandle（当前进程未初始化 Tauri）"),
+            "download_update" => match crate::updater::download_update(sarg(&p, &["version"])).await {
+                Ok(v) => ok(serde_json::Value::String(v)),
+                Err(e) => err(e),
             },
             "install_update" => {
                 let Some(path) = sarg(&p, &["path"]) else {
@@ -2006,40 +1985,26 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
         }
     })
 }
-
-#[command]
 pub async fn list_instances() -> Result<Vec<MinecraftProfile>, String> {
     instances::list_instances().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn get_instance(id: String) -> Result<MinecraftProfile, String> {
     instances::get_instance(&id).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn update_instance(patch: Value) -> Result<MinecraftProfile, String> {
     instances::update_instance(patch).await.map_err(|e| e.to_string())
 }
 
 // ==================== Account Commands ====================
-
-#[command]
 pub async fn list_accounts() -> Result<Vec<Account>, String> {
     accounts::list_accounts().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn add_account(username: String, account_type: Option<String>, refresh_token: Option<String>) -> Result<Account, String> {
     accounts::add_account(&username, account_type.as_deref().unwrap_or("offline"), refresh_token).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn remove_account(uuid: String) -> Result<(), String> {
     accounts::remove_account(&uuid).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn select_account(uuid: String) -> Result<(), String> {
     accounts::select_account(&uuid).await.map_err(|e| e.to_string())
 }
@@ -2073,8 +2038,6 @@ async fn resolve_launch_account(instance_id: &str) -> Option<Account> {
     }
     accounts.into_iter().next()
 }
-
-#[command]
 pub async fn launch_game(instance_id: String, world: Option<String>, server: Option<String>) -> Result<GameStatus, String> {
     // 安卓端暂不支持「快速进入世界/服务器」，参数保留以兼容前端签名
     let _ = (world, server);
@@ -2107,25 +2070,17 @@ pub async fn launch_game(instance_id: String, world: Option<String>, server: Opt
             .map_err(|e| e.to_string())
     }
 }
-
-#[command]
 pub async fn kill_game() -> Result<(), String> {
     launch::kill_game().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn get_game_status() -> Result<GameStatus, String> {
     Ok(launch::get_game_status())
 }
 
 // ==================== Download Commands ====================
-
-#[command]
 pub async fn download_file(url: String, dest: String, sha1: Option<String>) -> Result<DownloadProgress, String> {
     download::download_file(&url, &dest, sha1).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn cancel_download(task_id: String) -> Result<(), String> {
     download::cancel_download(&task_id).await.map_err(|e| e.to_string())
 }
@@ -2134,7 +2089,6 @@ pub async fn cancel_download(task_id: String) -> Result<(), String> {
 ///
 /// WebView 侧拿不到 `clipboard-read` 权限、`execCommand("paste")` 又必然失败，
 /// 所以这件事只能交给原生。
-#[command]
 pub async fn read_clipboard() -> Result<String, String> {
     crate::android_bridge::read_clipboard()
 }
@@ -2143,7 +2097,6 @@ pub async fn read_clipboard() -> Result<String, String> {
 ///
 /// WebView 连 `clipboard-write` 权限也没有：`navigator.clipboard.writeText()`
 /// 实测抛 `NotAllowedError`，只能靠 `execCommand("copy")` 的兜底。
-#[command]
 pub async fn write_clipboard(text: String) -> Result<(), String> {
     crate::android_bridge::write_clipboard(&text)
 }
@@ -2153,7 +2106,6 @@ pub async fn write_clipboard(text: String) -> Result<(), String> {
 /// 与 `cancel_download` 的区别：那个按**单次文件下载**的内部 id（`dl_<uuid>`，
 /// 前端根本拿不到）；这个按 `TaskCtx.task_id`，也就是前端 `TaskEntry.id`，
 /// 会真的让整个任务停下（包括正在传输的大文件）。
-#[command]
 pub async fn cancel_install(task_id: u64) -> Result<(), String> {
     if crate::progress::cancel_install(task_id) {
         Ok(())
@@ -2161,20 +2113,14 @@ pub async fn cancel_install(task_id: u64) -> Result<(), String> {
         Err("任务已结束或不存在".into())
     }
 }
-
-#[command]
 pub async fn get_download_progress(task_id: String) -> Result<DownloadProgress, String> {
     download::get_progress(&task_id).await.map_err(|e| e.to_string())
 }
 
 // ==================== Settings Commands ====================
-
-#[command]
 pub async fn get_settings() -> Result<Settings, String> {
     settings::get_settings().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn update_settings(patch: Value) -> Result<Settings, String> {
     settings::update_settings_patch(patch).await.map_err(|e| e.to_string())?;
     settings::get_settings().await.map_err(|e| e.to_string())
@@ -2188,39 +2134,31 @@ pub async fn update_settings(patch: Value) -> Result<Settings, String> {
 async fn plugin_data_dir() -> Result<String, String> {
     settings::get_data_dir().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn get_plugins() -> Result<Vec<crate::plugin::PluginInfo>, String> {
     Ok(crate::plugin::list(&plugin_data_dir().await?))
 }
 
 /// 首启准备状态：还缺哪些渲染器/驱动/组件、一共要下多少。
-#[command]
 pub async fn get_plugin_setup_status() -> Result<crate::plugin::SetupStatus, String> {
     Ok(crate::plugin::setup_status(&plugin_data_dir().await?).await)
 }
 
 /// 补齐首启要装的插件（逐个装，逐个报 `plugin://progress`）。
-#[command]
 pub async fn install_recommended_plugins() -> Result<crate::plugin::SetupResult, String> {
     crate::plugin::install_recommended(&plugin_data_dir().await?).await
 }
 
 /// 用户点了「稍后」：记下来，别再每次启动都弹。
-#[command]
 pub async fn dismiss_plugin_setup() -> Result<(), String> {
     crate::plugin::set_setup_dismissed(&plugin_data_dir().await?, true)
 }
 
 /// 强制联网刷新清单（用户点「刷新」时用；平时列表只读缓存，避免进设置就卡一下）。
-#[command]
 pub async fn refresh_plugin_manifest() -> Result<Vec<crate::plugin::PluginInfo>, String> {
     let data_dir = plugin_data_dir().await?;
     crate::plugin::fetch_manifest(&data_dir, true).await?;
     Ok(crate::plugin::list(&data_dir))
 }
-
-#[command]
 pub async fn install_plugin(id: String) -> Result<Vec<crate::plugin::PluginInfo>, String> {
     let data_dir = plugin_data_dir().await?;
     crate::plugin::install(&data_dir, &id).await?;
@@ -2228,21 +2166,16 @@ pub async fn install_plugin(id: String) -> Result<Vec<crate::plugin::PluginInfo>
 }
 
 /// 从本地 zip 安装（离线/内网/测试用；包内需带 `plugin.json`）。
-#[command]
 pub async fn install_plugin_from_file(path: String) -> Result<Vec<crate::plugin::PluginInfo>, String> {
     let data_dir = plugin_data_dir().await?;
     crate::plugin::install_from_zip(&data_dir, &path).await?;
     Ok(crate::plugin::list(&data_dir))
 }
-
-#[command]
 pub async fn uninstall_plugin(id: String) -> Result<Vec<crate::plugin::PluginInfo>, String> {
     let data_dir = plugin_data_dir().await?;
     crate::plugin::uninstall(&data_dir, &id)?;
     Ok(crate::plugin::list(&data_dir))
 }
-
-#[command]
 pub async fn set_plugin_enabled(
     id: String,
     enabled: bool,
@@ -2251,13 +2184,9 @@ pub async fn set_plugin_enabled(
     crate::plugin::set_enabled(&data_dir, &id, enabled)?;
     Ok(crate::plugin::list(&data_dir))
 }
-
-#[command]
 pub async fn get_plugin_manifest_url() -> Result<String, String> {
     Ok(crate::plugin::manifest_url(&plugin_data_dir().await?))
 }
-
-#[command]
 pub async fn set_plugin_manifest_url(url: String) -> Result<String, String> {
     let data_dir = plugin_data_dir().await?;
     crate::plugin::set_manifest_url(&data_dir, &url)?;
@@ -2265,20 +2194,16 @@ pub async fn set_plugin_manifest_url(url: String) -> Result<String, String> {
 }
 
 // ==================== Modpack Commands ====================
-
-#[command]
 pub async fn import_modpack(file_path: String) -> Result<modpack::ModpackImportResult, String> {
     modpack::import_modpack(&file_path).await.map_err(|e| e.to_string())
 }
 
 /// 导出前的体检（纯本地统计，不联网）
-#[command]
 pub async fn plan_modpack_export(instance_id: String) -> Result<modpack::ExportPlan, String> {
     modpack::plan_modpack_export(&instance_id).await.map_err(|e| e.to_string())
 }
 
 /// 把实例导出成 `.mrpack` 并调起系统分享
-#[command]
 pub async fn export_modpack(
     instance_id: String,
     options: modpack::ExportOptions,
@@ -2287,8 +2212,6 @@ pub async fn export_modpack(
 }
 
 // ==================== Hangar（PaperMC 插件平台）Commands ====================
-
-#[command]
 pub async fn hangar_search_plugins(
     query: String,
     page: Option<u32>,
@@ -2300,7 +2223,6 @@ pub async fn hangar_search_plugins(
 }
 
 /// 把插件下到 `<服务器>/plugins/`。版本自动挑「声明支持该服务器 MC 版本」的最新版。
-#[command]
 pub async fn install_server_plugin(
     server_id: String,
     slug: String,
@@ -2310,13 +2232,9 @@ pub async fn install_server_plugin(
         .await
         .map_err(|e| e.to_string())
 }
-
-#[command]
 pub fn list_server_plugins(server_id: String) -> Result<Vec<Value>, String> {
     hangar::list_plugins(&server_id).map_err(|e| e.to_string())
 }
-
-#[command]
 pub fn delete_server_plugin(server_id: String, file_name: String) -> Result<(), String> {
     hangar::delete_plugin(&server_id, &file_name).map_err(|e| e.to_string())
 }
@@ -2324,65 +2242,44 @@ pub fn delete_server_plugin(server_id: String, file_name: String) -> Result<(), 
 // ==================== FRP 隧道（面板登录 / 隧道进程）====================
 
 /// 面板状态：地址、是否已登录、用户名、frpc 是否随包就绪
-#[command]
 pub async fn frp_status() -> Value {
     frp::status().await
 }
-
-#[command]
 pub async fn frp_set_api_base(api_base: String) -> Result<Value, String> {
     frp::set_api_base(api_base).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_login_start() -> Result<Value, String> {
     frp::login_start().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_login_poll(session: String) -> Result<Value, String> {
     frp::login_poll(session).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_logout() -> Result<(), String> {
     frp::logout().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_user_info() -> Result<Value, String> {
     frp::user_info().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_tunnels() -> Result<Vec<frp::TunnelInfo>, String> {
     frp::tunnels().await.map_err(|e| e.to_string())
 }
 
 /// 启动一条隧道（已经把配置写好、frpc 起来了才算成功）
-#[command]
 pub async fn frp_start_tunnel(tunnel_id: i64) -> Result<Value, String> {
     frp::start_tunnel(tunnel_id).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub fn frp_stop_tunnel(tunnel_id: i64) -> Result<(), String> {
     frp::stop_tunnel(tunnel_id).map_err(|e| e.to_string())
 }
-
-#[command]
 pub fn frp_running() -> Vec<Value> {
     frp::running_list()
 }
-
-#[command]
 pub fn frp_tunnel_log(tunnel_id: i64) -> Result<String, String> {
     frp::tunnel_log(tunnel_id).map_err(|e| e.to_string())
 }
 
 /// 自检：执行随包 frpc 的 `--version`。同时验证「这台设备允许不允许执行 APK 里的
 /// 原生库目录」—— 安卓 10+ 有 W^X 限制，这是整个功能的前提。
-#[command]
 pub async fn frp_probe() -> Result<String, String> {
     frp::probe().await.map_err(|e| e.to_string())
 }
@@ -2390,23 +2287,17 @@ pub async fn frp_probe() -> Result<String, String> {
 // ── XTCP 联机房间（房主-访问者模式，双方都要跑 frpc）────────────────────
 
 /// 建房可选的节点
-#[command]
 pub async fn frp_room_nodes() -> Result<Vec<frp::RoomNode>, String> {
     frp::room_nodes().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_room_list(page: i64) -> Result<Value, String> {
     frp::room_list(page).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_room_detail(room_id: i64) -> Result<Value, String> {
     frp::room_detail(room_id).await.map_err(|e| e.to_string())
 }
 
 /// 建房（面板会返回房主端 frpc 配置与审核状态）
-#[command]
 pub async fn frp_room_create(
     name: String,
     node_id: i64,
@@ -2417,61 +2308,43 @@ pub async fn frp_room_create(
         .await
         .map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_room_join(room_id: i64, password: Option<String>) -> Result<Value, String> {
     frp::room_join(room_id, password)
         .await
         .map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_room_leave(room_id: i64) -> Result<Value, String> {
     frp::room_leave(room_id).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_room_close(room_id: i64) -> Result<Value, String> {
     frp::room_close(room_id).await.map_err(|e| e.to_string())
 }
 
 /// 房主端：起 frpc 把本地端口经 XTCP 暴露出去
-#[command]
 pub async fn frp_room_host_start(room_id: i64) -> Result<Value, String> {
     frp::room_host_start(room_id).await.map_err(|e| e.to_string())
 }
 
 /// 访问端：起 frpc 把房主的代理绑到本地端口（返回值里有 `connect`）
-#[command]
 pub async fn frp_room_visitor_start(room_id: i64) -> Result<Value, String> {
     frp::room_visitor_start(room_id)
         .await
         .map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn frp_room_stop(room_id: i64) -> Result<Value, String> {
     frp::room_stop(room_id).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn install_mod(instance_id: String, mod_id: String, mod_url: String) -> Result<InstalledContent, String> {
     modpack::install_mod(&instance_id, &mod_id, &mod_url, None).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn uninstall_mod(instance_id: String, mod_id: String) -> Result<(), String> {
     modpack::uninstall_mod(&instance_id, &mod_id).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn get_installed_mods(instance_id: String) -> Result<Vec<InstalledContent>, String> {
     modpack::get_installed_mods(&instance_id).await.map_err(|e| e.to_string())
 }
 
 // ==================== Browse Commands ====================
-
-#[command]
 pub async fn browse(
     provider: String,
     query: String,
@@ -2485,16 +2358,12 @@ pub async fn browse(
 ) -> Result<browse::BrowseResult, String> {
     browse::browse(&provider, &query, &project_type, &category, page, &game_version, &loader, &sort, page_size).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn curseforge_categories() -> Result<Value, String> {
     let categories = browse::curseforge_categories().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "categories": categories,
     }))
 }
-
-#[command]
 pub async fn project_info(provider: String, project_id: String) -> Result<browse::ProjectInfoResult, String> {
     browse::project_info(&provider, &project_id).await.map_err(|e| e.to_string())
 }
@@ -2503,24 +2372,17 @@ pub async fn project_info(provider: String, project_id: String) -> Result<browse
 //
 // 翻译配置存在 settings.json 里（translate_provider / translate_api_base 等），
 // 后端每次调用现读，改设置不必重启；成功结果按服务来源分别落缓存。
-
-#[command]
 pub async fn translate_mod_descriptions(provider: String, slugs: Vec<String>) -> Result<Value, String> {
     crate::translate::translate_descriptions(&provider, slugs).await
 }
 
 /// `translate=false` 只取原文，不调翻译服务。
-#[command]
 pub async fn translate_project_body(provider: String, slug: String, translate: bool) -> Result<Value, String> {
     crate::translate::translate_body(&provider, &slug, translate).await
 }
-
-#[command]
 pub async fn report_translation_stale(provider: String, slug: String) -> Result<String, String> {
     crate::translate::report_stale(&provider, &slug).await
 }
-
-#[command]
 pub async fn report_translation_quality(
     provider: String,
     slug: String,
@@ -2532,17 +2394,12 @@ pub async fn report_translation_quality(
 }
 
 /// `service` 为空 = 全部清空。
-#[command]
 pub async fn clear_translation_cache(service: Option<String>) -> Result<u64, String> {
     crate::translate::clear_cache(service).await
 }
-
-#[command]
 pub async fn test_translate_api(base: String, key: String, model: String) -> Result<(), String> {
     crate::translate::test_api(base, key, model).await
 }
-
-#[command]
 pub async fn project_versions(provider: String, project_id: String, mc_version: String, loader: String) -> Result<Value, String> {
     let versions = browse::project_versions(&provider, &project_id, &mc_version, &loader).await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
@@ -2550,25 +2407,17 @@ pub async fn project_versions(provider: String, project_id: String, mc_version: 
         "versions": versions,
     }))
 }
-
-#[command]
 pub async fn project_dependencies(provider: String, project_id: String, version_id: Option<String>) -> Result<Vec<browse::ProjectDependency>, String> {
     browse::project_dependencies(&provider, &project_id, version_id.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn get_loader_versions(loader: String, mc_version: String) -> Result<Vec<String>, String> {
     browse::get_loader_versions(loader, mc_version).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn install_game(instance_id: String) -> Result<Value, String> {
     browse::install_game(&instance_id).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn install_content(
     instance_id: String,
     provider: String,
@@ -2584,7 +2433,6 @@ pub async fn install_content(
 /// 把内容装到托管服务器（模组 -> mods/，插件 -> plugins/）。
 ///
 /// 见 `browse::install_content_to_server` 的说明（2026-10-18 新增）。
-#[command]
 pub async fn install_server_content(
     server_id: String,
     provider: String,
@@ -2596,60 +2444,40 @@ pub async fn install_server_content(
         .await
         .map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn list_content(instance_id: String, kind: String) -> Result<Value, String> {
     browse::list_content(&instance_id, &kind).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn mc_wiki_url(name: String, slug: Option<String>, provider: Option<String>) -> Result<String, String> {
     browse::mc_wiki_url(&name, slug.as_deref(), provider.as_deref()).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn fetch_news() -> Result<Vec<Value>, String> {
     browse::fetch_news().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn estimate_download(mc_version: String) -> Result<Value, String> {
     browse::estimate_download(&mc_version).await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn estimate_import(source: String, raw_ids: Vec<String>) -> Result<Value, String> {
     browse::estimate_import(&source, &raw_ids).await.map_err(|e| e.to_string())
 }
 
 // ==================== Pins (固定项) ====================
-
-#[command]
 pub async fn get_pins() -> Vec<PinItem> {
     pins::load_pins().await
 }
-
-#[command]
 pub async fn set_pins(items: Vec<PinItem>) -> Result<(), String> {
     pins::save_pins(&items).await
 }
 
 // ==================== Instance Groups (实例分组) ====================
-
-#[command]
 pub async fn list_instance_groups() -> Result<Vec<InstanceGroup>, String> {
     groups::list_groups().await
 }
-
-#[command]
 pub async fn create_instance_group(
     name: String,
     color: Option<String>,
 ) -> Result<InstanceGroup, String> {
     groups::create_group(name, color).await
 }
-
-#[command]
 pub async fn rename_instance_group(
     id: String,
     name: String,
@@ -2657,26 +2485,19 @@ pub async fn rename_instance_group(
 ) -> Result<InstanceGroup, String> {
     groups::rename_group(id, name, color).await
 }
-
-#[command]
 pub async fn delete_instance_group(id: String) -> Result<(), String> {
     groups::delete_group(id).await
 }
-
-#[command]
 pub async fn reorder_instance_groups(ids: Vec<String>) -> Result<Vec<InstanceGroup>, String> {
     groups::reorder_groups(ids).await
 }
 
 // ==================== Mirror (下载镜像) ====================
-
-#[command]
 pub fn list_mirrors() -> Value {
     mirror::presets()
 }
 
 /// 测试镜像源连通性并返回首字节耗时（毫秒）。`base` 为空串表示测试官方源。
-#[command]
 pub async fn test_mirror(base: String) -> Result<Value, String> {
     let base = base.trim().trim_end_matches('/').to_string();
     let url = if base.is_empty() {
@@ -2702,7 +2523,6 @@ pub async fn test_mirror(base: String) -> Result<Value, String> {
 
 /// 测试下载代理配置是否可用，返回首字节耗时（毫秒）。
 /// `proxy` 仅在 `proxy_mode == "custom"` 时生效。
-#[command]
 pub async fn test_proxy(proxy_mode: String, proxy: Option<String>) -> Result<Value, String> {
     let mut builder = reqwest::Client::builder();
     if proxy_mode == "custom" {
@@ -2737,7 +2557,6 @@ pub async fn test_proxy(proxy_mode: String, proxy: Option<String>) -> Result<Val
 // ==================== Memory & Log (内存检测 / 诊断日志) ====================
 
 /// 读取 /proc/meminfo 检测系统内存（Android/Linux），并给出推荐 JVM 内存。
-#[command]
 pub fn auto_detect_memory() -> Result<Value, String> {
     let meminfo = std::fs::read_to_string("/proc/meminfo")
         .map_err(|e| format!("无法读取系统内存信息: {e}"))?;
@@ -2787,94 +2606,62 @@ fn recommended_memory_mb(available_mb: u64) -> (u32, u32) {
 }
 
 /// 临时诊断命令：把前端的关键步骤写进诊断日志（log_debug）。
-#[command]
 pub fn log_debug(msg: String) {
     util::log_line(&msg);
 }
 
 /// 游戏是否在运行（布尔值，供前端直接判断）。
-#[command]
 pub fn is_game_running() -> bool {
     launch::get_game_status().is_running
 }
 
 // ==================== Storage (存储统计) ====================
-
-#[command]
 pub async fn get_storage_stats() -> Result<StorageStats, String> {
     Ok(storage::get_storage_stats().await)
 }
-
-#[command]
 pub async fn refresh_storage_stats() -> Result<StorageStats, String> {
     Ok(storage::refresh_storage_stats().await)
 }
-
-#[command]
 pub async fn clear_cache() -> Result<CacheClearResult, String> {
     storage::clear_cache().await
 }
 
 // ==================== Crash (崩溃分析) ====================
-
-#[command]
 pub async fn list_crash_logs(id: String) -> Result<Vec<CrashLogEntry>, String> {
     crash::list_crash_logs(&id).await
 }
-
-#[command]
 pub async fn analyze_crash_log(id: String, filename: String) -> Result<CrashDiagnosis, String> {
     crash::analyze_report(&id, &filename).await
 }
-
-#[command]
 pub async fn get_crash_report_content(id: String, filename: String) -> Result<String, String> {
     crash::get_report_content(&id, &filename).await
 }
 
 // ==================== Skins (皮肤中心) ====================
-
-#[command]
 pub async fn list_skins() -> Result<Vec<skins::SkinEntry>, String> {
     skins::list_skins().await
 }
-
-#[command]
 pub async fn read_skin_data_url(filename: String) -> Result<String, String> {
     skins::read_skin_data_url(filename).await
 }
-
-#[command]
 pub async fn save_skin_from_data(name: String, data: String) -> Result<skins::SkinEntry, String> {
     skins::save_skin_from_data(name, data).await
 }
-
-#[command]
 pub async fn download_skin_from_url(name: String, url: String) -> Result<skins::SkinEntry, String> {
     skins::download_skin_from_url(name, url).await
 }
-
-#[command]
 pub async fn delete_skin(filename: String) -> Result<(), String> {
     skins::delete_skin(filename).await
 }
-
-#[command]
 pub async fn fetch_image_data_url(url: String) -> Result<String, String> {
     skins::fetch_image_data_url(url).await
 }
-
-#[command]
 pub async fn fetch_player_skin(username: String) -> Result<skins::PlayerSkinResult, String> {
     skins::fetch_player_skin(username).await
 }
-
-#[command]
 pub async fn fetch_player_capes(account_uuid: String) -> Result<Vec<skins::CapeInfo>, String> {
     skins::fetch_player_capes(account_uuid).await
 }
-
-#[command]
 pub async fn apply_skin_to_account(
     account_uuid: String,
     skin_data: String,
@@ -2882,16 +2669,12 @@ pub async fn apply_skin_to_account(
 ) -> Result<(), String> {
     skins::apply_skin_to_account(account_uuid, skin_data, variant).await
 }
-
-#[command]
 pub async fn apply_cape_to_account(
     account_uuid: String,
     cape_id: Option<String>,
 ) -> Result<(), String> {
     skins::apply_cape_to_account(account_uuid, cape_id).await
 }
-
-#[command]
 pub async fn apply_skin_offline(
     skin_data: String,
     variant: String,
@@ -2899,38 +2682,26 @@ pub async fn apply_skin_offline(
 ) -> Result<(), String> {
     skins::apply_skin_offline(skin_data, variant, uuid).await
 }
-
-#[command]
 pub async fn get_offline_skin(uuid: String) -> Result<Option<Value>, String> {
     skins::get_offline_skin(uuid).await
 }
 
 // ==================== Servers (多人服务器) ====================
-
-#[command]
 pub async fn list_servers(instance_id: String) -> Result<Value, String> {
     let list = servers::list_remote_servers(&instance_id).await?;
     Ok(json!({ "servers": list }))
 }
-
-#[command]
 pub async fn ping_mc_server(address: String) -> ServerStatus {
     servers::ping_remote_server(&address).await
 }
 
 // ==================== World Backup (世界存档备份) ====================
-
-#[command]
 pub async fn list_world_backups(instance_id: String, world: String) -> Result<Vec<BackupInfo>, String> {
     Ok(world_backup::list_backups(&instance_id, &world).await)
 }
-
-#[command]
 pub async fn create_world_backup(instance_id: String, world: String) -> Result<BackupInfo, String> {
     world_backup::create_backup(&instance_id, &world).await
 }
-
-#[command]
 pub async fn restore_world_backup(
     instance_id: String,
     world: String,
@@ -2938,8 +2709,6 @@ pub async fn restore_world_backup(
 ) -> Result<(), String> {
     world_backup::restore_backup(&instance_id, &world, &filename).await
 }
-
-#[command]
 pub async fn delete_world_backup(
     instance_id: String,
     world: String,
@@ -2949,32 +2718,22 @@ pub async fn delete_world_backup(
 }
 
 // ==================== Playtime (游玩时长) ====================
-
-#[command]
 pub async fn playtime_stats() -> Result<PlaytimeStats, String> {
     Ok(playtime::playtime_stats().await)
 }
 
 // ==================== Microsoft 账号登录 (设备码) ====================
-
-#[command]
 pub async fn login_ms_start() -> Result<Value, String> {
     accounts::ms_start().await.map_err(|e| e.to_string())
 }
-
-#[command]
 pub async fn login_ms_poll() -> Result<Account, String> {
     accounts::ms_poll().await.map_err(|e| e.to_string())
 }
 
 // ==================== Content Management (内容管理) ====================
-
-#[command]
 pub async fn check_updates(instance_id: String, kind: String) -> Result<Vec<Value>, String> {
     browse::check_updates(&instance_id, &kind).await
 }
-
-#[command]
 pub async fn apply_update(
     instance_id: String,
     kind: String,
@@ -2993,18 +2752,12 @@ pub async fn apply_update(
     )
     .await
 }
-
-#[command]
 pub async fn uninstall_content(instance_id: String, kind: String, filename: String) -> Result<(), String> {
     browse::uninstall_content(&instance_id, &kind, &filename).await
 }
-
-#[command]
 pub async fn identify_content(instance_id: String, kind: String) -> Result<(), String> {
     browse::identify_content(&instance_id, &kind).await
 }
-
-#[command]
 pub async fn import_local_file(
     instance_id: String,
     kind: String,
@@ -3012,8 +2765,6 @@ pub async fn import_local_file(
 ) -> Result<Value, String> {
     browse::import_local_file(&instance_id, &kind, &source_path).await
 }
-
-#[command]
 pub async fn toggle_content_enabled(
     instance_id: String,
     kind: String,
@@ -3022,13 +2773,9 @@ pub async fn toggle_content_enabled(
 ) -> Result<(), String> {
     browse::toggle_content_enabled(&instance_id, &kind, &filename, enabled).await
 }
-
-#[command]
 pub async fn save_text_file(path: String, content: String) -> Result<(), String> {
     browse::save_text_file(&path, &content)
 }
-
-#[command]
 pub async fn extract_game_icons(instance_id: Option<String>) -> Result<Vec<browse::GameIcon>, String> {
     browse::extract_game_icons(instance_id).await
 }
@@ -3054,8 +2801,6 @@ async fn resolve_instance_path(instance_id: &str, rel: &str) -> Result<std::path
     let root = instance_root(instance_id).await?;
     fsutil::resolve_in_dir(&root, rel, "实例")
 }
-
-#[command]
 pub async fn list_instance_folders(instance_id: String) -> Result<Value, String> {
     let dir = instance_root(&instance_id).await?;
     let folders: Vec<Value> = SUBFOLDERS
@@ -3064,8 +2809,6 @@ pub async fn list_instance_folders(instance_id: String) -> Result<Value, String>
         .collect();
     Ok(json!({ "folders": folders }))
 }
-
-#[command]
 pub async fn list_instance_files(instance_id: String, sub: String) -> Result<Value, String> {
     if !SUBFOLDERS.contains(&sub.as_str()) {
         return Err("非法目录".into());
@@ -3113,8 +2856,6 @@ pub async fn list_instance_files(instance_id: String, sub: String) -> Result<Val
     .map_err(|e| e.to_string())??;
     Ok(json!({ "files": files }))
 }
-
-#[command]
 pub async fn list_instance_dir(instance_id: String, rel: String) -> Result<Value, String> {
     let dir = resolve_instance_path(&instance_id, &rel).await?;
     if !dir.is_dir() {
@@ -3127,14 +2868,10 @@ pub async fn list_instance_dir(instance_id: String, rel: String) -> Result<Value
             .map_err(|e| e.to_string())??;
     Ok(json!({ "rel": rel, "entries": entries }))
 }
-
-#[command]
 pub async fn read_instance_file(instance_id: String, rel: String) -> Result<Value, String> {
     let path = resolve_instance_path(&instance_id, &rel).await?;
     fsutil::read_text(&path, &rel)
 }
-
-#[command]
 pub async fn write_instance_file(
     instance_id: String,
     rel: String,
@@ -3143,8 +2880,6 @@ pub async fn write_instance_file(
     let path = resolve_instance_path(&instance_id, &rel).await?;
     fsutil::write_text(&path, &rel, content)
 }
-
-#[command]
 pub async fn create_instance_entry(
     instance_id: String,
     rel: String,
@@ -3166,8 +2901,6 @@ pub async fn create_instance_entry(
     }
     Ok(json!({ "rel": rel, "is_dir": is_dir }))
 }
-
-#[command]
 pub async fn delete_instance_path(instance_id: String, rel: String) -> Result<(), String> {
     if rel.trim().is_empty() {
         return Err("不能删除实例根目录".into());
@@ -3183,8 +2916,6 @@ pub async fn delete_instance_path(instance_id: String, rel: String) -> Result<()
     }
     Ok(())
 }
-
-#[command]
 pub async fn rename_instance_path(
     instance_id: String,
     rel: String,
@@ -3248,8 +2979,6 @@ async fn import_image_into(
     .await
     .map_err(|e| format!("{prefix_outer}失败: {e}"))?
 }
-
-#[command]
 pub async fn import_instance_image(source_path: String) -> Result<String, String> {
     import_image_into(
         &source_path,
@@ -3259,8 +2988,6 @@ pub async fn import_instance_image(source_path: String) -> Result<String, String
     )
     .await
 }
-
-#[command]
 pub async fn import_background_image(source_path: String) -> Result<String, String> {
     import_image_into(
         &source_path,
@@ -3274,21 +3001,18 @@ pub async fn import_background_image(source_path: String) -> Result<String, Stri
 // ==================== 原生能力（屏幕方向 / 文件选择） ====================
 
 /// 设置启动器界面方向：`system`（跟随系统）/ `portrait`（竖屏）/ `landscape`（横屏）。
-#[command]
 pub async fn set_orientation(mode: String) -> Result<(), String> {
     crate::android_bridge::set_orientation(&mode)
 }
 
 /// 把系统文件选择器返回的 `content://` URI 落地到应用私有目录，返回可被文件命令直接读取的路径。
 /// 传入的已经是普通路径时原样返回（桌面端即为此情况）。
-#[command]
 pub async fn resolve_picked_path(path: String) -> Result<String, String> {
     crate::android_bridge::resolve_picked_path(&path)
 }
 
 /// 检测系统（含 VPN）下发的 HTTP 代理地址，供设置页展示与提示。
 /// 原生请求不会自动走系统代理，代理软件开着却选了「直连」时下载会大面积失败。
-#[command]
 pub async fn detect_system_proxy() -> Option<String> {
     crate::android_bridge::system_proxy()
 }
@@ -3300,7 +3024,6 @@ pub async fn detect_system_proxy() -> Option<String> {
 /// 禁用手势 / 备选渲染表面……这些是 `LauncherPreferences` 从安卓
 /// `SharedPreferences("launcher_preferences")` 读的，QookiX 的 `settings.json` 管不到，
 /// 所以必须经原生桥读写。
-#[command]
 pub fn get_pojav_prefs() -> Result<serde_json::Value, String> {
     let json = crate::android_bridge::read_pojav_prefs()?;
     Ok(serde_json::from_str(&json).unwrap_or_else(|_| serde_json::json!({})))
@@ -3308,7 +3031,6 @@ pub fn get_pojav_prefs() -> Result<serde_json::Value, String> {
 
 /// 写入 Pojav 设置（增量：只传要改的键）。写完后原生侧会重载
 /// `LauncherPreferences`，因此不需要重启应用即可生效。
-#[command]
 pub fn set_pojav_prefs(patch: serde_json::Value) -> Result<(), String> {
     let Some(obj) = patch.as_object() else {
         return Err("参数必须是对象".into());
@@ -3339,7 +3061,6 @@ pub fn set_pojav_prefs(patch: serde_json::Value) -> Result<(), String> {
 }
 /// 读取实例日志（磁盘版）。见 `launch::read_instance_log` 的说明：
 /// 内存里的实时日志会随进程崩溃一起消失，必须能回退到文件。
-#[command]
 pub async fn read_instance_log(instance_id: String) -> Result<String, String> {
     crate::launch::read_instance_log(&instance_id)
         .await
@@ -3350,7 +3071,6 @@ pub async fn read_instance_log(instance_id: String) -> Result<String, String> {
 ///
 /// 日志目录默认在 `Android/data/<包名>/…` 下，**Android 11+ 屏蔽了 Android/data**，
 /// 文件管理器和电脑 MTP 都取不到（MT 会报「该文件被设置了私有权限」），分享是唯一出路。
-#[command]
 pub async fn export_instance_logs(instance_id: String) -> Result<(), String> {
     crate::launch::export_instance_logs(&instance_id)
         .await
@@ -3361,7 +3081,6 @@ pub async fn export_instance_logs(instance_id: String) -> Result<(), String> {
 /// 返回一份「建议切换」的说明（前端在玩家回到启动器后弹窗询问）。
 ///
 /// 只读、只建议 —— 切换动作由前端调 `update_instance`（**只改这一个实例**）完成。
-#[command]
 pub async fn check_renderer_health(
     instance_id: String,
 ) -> Result<Option<crate::models::RendererIssue>, String> {
@@ -3372,7 +3091,6 @@ pub async fn check_renderer_health(
 ///
 /// 玩家「回到启动器」时用这个：有些渲染器故障会让游戏线程死掉、JVM 却还挂着，
 /// 根本不会有正常的退出事件可听。
-#[command]
 pub async fn check_renderer_health_latest(
 ) -> Result<Option<crate::models::RendererIssue>, String> {
     crate::renderer_health::check_latest().await

@@ -9,8 +9,6 @@
 //! invoke 返回 mock 空数组），所以「文件」页签一直是空的。
 
 use serde_json::json;
-use tauri::command;
-
 use crate::fsutil;
 use crate::servers::server_dir;
 
@@ -21,7 +19,6 @@ fn resolve_server_path(id: &str, rel: &str) -> Result<std::path::PathBuf, String
 }
 
 /// 列出目录内容
-#[command]
 pub fn list_hosted_server_dir(id: String, rel: String) -> Result<serde_json::Value, String> {
     let dir = resolve_server_path(&id, &rel)?;
     if !dir.is_dir() {
@@ -33,14 +30,12 @@ pub fn list_hosted_server_dir(id: String, rel: String) -> Result<serde_json::Val
 }
 
 /// 读文本文件
-#[command]
 pub fn read_hosted_server_file(id: String, rel: String) -> Result<serde_json::Value, String> {
     let path = resolve_server_path(&id, &rel)?;
     fsutil::read_text(&path, &rel)
 }
 
 /// 写文本文件
-#[command]
 pub fn write_hosted_server_file(
     id: String,
     rel: String,
@@ -51,7 +46,6 @@ pub fn write_hosted_server_file(
 }
 
 /// 服务器根目录下的常用配置文件（设置页用）
-#[command]
 pub fn list_hosted_server_config_files(id: String) -> Vec<serde_json::Value> {
     let Ok(dir) = server_dir(&id) else { return Vec::new() };
     ["server.properties", "eula.txt", "ops.json", "whitelist.json", "banned-players.json"]
@@ -71,7 +65,6 @@ pub fn list_hosted_server_config_files(id: String) -> Vec<serde_json::Value> {
 
 /// 「打开文件夹」在安卓上没有意义（不能弹系统文件管理器），
 /// 这里返回路径给 UI 展示/复制。
-#[command]
 pub fn open_hosted_server_folder(id: String, sub: Option<String>) -> Result<String, String> {
     let base = server_dir(&id)?;
     match sub.as_deref().filter(|s| !s.trim().is_empty()) {

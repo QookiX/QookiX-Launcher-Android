@@ -74,7 +74,6 @@ async fn heal() -> bool {
 }
 
 /// 是否已获得陶瓦联机的 VPN 授权（Android 上没有 TUN 就没有数据面，客人连不进来）。
-#[tauri::command]
 pub async fn terracotta_vpn_granted() -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
@@ -87,7 +86,6 @@ pub async fn terracotta_vpn_granted() -> Result<bool, String> {
 }
 
 /// 弹 VPN 授权对话框。开房前先调用它 —— Terracotta 的请求只有 30 秒答复窗口。
-#[tauri::command]
 pub async fn terracotta_request_vpn() -> Result<(), String> {
     #[cfg(target_os = "android")]
     crate::android_bridge::ensure_vpn_consent();
@@ -95,7 +93,6 @@ pub async fn terracotta_request_vpn() -> Result<(), String> {
 }
 
 /// 隧道是否已就绪（HTTP 服务在监听）
-#[tauri::command]
 pub async fn terracotta_ping() -> Result<bool, String> {
     if tunnel_port().is_none() {
         // 连端口文件都没有：可能是隧道从没起来，也可能是它停了但文件被清了。
@@ -118,7 +115,6 @@ pub async fn terracotta_ping() -> Result<bool, String> {
 /// `path` 形如 `/state`、`/host?player=名字`。
 ///
 /// 注意：这里**只做转发**，不含任何 Terracotta 逻辑，也不加载它的库。
-#[tauri::command]
 pub async fn terracotta_request(path: String) -> Result<String, String> {
     if !path.starts_with('/') {
         return Err("接口路径必须以 / 开头".to_string());

@@ -56,14 +56,12 @@ fn read_layout() -> Result<(PathBuf, serde_json::Value), String> {
 }
 
 /// 列出布局里的按钮（顺序与游戏内一致）。
-#[tauri::command]
 pub async fn get_control_buttons() -> Result<Vec<ControlButtonInfo>, String> {
     let (_, value) = read_layout()?;
     Ok(collect_buttons(&value))
 }
 
 /// 改一个按钮的透传开关，返回改完后的完整列表。
-#[tauri::command]
 pub async fn set_control_button_passthru(
     index: usize,
     enabled: bool,
@@ -201,7 +199,6 @@ fn count_layout(path: &Path) -> (usize, usize, usize) {
 
 /// 列出所有控制布局（当前生效的排最前）。所有改动类命令都返回这份新列表，
 /// 前端拿到直接替换，少一次往返。
-#[tauri::command]
 pub async fn list_control_layouts() -> Result<Vec<ControlLayoutInfo>, String> {
     let dir = controlmap_dir()?;
     let current = current_layout_name();
@@ -247,7 +244,6 @@ pub async fn list_control_layouts() -> Result<Vec<ControlLayoutInfo>, String> {
 /// 为什么不自己画一个：那个编辑器本来就是「所见即所得」的实现（同一套 `ControlLayout` 视图，
 /// 直接读游戏那份布局文件），重写一套只会得到「预览和游戏里不完全一样」的结果。
 /// `layout` 传空 = 编辑当前默认那份；`preview` = 只读预览（导入时先给用户看一眼）。
-#[tauri::command]
 pub async fn open_control_layout_editor(
     layout: Option<String>,
     preview: bool,
@@ -274,7 +270,6 @@ pub async fn open_control_layout_editor(
 }
 
 /// 导出（系统分享）一份布局。
-#[tauri::command]
 pub async fn export_control_layout(name: String) -> Result<(), String> {
     let name = validate_name(&name)?;
     let path = layout_file(&name)?;
@@ -289,7 +284,6 @@ pub async fn export_control_layout(name: String) -> Result<(), String> {
 }
 
 /// 弹系统文件选择器，让用户挑一个布局文件导入（真正的读取在原生侧异步完成）。
-#[tauri::command]
 pub async fn pick_control_layout() -> Result<(), String> {
     #[cfg(target_os = "android")]
     crate::android_bridge::pick_control_layout();
@@ -299,7 +293,6 @@ pub async fn pick_control_layout() -> Result<(), String> {
 }
 
 /// 取回导入结果（原生侧校验完写进临时文件，这里取走即删）。
-#[tauri::command]
 pub async fn take_control_import() -> Result<Option<serde_json::Value>, String> {
     #[cfg(target_os = "android")]
     {
@@ -317,7 +310,6 @@ pub async fn take_control_import() -> Result<Option<serde_json::Value>, String> 
 /// 存在的理由：SAF 打不开 `Android/data` 等目录，而 MT 管理器能拿到那些文件的绝对路径 ——
 /// 用户复制路径粘过来，我们凭「所有文件访问」直接读。
 /// （技术上**不能**让 MT 代替我们弹选择器：MT 没有这个接口，系统只认 SAF/DocumentsUI。）
-#[tauri::command]
 pub async fn import_control_layout_by_path(path: String) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "android")]
     {
@@ -333,7 +325,6 @@ pub async fn import_control_layout_by_path(path: String) -> Result<serde_json::V
 }
 
 /// 切换当前使用的布局（写 pojav 偏好 `defaultCtrl`）。
-#[tauri::command]
 pub async fn set_current_control_layout(name: String) -> Result<Vec<ControlLayoutInfo>, String> {
     let name = validate_name(&name)?;
     let path = layout_file(&name)?;
@@ -346,7 +337,6 @@ pub async fn set_current_control_layout(name: String) -> Result<Vec<ControlLayou
 }
 
 /// 复制一份布局（手机打字麻烦，名字由前端传，通常就是「原名 + 副本」）。
-#[tauri::command]
 pub async fn duplicate_control_layout(
     name: String,
     new_name: String,
@@ -366,7 +356,6 @@ pub async fn duplicate_control_layout(
 
 /// 重命名布局；如果改的正是当前使用的那份，偏好里的路径也要跟着改，
 /// 否则游戏下次启动会回落默认布局。
-#[tauri::command]
 pub async fn rename_control_layout(
     name: String,
     new_name: String,
@@ -392,7 +381,6 @@ pub async fn rename_control_layout(
 
 /// 删除布局。删掉正在使用的那份时切回随包默认布局，避免进游戏时找不到文件。
 /// `default` 本身是随包兜底的那份，不允许删（要改就在它基础上复制一份再改）。
-#[tauri::command]
 pub async fn delete_control_layout(name: String) -> Result<Vec<ControlLayoutInfo>, String> {
     let name = validate_name(&name)?;
     if name == "default" {

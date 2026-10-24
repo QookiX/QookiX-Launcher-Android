@@ -250,7 +250,6 @@ pub fn new_token() -> String {
  * 同一个错误码。Paper 1.21.x 的 jar 里到底有没有 Main-Class、
  * zip crate 能不能正常打开 49MB 的包，都需要能直接看到原文才能判断。
  */
-#[tauri::command]
 pub fn inspect_server_core_manifest(id: String) -> String {
     let dir = match server_dir(&id) {
         Ok(d) => d,
