@@ -402,6 +402,7 @@
     <string name="skin_empty_desc">选择本地 PNG</string>
     <string name="skin_preview_3d">皮肤 3D 预览</string>
     <string name="skin_rendering">正在渲染 3D…</string>
+    <string name="skin_preview_unavailable">3D 预览暂不可用（当前版本不加载网页渲染），不影响皮肤的选择与应用。</string>
     <string name="skin_select_hint">请先选择皮肤</string>
     <string name="skin_anim_idle">站立</string>
     <string name="skin_anim_walk">行走</string>

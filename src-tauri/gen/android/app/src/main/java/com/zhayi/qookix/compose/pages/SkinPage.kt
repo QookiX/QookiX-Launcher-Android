@@ -682,12 +682,26 @@ private fun SkinPreview3d(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    error != null -> Text(
-                        text = error,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                    // ⚠️ 2026-10-25（阶段 4 的连带影响）：App 已不再创建 WebView，
+                    // 而 3D 预览原本是靠 WebView 里的 skinview3d 离屏渲染、再把像素搬回来 ✗。
+                    // 现在这条链必然不可用 → 用**中性提示**说明「只是预览不可用」，
+                    // 不再用错误色 + 原始异常吓人（皮肤的选择/应用完全不受影响 ✓）。
+                    error != null -> Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(QkSpacing.md),
-                    )
+                    ) {
+                        Text(
+                            text = stringResource(R.string.skin_preview_unavailable),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(QkSpacing.xs))
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     else -> Text(
                         text = stringResource(R.string.skin_select_hint),
                         style = MaterialTheme.typography.bodyMedium,
