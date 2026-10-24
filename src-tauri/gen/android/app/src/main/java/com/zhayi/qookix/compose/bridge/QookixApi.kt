@@ -36,10 +36,20 @@ class QookixApi(private val bridge: RustBridge) {
          * 全部迁完后，`bridge.invoke` 就可以连同 WebView 一起删掉。
          */
         private val NATIVE_COMMANDS = setOf(
+            // 阶段 1（试点）
             "list_instances",
             "get_settings",
             "fetch_news",
             "list_content",
+            // 阶段 3 第一批（只读）
+            "get_instance",
+            "list_accounts",
+            "get_plugins",
+            "get_installed_mods",
+            "mc_wiki_url",
+            "get_pins",
+            "list_instance_groups",
+            "get_storage_stats",
         )
     }
 

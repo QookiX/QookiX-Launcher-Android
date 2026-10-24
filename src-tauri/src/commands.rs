@@ -140,6 +140,15 @@ pub async fn delete_instance(id: String) -> Result<(), String> {
 //
 // 阶段 1 只接 4 个命令做试点（实例列表 / 设置 / 内容列表 / 新闻）；
 // 验证通之后，再按模块把全部 58 个命令迁过来，最终删掉 Tauri。
+/// 从 JSON payload 里取第一个命中的字符串参数（兼容 camelCase 与 snake_case）。
+///
+/// Tauri 侧参数名是 camelCase（`instanceId`），Rust 形参是 snake_case
+/// （`instance_id`）；Kotlin 各处写法不统一，所以两种都认。
+fn sarg(v: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|k| v.get(*k).and_then(|x| x.as_str()).map(|s| s.to_string()))
+}
+
 pub fn native_invoke(cmd: &str, payload: &str) -> String {
     fn ok<T: serde::Serialize>(v: T) -> String {
         match serde_json::to_value(v) {
@@ -150,6 +159,10 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
     fn err(e: impl std::fmt::Display) -> String {
         serde_json::json!({ "ok": false, "error": e.to_string() }).to_string()
     }
+
+    // 参数按需取：解析失败就当空对象（有些命令无参）
+    let p: serde_json::Value =
+        serde_json::from_str(payload).unwrap_or_else(|_| serde_json::json!({}));
 
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
@@ -183,6 +196,53 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
+            // ── 只读命令（阶段 3 第一批）──────────────────────────────
+            // 这些命令都是纯查询，迁过来以后「切换页面看到空列表」这类问题
+            // 就彻底不依赖 WebView 了。
+            "get_instance" => {
+                let Some(id) = sarg(&p, &["id", "instanceId", "instance_id"]) else {
+                    return err("缺少 id");
+                };
+                match get_instance(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_accounts" => match list_accounts().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "get_plugins" => match get_plugins().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "get_installed_mods" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match get_installed_mods(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "mc_wiki_url" => {
+                let Some(name) = sarg(&p, &["name"]) else {
+                    return err("缺少 name");
+                };
+                match mc_wiki_url(name, sarg(&p, &["slug"]), sarg(&p, &["provider"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "get_pins" => ok(get_pins().await),
+            "list_instance_groups" => match list_instance_groups().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "get_storage_stats" => match get_storage_stats().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })
