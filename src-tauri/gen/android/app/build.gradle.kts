@@ -23,8 +23,8 @@ android {
         applicationId = "com.zhayi.qookix"
         minSdk = 24
         targetSdk = 36
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = 10800
+        versionName = "1.8.0"
     }
     // 签名：密钥经环境变量注入（QOOKIX_KEYSTORE 等 4 个；CI 由 GitHub Secrets 提供）。
     // **debug 也复用同一把钥匙是有意的**：这样 debug 包能直接 `adb install -r`

@@ -165,6 +165,9 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
         serde_json::json!({ "ok": false, "error": e.to_string() }).to_string()
     }
 
+    // ⚠️ 2026-10-25 诊断：导入卡死时用来判断命令到底有没有进 Rust。
+    crate::util::log_line(&format!("[native] 进入 {cmd}（{}B）", payload.len()));
+
     // 参数按需取：解析失败就当空对象（有些命令无参）
     let p: serde_json::Value =
         serde_json::from_str(payload).unwrap_or_else(|_| serde_json::json!({}));

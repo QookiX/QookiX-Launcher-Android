@@ -108,6 +108,10 @@ class RustBridge(@Suppress("unused") private val activity: Activity?) {
             }
             if (result.isFailure) {
                 Log.w(TAG, "$cmd 失败：${result.exceptionOrNull()?.message}")
+            } else {
+                // ⚠️ 2026-10-25 诊断：导入卡在「解压整合包内容 0/1」时，
+                // 需要区分「命令根本没进 Rust」与「进了 Rust 但卡住」。
+                Log.i(TAG, "← $cmd 返回（${payload.length}B 请求）")
             }
             main.post { onResult(result) }
         }.start()
