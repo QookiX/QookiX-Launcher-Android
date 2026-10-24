@@ -11,16 +11,49 @@ object TauriBridge {
     private var pojavLoaded = false
 
     init {
-        try {
-            System.loadLibrary("qookix_lib")
-            nativeLoaded = true
-            Log.i(TAG, "Native library loaded successfully")
-        } catch (e: UnsatisfiedLinkError) {
-            nativeLoaded = false
-            Log.w(TAG, "Native library not available, using Kotlin fallback")
-        }
+        nativeLoaded = loadCoreByAbsolutePath()
         // 注意：libpojavexec 不在 init 里加载。ART 必须等到 JVM 侧那份被抽出来之后，
         // 用绝对路径加载同一个文件，见 ensurePojavLoaded()。
+    }
+
+    /**
+     * 按**绝对路径**加载 `libqookix_lib.so`，失败再回退 `loadLibrary`。
+     *
+     * ## 为什么要这么写（2026-10-25）
+     *
+     * 摘掉 `tauri` 依赖后，真机报：
+     * `No implementation found for ...TauriBridge.nativeInvoke`
+     * 但用 `llvm-nm -D` 检查 **APK 里的那份 .so**，符号明明导出了 ✗ ——
+     * 说明 ART 真正加载的**不是我们构建的那份**（搜索顺序/路径问题）✗。
+     *
+     * 这里把 `java.library.path` 每段都试一遍并打日志：
+     *   · 能定位到底加载了哪个文件 ✓
+     *   · 也顺便绕开 `loadLibrary` 的搜索顺序 ✓
+     */
+    private fun loadCoreByAbsolutePath(): Boolean {
+        val name = System.mapLibraryName("qookix_lib")
+        val pathProp = System.getProperty("java.library.path").orEmpty()
+        Log.i(TAG, "java.library.path = $pathProp")
+        for (dir in pathProp.split(java.io.File.pathSeparatorChar)) {
+            if (dir.isBlank()) continue
+            val f = java.io.File(dir, name)
+            if (!f.isFile) continue
+            try {
+                System.load(f.absolutePath)
+                Log.i(TAG, "Native library loaded by path: ${f.absolutePath} (${f.length()} B)")
+                return true
+            } catch (e: UnsatisfiedLinkError) {
+                Log.w(TAG, "load 失败 ${f.absolutePath}: ${e.message}")
+            }
+        }
+        return try {
+            System.loadLibrary("qookix_lib")
+            Log.i(TAG, "Native library loaded via loadLibrary")
+            true
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native library not available, using Kotlin fallback", e)
+            false
+        }
     }
 
     /**
