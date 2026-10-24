@@ -61,6 +61,14 @@ class QookixApi(private val bridge: RustBridge) {
             "list_instance_files",
             "list_instance_dir",
             "read_instance_log",
+            // 阶段 3 第三批（写操作）
+            "delete_instance",
+            "kill_game",
+            "cancel_install",
+            "update_settings",
+            "set_pins",
+            "set_orientation",
+            "check_renderer_health",
         )
     }
 

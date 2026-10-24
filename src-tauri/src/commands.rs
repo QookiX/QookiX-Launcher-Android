@@ -327,6 +327,75 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
+            // ── 写操作（阶段 3 第三批）────────────────────────────────
+            // 注意返回值：`Result<(), String>` 成功时 data 是 `null`，
+            // Kotlin 侧 `o.get("data").toString()` 得到 "null"，
+            // 与 Tauri 对 unit 的序列化一致 ✓。
+            "delete_instance" => {
+                let Some(id) = sarg(&p, &["id", "instanceId", "instance_id"]) else {
+                    return err("缺少 id");
+                };
+                match delete_instance(id).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "kill_game" => match kill_game().await {
+                Ok(()) => ok(()),
+                Err(e) => err(e),
+            },
+            "cancel_install" => {
+                let Some(tid) = p
+                    .get("taskId")
+                    .or_else(|| p.get("task_id"))
+                    .and_then(|x| x.as_u64())
+                else {
+                    return err("缺少 taskId");
+                };
+                match cancel_install(tid).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "update_settings" => {
+                // patch 是 snake_case 的增量对象（与 Tauri 侧同形）
+                let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
+                match update_settings(patch).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "set_pins" => {
+                let items = p
+                    .get("items")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+                match serde_json::from_value::<Vec<PinItem>>(items) {
+                    Ok(items) => match set_pins(items).await {
+                        Ok(()) => ok(()),
+                        Err(e) => err(e),
+                    },
+                    Err(e) => err(format!("items 解析失败：{e}")),
+                }
+            }
+            "set_orientation" => {
+                let Some(mode) = sarg(&p, &["mode"]) else {
+                    return err("缺少 mode");
+                };
+                match set_orientation(mode).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "check_renderer_health" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match check_renderer_health(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })
