@@ -111,6 +111,27 @@ class QookixApi(private val bridge: RustBridge) {
             "set_plugin_enabled",
             "get_plugin_manifest_url",
             "set_plugin_manifest_url",
+            // 阶段 3 第八批（联机 FRP / 房间）
+            "frp_status",
+            "frp_set_api_base",
+            "frp_login_start",
+            "frp_login_poll",
+            "frp_logout",
+            "frp_user_info",
+            "frp_tunnels",
+            "frp_start_tunnel",
+            "frp_stop_tunnel",
+            "frp_probe",
+            "frp_room_nodes",
+            "frp_room_list",
+            "frp_room_detail",
+            "frp_room_create",
+            "frp_room_join",
+            "frp_room_leave",
+            "frp_room_close",
+            "frp_room_host_start",
+            "frp_room_visitor_start",
+            "frp_room_stop",
         )
     }
 
