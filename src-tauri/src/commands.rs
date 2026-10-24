@@ -599,6 +599,76 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
+            // ── 搜索 / 杂项（阶段 3 第六批）────────────────────────────
+            "browse" => {
+                let num = |keys: &[&str]| -> Option<i64> {
+                    keys.iter()
+                        .find_map(|k| p.get(*k).and_then(|x| x.as_i64()))
+                };
+                let (Some(provider), Some(project_type)) =
+                    (sarg(&p, &["provider"]), sarg(&p, &["projectType", "project_type"]))
+                else {
+                    return err("缺少 provider / projectType");
+                };
+                let query = sarg(&p, &["query"]).unwrap_or_default();
+                let category = sarg(&p, &["category"]).unwrap_or_default();
+                let page = num(&["page"]).unwrap_or(1) as i32;
+                let game_version = sarg(&p, &["gameVersion", "game_version"]).unwrap_or_default();
+                let loader = sarg(&p, &["loader"]).unwrap_or_default();
+                let sort = sarg(&p, &["sort"]).unwrap_or_default();
+                let page_size = num(&["pageSize", "page_size"]).unwrap_or(20) as i32;
+                match browse(
+                    provider,
+                    query,
+                    project_type,
+                    category,
+                    page,
+                    game_version,
+                    loader,
+                    sort,
+                    page_size,
+                )
+                .await
+                {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_mirrors" => ok(list_mirrors()),
+            "log_debug" => {
+                log_debug(sarg(&p, &["msg", "message"]).unwrap_or_default());
+                ok(())
+            }
+            "get_pojav_prefs" => match get_pojav_prefs() {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "set_pojav_prefs" => {
+                let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
+                match set_pojav_prefs(patch) {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "read_clipboard" => match read_clipboard().await {
+                Ok(v) => ok(serde_json::Value::String(v)),
+                Err(e) => err(e),
+            },
+            "write_clipboard" => {
+                let Some(text) = sarg(&p, &["text"]) else {
+                    return err("缺少 text");
+                };
+                match write_clipboard(text).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "clear_cache" => match clear_cache().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            // 注意：这条是 async（返回 Option<String>），要 await
+            "detect_system_proxy" => ok(detect_system_proxy().await),
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })

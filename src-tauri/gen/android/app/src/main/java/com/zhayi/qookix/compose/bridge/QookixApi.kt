@@ -90,6 +90,16 @@ class QookixApi(private val bridge: RustBridge) {
             "fetch_image_data_url",
             "fetch_player_skin",
             "fetch_player_capes",
+            // 阶段 3 第六批（搜索 / 杂项）
+            "browse",
+            "list_mirrors",
+            "log_debug",
+            "get_pojav_prefs",
+            "set_pojav_prefs",
+            "read_clipboard",
+            "write_clipboard",
+            "clear_cache",
+            "detect_system_proxy",
         )
     }
 
