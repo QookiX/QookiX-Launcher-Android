@@ -538,9 +538,33 @@ fun findTauriWebView(activity: Activity): WebView? {
     ) {
         val wv = findTauriWebView(activity)
         if (wv == null) {
-            // ⚠️ 这里是「用着用着突然点什么都没反应」的真正入口：
-            // WebView（含渲染进程）被游戏崩溃带走后，每条命令都在这里被判失败。
-            // 先尝试自愈（连续命中会重建界面），再如实返回失败。
+            // ⚠️⚠️ 阶段 4（2026-10-25）：**没有 WebView 是正常情况**。
+            //
+            // 现在整个 App 不再创建 WebView，但仍有若干组件（`InstancesRepo`、
+            // `TasksRepo`…）是直接调 `bridge.invoke()` 的，不走 `QookixApi`。
+            // 如果这里直接判「桥尚未就绪」，它们就会永远失败 ——
+            // 真机现象：首页一直「还没有游戏实例」+ 每秒重试刷屏 ✗。
+            //
+            // 所以在这里统一兜底：**WebView 不在就改走 JNI 直连**，
+            // 返回值形状与 Tauri 一致（裸 JSON；字符串结果带引号），
+            // 上层完全无感 ✓。
+            val jni = try {
+                val raw = com.zhayi.qookix.tauri.TauriBridge.nativeInvoke(cmd, payload)
+                val o = JSONObject(raw)
+                if (o.optBoolean("ok")) {
+                    o.get("data").toString()
+                } else {
+                    null
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "$cmd JNI 兜底失败", t)
+                null
+            }
+            if (jni != null) {
+                onResult(Result.success(jni))
+                return
+            }
+            // JNI 也不可用（真异常）→ 才报「桥尚未就绪」，并尝试自愈
             noteDeadBridge()
             onResult(Result.failure(IllegalStateException(activity.getString(R.string.bridge_not_ready))))
             return
