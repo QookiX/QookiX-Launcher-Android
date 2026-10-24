@@ -155,6 +155,18 @@ fn iarg(v: &serde_json::Value, keys: &[&str]) -> Option<i64> {
         .find_map(|k| v.get(*k).and_then(|x| x.as_i64()))
 }
 
+/// 从 JSON payload 里取字符串数组（例如 `slugs` / `rawIds`）。
+fn svec(v: &serde_json::Value, keys: &[&str]) -> Vec<String> {
+    keys.iter()
+        .find_map(|k| v.get(*k).and_then(|x| x.as_array()))
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn native_invoke(cmd: &str, payload: &str) -> String {
     fn ok<T: serde::Serialize>(v: T) -> String {
         match serde_json::to_value(v) {
@@ -1019,6 +1031,218 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     return err("缺少 address");
                 };
                 ok(ping_mc_server(addr).await)
+            }
+            // ── 存档备份 / 导出 / 更新 / 翻译 / 杂项（阶段 3 第十批）────
+            "get_download_progress" => {
+                let Some(tid) = sarg(&p, &["taskId", "task_id"]) else {
+                    return err("缺少 taskId");
+                };
+                match get_download_progress(tid).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "plan_modpack_export" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match plan_modpack_export(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "export_modpack" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                let options = p
+                    .get("options")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                match serde_json::from_value::<crate::modpack::ExportOptions>(options) {
+                    Ok(opts) => match export_modpack(id, opts).await {
+                        Ok(v) => ok(v),
+                        Err(e) => err(e),
+                    },
+                    Err(e) => err(format!("options 解析失败：{e}")),
+                }
+            }
+            "translate_mod_descriptions" => {
+                let Some(provider) = sarg(&p, &["provider"]) else {
+                    return err("缺少 provider");
+                };
+                match translate_mod_descriptions(provider, svec(&p, &["slugs"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "translate_project_body" => {
+                let (Some(provider), Some(slug)) = (sarg(&p, &["provider"]), sarg(&p, &["slug"]))
+                else {
+                    return err("缺少 provider / slug");
+                };
+                let translate = p.get("translate").and_then(|x| x.as_bool()).unwrap_or(true);
+                match translate_project_body(provider, slug, translate).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "estimate_download" => {
+                let Some(mc) = sarg(&p, &["mcVersion", "mc_version"]) else {
+                    return err("缺少 mcVersion");
+                };
+                match estimate_download(mc).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "estimate_import" => {
+                let Some(source) = sarg(&p, &["source"]) else {
+                    return err("缺少 source");
+                };
+                match estimate_import(source, svec(&p, &["rawIds", "raw_ids"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "analyze_crash_log" => {
+                let (Some(id), Some(fname)) =
+                    (sarg(&p, &["id"]), sarg(&p, &["filename"]))
+                else {
+                    return err("缺少 id / filename");
+                };
+                match analyze_crash_log(id, fname).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "get_crash_report_content" => {
+                let (Some(id), Some(fname)) =
+                    (sarg(&p, &["id"]), sarg(&p, &["filename"]))
+                else {
+                    return err("缺少 id / filename");
+                };
+                match get_crash_report_content(id, fname).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "create_world_backup" => {
+                let (Some(id), Some(world)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["world"]),
+                ) else {
+                    return err("缺少 instanceId / world");
+                };
+                match create_world_backup(id, world).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "restore_world_backup" => {
+                let (Some(id), Some(world), Some(fname)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["world"]),
+                    sarg(&p, &["filename"]),
+                ) else {
+                    return err("缺少 instanceId / world / filename");
+                };
+                match restore_world_backup(id, world, fname).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "delete_world_backup" => {
+                let (Some(id), Some(world), Some(fname)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["world"]),
+                    sarg(&p, &["filename"]),
+                ) else {
+                    return err("缺少 instanceId / world / filename");
+                };
+                match delete_world_backup(id, world, fname).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "check_updates" => {
+                let (Some(id), Some(kind)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["kind"]),
+                ) else {
+                    return err("缺少 instanceId / kind");
+                };
+                match check_updates(id, kind).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "apply_update" => {
+                let (Some(id), Some(kind), Some(old)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["kind"]),
+                    sarg(&p, &["oldFilename", "old_filename"]),
+                ) else {
+                    return err("缺少 instanceId / kind / oldFilename");
+                };
+                let (Some(provider), Some(pid), Some(nvid)) = (
+                    sarg(&p, &["provider"]),
+                    sarg(&p, &["projectId", "project_id"]),
+                    sarg(&p, &["newVersionId", "new_version_id"]),
+                ) else {
+                    return err("缺少 provider / projectId / newVersionId");
+                };
+                match apply_update(id, kind, old, provider, pid, nvid).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "import_local_file" => {
+                let (Some(id), Some(kind), Some(src)) = (
+                    sarg(&p, &["instanceId", "instance_id", "id"]),
+                    sarg(&p, &["kind"]),
+                    sarg(&p, &["sourcePath", "source_path"]),
+                ) else {
+                    return err("缺少 instanceId / kind / sourcePath");
+                };
+                match import_local_file(id, kind, src).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "save_text_file" => {
+                let (Some(path), Some(content)) = (sarg(&p, &["path"]), sarg(&p, &["content"]))
+                else {
+                    return err("缺少 path / content");
+                };
+                match save_text_file(path, content).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "extract_game_icons" => {
+                match extract_game_icons(sarg(&p, &["instanceId", "instance_id"])).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "resolve_picked_path" => {
+                let Some(path) = sarg(&p, &["path"]) else {
+                    return err("缺少 path");
+                };
+                match resolve_picked_path(path).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "export_instance_logs" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match export_instance_logs(id).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
             }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }

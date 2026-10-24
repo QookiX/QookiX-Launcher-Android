@@ -149,6 +149,26 @@ class QookixApi(private val bridge: RustBridge) {
             "install_server_content",
             "install_server_plugin",
             "ping_mc_server",
+            // 阶段 3 第十批（存档备份 / 导出 / 更新 / 翻译 / 杂项）
+            "get_download_progress",
+            "plan_modpack_export",
+            "export_modpack",
+            "translate_mod_descriptions",
+            "translate_project_body",
+            "estimate_download",
+            "estimate_import",
+            "analyze_crash_log",
+            "get_crash_report_content",
+            "create_world_backup",
+            "restore_world_backup",
+            "delete_world_backup",
+            "check_updates",
+            "apply_update",
+            "import_local_file",
+            "save_text_file",
+            "extract_game_icons",
+            "resolve_picked_path",
+            "export_instance_logs",
         )
     }
 
