@@ -706,6 +706,19 @@ fun StoragePane(
             }
         }
 
+        // ⚠️ 2026-10-25（真机事故）：默认目录在**应用私有空间**（/data/data/…），
+        // 卸载 App 或"清除数据"会把实例、模组、**存档**一起删掉 ✗。
+        // 那次一次 `adb uninstall` 就清空了 157 个模组和全部存档。
+        // 所以在用默认目录时明确警示，并引导换到外部存储。
+        if (state.dataDir.isBlank()) {
+            Text(
+                text = stringResource(R.string.settings_storage_default_dir_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 6.dp),
+            )
+        }
+
         // 选择结果提示（成功/失败）
         dirMessage?.let { msg ->
             Text(

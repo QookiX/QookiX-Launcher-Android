@@ -692,6 +692,7 @@
     <string name="settings_storage_location_group">位置</string>
     <string name="settings_storage_game_dir">游戏目录</string>
     <string name="settings_storage_default_dir">默认（应用私有目录）</string>
+    <string name="settings_storage_default_dir_warning">⚠️ 应用私有目录会随卸载或「清除数据」一起删除，实例与存档都会丢失。建议换到外部存储（例如 /sdcard/QookiX）。</string>
     <string name="settings_storage_effective_group">当前生效</string>
     <string name="settings_storage_effective_root">数据根目录</string>
     <string name="settings_storage_instances_dir">实例目录</string>
