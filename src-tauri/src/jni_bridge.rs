@@ -48,7 +48,20 @@ pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeAttach(
 ) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         match env.get_java_vm() {
-            Ok(vm) => crate::android_bridge::init(vm, &mut env, &activity),
+            Ok(vm) => {
+                crate::android_bridge::init(vm, &mut env, &activity);
+                // ⚠️ 阶段 4（2026-10-25）：进程级初始化从 Tauri 的 `setup()` 迁到这里。
+                //
+                // 原来在 `lib.rs::run()` 的 `.setup(|app| ...)` 里做，但那条路要求
+                // 启动 Tauri 运行时（也就是创建 WebView ✗）。现在 App 不创建 WebView，
+                // `run()` 不再被调用，所以必须在这里补上 —— 否则「休眠中的服务器
+                // 重新挂唤醒监听 / 运行中的重新开始空闲巡检」会**静默失效** ✗。
+                //
+                // 用 catch_unwind 包一层：初始化失败不能连累 Activity 启动。
+                let _ = std::panic::catch_unwind(|| {
+                    crate::sleep::resume_on_start();
+                });
+            }
             Err(e) => tracing::warn!("nativeAttach: 获取 JavaVM 失败: {e}"),
         }
     }));
