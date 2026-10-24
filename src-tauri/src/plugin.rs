@@ -501,6 +501,52 @@ pub fn list(data_dir: &str) -> Vec<PluginInfo> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// 从清单安装或更新插件（按本机 ABI 选包）。
+/// 把解包好的暂存目录**稳定地**搬到最终位置。
+///
+/// ## 为什么不能只用 `fs::rename`（真机事故 2026-10-25）
+///
+/// 首启安装插件 `qookix-components-lwjgl341` 报：
+/// `落盘失败：No such file or directory (os error 2)`
+/// —— `rename` 在两种情况下会这样失败：
+/// ① 目标父目录不存在（暂存目录建好了，最终目录的父级没建）；
+/// ② 暂存与目标**不在同一个文件系统**（安卓上 `/data` 与 `/sdcard` 就是两个，
+///    跨设备 rename 直接 EXDEV/ENOENT）。
+///
+/// 所以这里统一：先补建父目录 → 试 rename → 失败就退化成"递归复制 + 删暂存"。
+fn move_into_place(staging: &std::path::Path, final_dir: &std::path::Path) -> Result<(), String> {
+    if let Some(parent) = final_dir.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建目标父目录失败：{e}"))?;
+    }
+    // 目标若已存在（重装），先清掉，避免 rename 覆盖失败
+    if final_dir.exists() {
+        let _ = std::fs::remove_dir_all(final_dir);
+    }
+    match std::fs::rename(staging, final_dir) {
+        Ok(()) => Ok(()),
+        Err(rename_err) => {
+            copy_dir_recursive(staging, final_dir)
+                .map_err(|e| format!("落盘失败：{rename_err}；复制也失败：{e}"))?;
+            let _ = std::fs::remove_dir_all(staging);
+            Ok(())
+        }
+    }
+}
+
+/// 递归复制目录（`rename` 跨文件系统失败时的兜底）。
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
 pub async fn install(data_dir: &str, id: &str) -> Result<(), String> {
     let manifest = fetch_manifest(data_dir, false).await?;
     let spec = manifest
@@ -561,7 +607,7 @@ pub async fn install(data_dir: &str, id: &str) -> Result<(), String> {
     if final_dir.exists() {
         let _ = std::fs::remove_dir_all(&final_dir);
     }
-    std::fs::rename(&staging, &final_dir).map_err(|e| format!("落盘失败：{e}"))?;
+    move_into_place(&staging, &final_dir)?;
     let _ = std::fs::remove_file(&zip_path);
 
     // 4) 写状态（启用），清掉旧版本目录
@@ -619,7 +665,7 @@ pub async fn install_from_zip(data_dir: &str, zip: &str) -> Result<String, Strin
     if final_dir.exists() {
         let _ = std::fs::remove_dir_all(&final_dir);
     }
-    std::fs::rename(&staging, &final_dir).map_err(|e| format!("落盘失败：{e}"))?;
+    move_into_place(&staging, &final_dir)?;
 
     write_state(
         data_dir,
