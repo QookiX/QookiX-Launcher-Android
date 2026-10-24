@@ -300,6 +300,10 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
 
         let game_dir = instance.game_dir.clone();
 
+        // 整合包自带的 options.txt 里可能有 `fullscreen:off` 这种非法布尔值，
+        // 游戏会报 "Not a boolean: off" 并丢掉该设置 —— 启动前顺手改正。
+        normalize_options_txt(Path::new(&game_dir));
+
         // Minecraft 的 Log4j 不会自己创建 logs/ 目录，缺了会直接
         // `FileNotFoundException: logs/latest.log`（游戏仍会继续，但日志丢失）。
         for sub in [
@@ -972,6 +976,73 @@ pub fn get_game_status() -> GameStatus {
 /// 文件上，跑完再恢复 —— 这是唯一能在不改启动方式的前提下拿到 JVM 死因的办法。
 ///
 /// 只在 unix 下有效；其它平台返回 `None`（不影响启动）。
+/// 修正 `options.txt` 里**非法的布尔值**（`on` / `off` → `true` / `false`）。
+///
+/// ## 为什么需要（真机日志）
+///
+/// 整合包自带的 `options.txt` 里写着 `fullscreen:off`，游戏启动时报：
+///
+/// ```text
+/// Error parsing option value off for option Fullscreen: Not a boolean: "off"
+/// ```
+///
+/// 这不是致命错误，但会让该选项回落到默认值（用户改过的设置被悄悄丢掉 ✓），
+/// 而且日志里很难看出是"包里的文件不合法"✓。启动前顺手改掉即可。
+///
+/// 只动**已知的布尔键**，其它行原样保留（避免把 `key:on` 这种合法枚举误改 ✓）。
+fn normalize_options_txt(game_dir: &Path) {
+    const BOOL_KEYS: [&str; 8] = [
+        "fullscreen",
+        "invertYMouse",
+        "pauseOnLostFocus",
+        "showSubtitles",
+        "realmsNotifications",
+        "autoJump",
+        "enableVsync",
+        "fullscreenMode",
+    ];
+    let path = game_dir.join("options.txt");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return; // 还没有这个文件，正常
+    };
+    let mut fixed = 0usize;
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        let mut handled = false;
+        for key in BOOL_KEYS {
+            if let Some(rest) = line.strip_prefix(key).and_then(|r| r.strip_prefix(':')) {
+                let v = rest.trim();
+                let norm = match v.to_ascii_lowercase().as_str() {
+                    "on" | "yes" => Some("true"),
+                    "off" | "no" => Some("false"),
+                    _ => None,
+                };
+                if let Some(n) = norm {
+                    out.push_str(&format!("{key}:{n}\n"));
+                } else {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+                fixed += 1;
+                handled = true;
+                break;
+            }
+        }
+        if !handled {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if fixed > 0 {
+        match std::fs::write(&path, out) {
+            Ok(()) => crate::util::log_line(&format!(
+                "[launcher] options.txt 已规整（on/off → true/false，共 {fixed} 行）"
+            )),
+            Err(e) => crate::util::log_line(&format!("[launcher] options.txt 写回失败：{e}")),
+        }
+    }
+}
+
 pub(crate) fn redirect_output_to_file(
     path: &std::path::Path,
     instance_id: &str,
