@@ -1556,6 +1556,263 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
+            // ── 开服（hosted server）+ rcon（阶段 3 第九批）──────────────
+            // 注意：这些命令定义在 `servers` 模块（lib.rs 里注册为 `servers::xxx`），
+            // 不在本文件里，所以要写全路径 `crate::servers::`。
+            "list_hosted_servers" => ok(crate::servers::list_hosted_servers()),
+            "get_hosted_server" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::servers::get_hosted_server(id) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "create_hosted_server" => {
+                let (Some(name), Some(core), Some(mc)) = (
+                    sarg(&p, &["name"]),
+                    sarg(&p, &["core"]),
+                    sarg(&p, &["mcVersion", "mc_version"]),
+                ) else {
+                    return err("缺少 name / core / mcVersion");
+                };
+                match crate::servers::create_hosted_server(name, core, mc) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "update_hosted_server" => {
+                let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
+                match crate::servers::update_hosted_server(patch) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "delete_hosted_server" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::servers::delete_hosted_server(id) {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "suggest_server_memory" => ok(crate::servers::suggest_server_memory()),
+            "list_paper_versions" => match crate::servers::list_paper_versions().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            // 下面几条返回 Result<String,_>，按 Tauri 形状再包一层字符串 ✓
+            "install_hosted_server_core" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::servers::install_hosted_server_core(id).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "start_hosted_server" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::servers::start_hosted_server(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "stop_hosted_server" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::servers::stop_hosted_server(id).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "is_hosted_server_running" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                ok(crate::servers::is_hosted_server_running(id))
+            }
+            "read_hosted_server_log" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                ok(crate::servers::read_hosted_server_log(id))
+            }
+            "server_console_command" => {
+                let (Some(id), Some(command)) = (sarg(&p, &["id"]), sarg(&p, &["command"]))
+                else {
+                    return err("缺少 id / command");
+                };
+                match crate::servers::server_console_command(id, command) {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "hosted_server_runtime" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                ok(crate::servers::hosted_server_runtime(id))
+            }
+            "hosted_server_log" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                let lines = iarg(&p, &["lines"]).map(|n| n as usize);
+                match crate::servers::hosted_server_log(id, lines) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "hosted_server_address" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                ok(crate::servers::hosted_server_address(id))
+            }
+            "hosted_server_addresses" => ok(crate::servers::hosted_server_addresses()),
+            "device_available_memory_mb" => ok(crate::servers::device_available_memory_mb()),
+            "battery_unrestricted" => ok(crate::servers::battery_unrestricted()),
+            // ── 开服属性 / 目录 + 控制布局（阶段 3 第十批）──────────────
+            "get_hosted_server_properties" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::servers::get_hosted_server_properties(id) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "set_hosted_server_properties" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
+                match crate::servers::set_hosted_server_properties(id, patch) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "hosted_server_core_installed" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                ok(crate::servers::hosted_server_core_installed(id))
+            }
+            "open_hosted_server_directory" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::servers::open_hosted_server_directory(id) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            // 控制布局（全部 async）
+            "get_control_buttons" => match crate::controls::get_control_buttons().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "set_control_button_passthru" => {
+                let (Some(index), Some(enabled)) = (
+                    iarg(&p, &["index"]),
+                    p.get("enabled").and_then(|x| x.as_bool()),
+                ) else {
+                    return err("缺少 index / enabled");
+                };
+                match crate::controls::set_control_button_passthru(index as usize, enabled).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_control_layouts" => match crate::controls::list_control_layouts().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "set_current_control_layout" => {
+                let Some(name) = sarg(&p, &["name"]) else {
+                    return err("缺少 name");
+                };
+                match crate::controls::set_current_control_layout(name).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "duplicate_control_layout" => {
+                let (Some(name), Some(new_name)) =
+                    (sarg(&p, &["name"]), sarg(&p, &["newName", "new_name"]))
+                else {
+                    return err("缺少 name / newName");
+                };
+                match crate::controls::duplicate_control_layout(name, new_name).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "rename_control_layout" => {
+                let (Some(name), Some(new_name)) =
+                    (sarg(&p, &["name"]), sarg(&p, &["newName", "new_name"]))
+                else {
+                    return err("缺少 name / newName");
+                };
+                match crate::controls::rename_control_layout(name, new_name).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "delete_control_layout" => {
+                let Some(name) = sarg(&p, &["name"]) else {
+                    return err("缺少 name");
+                };
+                match crate::controls::delete_control_layout(name).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "open_control_layout_editor" => {
+                let preview = p.get("preview").and_then(|x| x.as_bool()).unwrap_or(false);
+                match crate::controls::open_control_layout_editor(
+                    sarg(&p, &["layout"]),
+                    preview,
+                    sarg(&p, &["saveAs", "save_as"]),
+                )
+                .await
+                {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "export_control_layout" => {
+                let Some(name) = sarg(&p, &["name"]) else {
+                    return err("缺少 name");
+                };
+                match crate::controls::export_control_layout(name).await {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
+            "pick_control_layout" => match crate::controls::pick_control_layout().await {
+                Ok(()) => ok(()),
+                Err(e) => err(e),
+            },
+            "take_control_import" => match crate::controls::take_control_import().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "import_control_layout_by_path" => {
+                let Some(path) = sarg(&p, &["path", "filePath", "file_path"]) else {
+                    return err("缺少 path");
+                };
+                match crate::controls::import_control_layout_by_path(path).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })
