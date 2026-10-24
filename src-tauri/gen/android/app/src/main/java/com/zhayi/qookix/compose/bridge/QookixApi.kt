@@ -50,6 +50,17 @@ class QookixApi(private val bridge: RustBridge) {
             "get_pins",
             "list_instance_groups",
             "get_storage_stats",
+            // 阶段 3 第二批（只读）
+            "get_version_list",
+            "get_loader_versions",
+            "list_crash_logs",
+            "list_skins",
+            "list_servers",
+            "list_world_backups",
+            "playtime_stats",
+            "list_instance_files",
+            "list_instance_dir",
+            "read_instance_log",
         )
     }
 

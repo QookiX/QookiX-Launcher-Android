@@ -243,6 +243,90 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
             },
+            // ── 只读命令（阶段 3 第二批）──────────────────────────────
+            "get_version_list" => match get_version_list().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "get_loader_versions" => {
+                let Some(loader) = sarg(&p, &["loader"]) else {
+                    return err("缺少 loader");
+                };
+                let Some(mc) = sarg(&p, &["mcVersion", "mc_version"]) else {
+                    return err("缺少 mcVersion");
+                };
+                match get_loader_versions(loader, mc).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_crash_logs" => {
+                let Some(id) = sarg(&p, &["id", "instanceId", "instance_id"]) else {
+                    return err("缺少 id");
+                };
+                match list_crash_logs(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_skins" => match list_skins().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "list_servers" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match list_servers(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_world_backups" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                let Some(world) = sarg(&p, &["world"]) else {
+                    return err("缺少 world");
+                };
+                match list_world_backups(id, world).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "playtime_stats" => match playtime_stats().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "list_instance_files" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                let sub = sarg(&p, &["sub"]).unwrap_or_default();
+                match list_instance_files(id, sub).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_instance_dir" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                let rel = sarg(&p, &["rel"]).unwrap_or_default();
+                match list_instance_dir(id, rel).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "read_instance_log" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match read_instance_log(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })
