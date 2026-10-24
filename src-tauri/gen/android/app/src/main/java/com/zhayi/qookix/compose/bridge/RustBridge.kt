@@ -548,25 +548,44 @@ fun findTauriWebView(activity: Activity): WebView? {
             // 所以在这里统一兜底：**WebView 不在就改走 JNI 直连**，
             // 返回值形状与 Tauri 一致（裸 JSON；字符串结果带引号），
             // 上层完全无感 ✓。
-            val jni = try {
-                val raw = com.zhayi.qookix.tauri.TauriBridge.nativeInvoke(cmd, payload)
-                val o = JSONObject(raw)
-                if (o.optBoolean("ok")) {
-                    o.get("data").toString()
-                } else {
+            // ⚠️⚠️ 2026-10-25（真机 ANR）：**命令必须放到后台线程**。
+            //
+            // 原来的写法是同步调 `nativeInvoke` 再 `onResult` —— 但很多调用点
+            // （`InstancesRepo` / `TasksRepo` …）是在**主线程**调 `invoke()` 的 ✗，
+            // 而部分命令要读磁盘/网络（`check_instance_files`、`list_instances`…），
+            // 主线程被阻塞 → **ANR**（真机弹出「应用无响应」，之后所有点击都失效 ✗）。
+            //
+            // 现在：后台线程跑 JNI → 结果回主线程回调，行为与旧 WebView 通道一致
+            //（旧通道的回调本来就在主线程）。
+            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            Thread {
+                val jni = try {
+                    val raw = com.zhayi.qookix.tauri.TauriBridge.nativeInvoke(cmd, payload)
+                    val o = JSONObject(raw)
+                    if (o.optBoolean("ok")) {
+                        o.get("data").toString()
+                    } else {
+                        Log.w(TAG, "$cmd 命令失败：${o.optString("error")}")
+                        null
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "$cmd JNI 兜底失败", t)
                     null
                 }
-            } catch (t: Throwable) {
-                Log.w(TAG, "$cmd JNI 兜底失败", t)
-                null
-            }
-            if (jni != null) {
-                onResult(Result.success(jni))
-                return
-            }
-            // JNI 也不可用（真异常）→ 才报「桥尚未就绪」，并尝试自愈
-            noteDeadBridge()
-            onResult(Result.failure(IllegalStateException(activity.getString(R.string.bridge_not_ready))))
+                mainHandler.post {
+                    if (jni != null) {
+                        onResult(Result.success(jni))
+                    } else {
+                        // JNI 也不可用（真异常）→ 才报「桥尚未就绪」，并尝试自愈
+                        noteDeadBridge()
+                        onResult(
+                            Result.failure(
+                                IllegalStateException(activity.getString(R.string.bridge_not_ready))
+                            )
+                        )
+                    }
+                }
+            }.start()
             return
         }
         // 桥还没就绪：先排队，等 start() 的 onReady 之后统一补发。

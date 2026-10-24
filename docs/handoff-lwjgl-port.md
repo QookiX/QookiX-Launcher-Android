@@ -26,23 +26,50 @@
   Zink + Turnip 渲染器（插件 `qookix-renderer-zink-osmesa` + `qookix-driver-turnip`）60 FPS 渲染，
   窗口创建、资源重载完成，无任何 Pojav 中止。
 
-### 实验遗留的独立问题（与 LWJGL/Sodium 无关）—— 排查记录（2026-10-24）
+### 实验遗留的独立问题（与 LWJGL/Sodium 无关）—— 排查记录（2026-10-24/25）
 
 进主菜单前的红色 Mojang 加载屏**长时间不消失**（>50 分钟），Render 线程与
 "KubeJS 2101.7.2" 线程持续 100% CPU。已查明：
 - KubeJS 脚本本身 2.3s 就加载完了（`logs/kubejs/*.log`），不是脚本慢；
 - 资源重载已完成（`Client resource reload complete!`），且
-  `[ModernFix] Game took 193.171 seconds to start` + `[FANCYMENU] title_screen 注册`
-  出现在 16:44:01 —— **TitleScreen 已构造，只是 LoadingOverlay 不退场**；
-- 该实例 `total_play_time=0`，历史上从未进过主菜单（GL4ES 时代同样失败），
-  无法确定卡屏是否 Sodium/zink 引入；
-- 尝试过的诊断手段：
-  - `kill -3`（SIGQUIT 线程 dump）→ 信号被 ART 吃掉，无输出；
-  - `.attach_pid` + SIGQUIT（hotspot attach）→ 同样无效；
-  - `-agentlib:jdwp`（经 settings.json 的全局 jvm_args）→ **JVM 卡死在初始化**，
-    Pojav JRE 上不可用，已回退；
-- 下一步建议：二分禁用 mod（首选 kubejs、forgematica/mafglib、immediatelyfast），
-  或在 `launch.rs` 的 jvm args 里临时加 JVM TI agent 抓栈。
+  `[ModernFix] Game took ~130 seconds to start` + `[FANCYMENU] title_screen 注册`
+  —— **TitleScreen 已构造，只是 LoadingOverlay 不退场**；
+- 稳定复现（三轮：DNS 修复前后都一样），但该实例历史上从未进过主菜单；
+- "KubeJS 2101.7.2" 线程 = ScriptType 的单线程 executor（2101.x 用
+  `new Thread(r, "KubeJS " + VERSION)` 命名）。空闲时它应该 sleep 等队列，
+  现在 100% 满转说明有个任务死循环，但没有栈无法定位。
+
+**抓 Java 线程栈在安卓上全部失败**（内嵌 HotSpot 的线程 ART 管不到）：
+- `kill -3`（SIGQUIT → hotspot dump）：信号被 ART 的 sigchain 吃掉，无输出；
+- `.attach_pid` + SIGQUIT（hotspot attach listener）：同样无效；
+- `/data/anr/trace_*`：只有 ART/Kotlin 线程栈，没有 JVM 的；
+- `-agentlib:jdwp`（settings.json 全局 jvm_args）：JVM 卡死在初始化，不可用。
+
+**下一步（定案）**：在本仓库 `jni/` 里写一个 **JVM TI agent**（`-agentlib` 加载，
+起 127.0.0.1 TCP 服务，收到请求就调 `GetAllStackTraces` dump 全部 Java 线程），
+这是唯一可靠拿到 Render thread / KubeJS 线程栈的路。拿到栈后二分修复。
+
+**二分 mod 的一个坑**：先别急着禁 mod —— JLI_Launch 有个「第一次失败 exit code 1
+→ 同进程重试(+1 arg)」的固有模式（历史日志都有）。当第一次尝试失败得太晚
+（已经 dlopen 了 liblwjgl.so）时，重试会撞 `already loaded in another classloader`
+直接 SIGABRT(-6) —— 这是**启动器 bug**（重试应该换进程），与 mod 无关，
+排查时看到 -6 别误判成 mod 问题。
+
+**另一个坑**：2026-10-24 22:30:19 有一个**外部 adb 客户端重装了 APK**
+（`lastUpdateTime=22:30:19`，`installPackageLI` 把正在跑的游戏杀掉）——
+用户侧可能开着别的 IDE/工具在自动装包，复现问题时注意排除。
+
+### ZL2（ZalithLauncher2）对照结论（2026-10-25 查源码）
+
+- ZL2 同样设 `POJAV_RENDERER` → 它靠 **`-Dsodium.checks.issue2561=false`**
+  关掉 PreLaunchChecks 的 LWJGL 版本串检查（`BugChecks.ISSUE_2561` 把门）。
+  该开关**管不到** PostLaunchChecks 的 `POJAV_RENDERER` 环境变量检测 ——
+  我们的 QOOKIX_RENDERER 改名依然是必须的，两者互补。已加进默认 JVM 参数。
+- ZL2 用 `-Dext.net.resolvPath` 指向自写的 resolv.conf 解决游戏内 DNS
+  （安卓没有 /etc/resolv.conf，Pojav 系 JRE 的 DNS 补丁读这个属性）。
+  已抄：`android_env.rs::ensure_resolv_conf`（223.5.5.5 / 119.29.29.29 / 8.8.8.8）
+  + `launch.rs` 加 `-Dext.net.resolvPath`。**已验证生效**：163 个 mod 的版本检查
+  从全部超时变成正常返回（日志可见 `Found status: OUTDATED/BETA`）。
 
 ### 设备上做过的临时改动（复现/回退用）
 
@@ -51,6 +78,7 @@
 | 实例渲染器设为 `vulkan_zink` | `instance.json` 的 `"renderer"`（原 null） |
 | 实例别名 `testlwjgl` | `instance.json` 的 `"alias"`（原 null） |
 | sodium / sodium-extra / reeses 移回 `mods/` | iris、podium 仍在 `mods.disabled/` |
+| **kubejs 暂禁用**（排查中移入 `mods.disabled/`，结论未出，验收前记得移回） | `mods.disabled/kubejs-neoforge-2101.7.2-build.377.jar` |
 | Zink+Turnip 插件手动安装 | `files/plugins/qookix-renderer-zink-osmesa/`、`files/plugins/qookix-driver-turnip/`（state.json + 1.0.1/libs/，等价于「设置 → 插件」安装） |
 | 离线账号 `Tester123` | `files/accounts/3eef578c-343e-34ae-9ad4-2be348cfe932.json`（UUID v3 of `OfflinePlayer:Tester123`） |
 
