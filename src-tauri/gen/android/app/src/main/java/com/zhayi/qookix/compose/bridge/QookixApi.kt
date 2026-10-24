@@ -27,6 +27,20 @@ class QookixApi(private val bridge: RustBridge) {
 
     companion object {
         private const val TAG = "QookixApi"
+
+        /**
+         * 已迁移到 **JNI 直连**（不经 WebView）的命令白名单。
+         *
+         * 迁移原则：先挑「纯查询、无副作用、调用频繁」的命令做试点，
+         * 每迁一个就在 Rust `commands::native_invoke` 里补一条 match。
+         * 全部迁完后，`bridge.invoke` 就可以连同 WebView 一起删掉。
+         */
+        private val NATIVE_COMMANDS = setOf(
+            "list_instances",
+            "get_settings",
+            "fetch_news",
+            "list_content",
+        )
     }
 
     // ── 通用调用工具 ──────────────────────────────────────────────────────
@@ -43,6 +57,34 @@ class QookixApi(private val bridge: RustBridge) {
         onResult: (Result<String>) -> Unit,
     ) {
         val json = payload?.toString() ?: "{}"
+
+        // ⚠️ 阶段 1（2026-10-24）：白名单内的命令**不再经过隐藏 WebView**。
+        //
+        // 原来的 `bridge.invoke()` 依赖 WebView 里的 `index.html` 把消息送进 Rust，
+        // 那个网页/渲染进程一有问题，就是「桥尚未就绪 → 点了没反应」（真机反复遇到）。
+        // 这里改走 JNI 直连 `TauriBridge.nativeInvoke` → Rust `commands::native_invoke`，
+        // **完全不碰 WebView**。返回值形状与 Tauri 保持一致（裸 JSON），
+        // 所以上层调用方一行都不用改。
+        if (cmd in NATIVE_COMMANDS) {
+            Log.i(TAG, "$cmd → JNI 直连（不经 WebView）")
+            Thread {
+                val r = runCatching {
+                    val raw = com.zhayi.qookix.tauri.TauriBridge.nativeInvoke(cmd, json)
+                    val o = JSONObject(raw)
+                    if (o.optBoolean("ok")) {
+                        o.get("data").toString()
+                    } else {
+                        throw IllegalStateException(o.optString("error", "未知错误"))
+                    }
+                }
+                if (r.isFailure) {
+                    Log.w(TAG, "$cmd 失败（native）: ${r.exceptionOrNull()?.message}")
+                }
+                onResult(r)
+            }.start()
+            return
+        }
+
         bridge.invoke(cmd, json) { r ->
             if (r.isFailure) {
                 Log.w(TAG, "$cmd 失败: ${r.exceptionOrNull()?.message}")
