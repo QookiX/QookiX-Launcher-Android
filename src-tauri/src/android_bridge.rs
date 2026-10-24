@@ -219,6 +219,22 @@ pub fn vpn_consent_granted() -> bool {
         .unwrap_or(false)
 }
 
+/// 把事件推给 Kotlin（阶段 2 的 JNI 事件通道）。
+///
+/// Rust 侧所有业务事件（进度、状态、日志行）现在统一走这里，
+/// 由 Kotlin `RustBridge.deliverEvent` 分发给页面订阅者，
+/// 不再依赖隐藏 WebView 里的 JS 通道（那条断了就是「界面不动」）。
+#[cfg(target_os = "android")]
+pub fn push_event_to_kotlin(event: &str, json: &str) -> Option<()> {
+    android::call_activity2(
+        "onCoreEvent",
+        "(Ljava/lang/String;Ljava/lang/String;)V",
+        event,
+        json,
+    )
+    .map(|_| ())
+}
+
 /// 让 Kotlin 侧的 `JvmInstallService`（`:jvm` 独立进程）跑一次 JVM。
 ///
 /// 用于 Forge/NeoForge 的 installer / processors：这些必须用 JVM 跑，但安卓禁止

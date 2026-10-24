@@ -796,6 +796,26 @@ extern "C" {
     fn __system_property_get(name: *const std::os::raw::c_char, value: *mut std::os::raw::c_char) -> std::os::raw::c_int;
 }
 
+/// 写出 `<data>/resolv.conf`（游戏内 DNS 用的）。
+///
+/// 安卓没有 `/etc/resolv.conf`，Pojav 系 JRE 的 DNS 补丁靠 `-Dext.net.resolvPath`
+/// （见 `launch.rs`）指到一个我们自己写的文件。不写的话游戏内所有域名解析失败 ——
+/// 之前 163 个 mod 的版本检查全部 `HTTP connect timed out` 就是它。
+///
+/// DNS 服务器怎么选抄 ZalithLauncher2：系统 DNS 在安卓侧拿不到（要 ConnectivityManager），
+/// 退而求其次直接给对国内友好的公共 DNS（本项目用户以国内为主）；解析不了也只影响
+/// 联网功能，不影响进游戏。
+pub fn ensure_resolv_conf(data_dir: &str) -> std::io::Result<()> {
+    const CONTENT: &str = "nameserver 223.5.5.5\nnameserver 119.29.29.29\nnameserver 8.8.8.8\n";
+    let path = Path::new(data_dir).join("resolv.conf");
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        if existing == CONTENT {
+            return Ok(());
+        }
+    }
+    std::fs::write(&path, CONTENT)
+}
+
 /// 把 fd 1 / fd 2 重定向到日志文件。
 /// 安卓上应用进程的 stdout 默认进 /dev/null，不重定向等于完全没有游戏日志。
 pub fn redirect_output(log_path: &Path) -> std::io::Result<()> {

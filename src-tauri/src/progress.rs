@@ -109,12 +109,27 @@ impl TaskCtx {
     }
 }
 
+/// 把一个事件**同时**推给 Kotlin（JNI 直连）与 Tauri（过渡期兜底）。
+///
+/// 阶段 2（2026-10-24）：事件原来是 `AppHandle.emit` → 走隐藏 WebView 的 JS 通道。
+/// 那个网页/渲染进程一挂，进度条与状态角标就全停（真机反复遇到「点了没反应」）。
+/// 现在优先走 JNI：`TauriBridge.onCoreEvent(event, json)`，失败才回落到 Tauri。
+pub fn push(event: &str, payload: serde_json::Value) {
+    #[cfg(target_os = "android")]
+    {
+        let json = payload.to_string();
+        if crate::android_bridge::push_event_to_kotlin(event, &json).is_some() {
+            return;
+        }
+    }
+    if let Some(app) = app() {
+        let _ = app.emit(event, payload);
+    }
+}
+
 /// 安装阶段进度（步骤型）。
 pub fn emit_install(ctx: &TaskCtx, stage: &str, message: &str, done: usize, total: usize) {
-    if let Some(app) = app() {
-        let _ = app.emit(
-            "install://progress",
-            serde_json::json!({
+    push("install://progress", serde_json::json!({
                 "taskId": ctx.task_id,
                 "stage": stage,
                 "message": message,
@@ -123,17 +138,12 @@ pub fn emit_install(ctx: &TaskCtx, stage: &str, message: &str, done: usize, tota
                 "instanceId": ctx.instance_id,
                 "instanceName": ctx.instance_name,
                 "source": ctx.source,
-            }),
-        );
-    }
+            }),);
 }
 
 /// 任务收尾：前端收到 `stage == "done"` 才会把任务标记为已完成。
 pub fn emit_install_done(ctx: &TaskCtx, ok: bool, message: &str, done: usize, total: usize) {
-    if let Some(app) = app() {
-        let _ = app.emit(
-            "install://progress",
-            serde_json::json!({
+    push("install://progress", serde_json::json!({
                 "taskId": ctx.task_id,
                 "stage": "done",
                 "message": message,
@@ -143,9 +153,7 @@ pub fn emit_install_done(ctx: &TaskCtx, ok: bool, message: &str, done: usize, to
                 "instanceName": ctx.instance_name,
                 "source": ctx.source,
                 "ok": ok,
-            }),
-        );
-    }
+            }),);
 }
 
 /// 文件/字节型下载进度。
@@ -160,10 +168,7 @@ pub fn emit_download(
     bytes_total: u64,
     ok: bool,
 ) {
-    if let Some(app) = app() {
-        let _ = app.emit(
-            "download://progress",
-            serde_json::json!({
+    push("download://progress", serde_json::json!({
                 "taskId": ctx.task_id,
                 "phase": phase,
                 "done": done,
@@ -172,9 +177,7 @@ pub fn emit_download(
                 "ok": ok,
                 "bytesDone": bytes_done,
                 "bytesTotal": bytes_total,
-            }),
-        );
-    }
+            }),);
 }
 
 /// 插件安装进度（设置 → 插件页的进度条靠它）。
@@ -182,35 +185,23 @@ pub fn emit_download(
 /// `phase`：download / verify / extract / done；
 /// `done`/`total`：下载按字节，其它阶段可给 0。
 pub fn emit_plugin_progress(plugin_id: &str, phase: &str, done: u64, total: u64, message: &str) {
-    if let Some(app) = app() {
-        let _ = app.emit(
-            "plugin://progress",
-            serde_json::json!({
+    push("plugin://progress", serde_json::json!({
                 "id": plugin_id,
                 "phase": phase,
                 "done": done,
                 "total": total,
                 "message": message,
-            }),
-        );
-    }
+            }),);
 }
 
 /// 启动阶段进度（前端的悬浮启动卡片 `LaunchProgress.vue` 靠它显示步骤与百分比）。
 pub fn emit_launch_progress(step: &str, progress: f64) {
-    if let Some(app) = app() {
-        let _ = app.emit(
-            "launch://progress",
-            serde_json::json!({ "step": step, "progress": progress }),
-        );
-    }
+    push("launch://progress", serde_json::json!({ "step": step, "progress": progress }),);
 }
 
 /// 启动流程结束（成功或失败）：收起悬浮启动卡片。
 pub fn emit_launch_exit() {
-    if let Some(app) = app() {
-        let _ = app.emit("launch://exit", serde_json::json!({}));
-    }
+    push("launch://exit", serde_json::json!({}));
 }
 
 /// 服务端启动阶段（`server://stage`：`{ id, stage }`）。
@@ -219,41 +210,26 @@ pub fn emit_launch_exit() {
 /// 期间界面只有一颗转圈的按钮 —— 用户完全不知道是在干活还是卡死了。
 /// 服务端详情页把它直接显示在「启动」按钮上（见 ServerDetailView.vue）。
 pub fn emit_server_stage(server_id: &str, stage: &str) {
-    if let Some(app) = app() {
-        let _ = app.emit(
-            "server://stage",
-            serde_json::json!({ "id": server_id, "stage": stage }),
-        );
-    }
+    push("server://stage", serde_json::json!({ "id": server_id, "stage": stage }),);
 }
 
 /// 游戏进程状态变化。前端据此显示「运行中」并提供「关闭所有实例」。
 pub fn emit_launch_state(instance_id: &str, state: &str, pid: u32, code: Option<i32>) {
-    if let Some(app) = app() {
-        let _ = app.emit(
-            "launch://state",
-            serde_json::json!({
+    push("launch://state", serde_json::json!({
                 "instanceId": instance_id,
                 "state": state,
                 "pid": pid,
                 "code": code,
-            }),
-        );
-    }
+            }),);
 }
 
 /// 游戏日志行。
 pub fn emit_launch_log(instance_id: &str, stream: &str, line: &str) {
-    if let Some(app) = app() {
-        let _ = app.emit(
-            "launch://log",
-            serde_json::json!({
+    push("launch://log", serde_json::json!({
                 "instanceId": instance_id,
                 "stream": stream,
                 "line": line,
-            }),
-        );
-    }
+            }),);
 }
 
 // ---------------------------------------------------------------------------

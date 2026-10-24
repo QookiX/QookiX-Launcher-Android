@@ -26,15 +26,23 @@
   Zink + Turnip 渲染器（插件 `qookix-renderer-zink-osmesa` + `qookix-driver-turnip`）60 FPS 渲染，
   窗口创建、资源重载完成，无任何 Pojav 中止。
 
-### 实验遗留的独立问题（与 LWJGL/Sodium 无关）
+### 实验遗留的独立问题（与 LWJGL/Sodium 无关）—— 排查记录（2026-10-24）
 
 进主菜单前的红色 Mojang 加载屏**长时间不消失**（>50 分钟），Render 线程与
-"KubeJS 2101.7.2" 线程持续 100% CPU。注意：
+"KubeJS 2101.7.2" 线程持续 100% CPU。已查明：
 - KubeJS 脚本本身 2.3s 就加载完了（`logs/kubejs/*.log`），不是脚本慢；
-- 资源重载已完成（`Client resource reload complete!`）；
-- 该实例 `total_play_time=0`，**历史上从未成功进过主菜单**（GL4ES 时代也 crash 过，
-  见 `crash-reports/crash-2026-10-23_11.50.59`），怀疑是整合包在 8G 内存的手机上
-  本来就到不了主菜单（系统已用 1.5G swap）。**待查，别算在 LWJGL 头上。**
+- 资源重载已完成（`Client resource reload complete!`），且
+  `[ModernFix] Game took 193.171 seconds to start` + `[FANCYMENU] title_screen 注册`
+  出现在 16:44:01 —— **TitleScreen 已构造，只是 LoadingOverlay 不退场**；
+- 该实例 `total_play_time=0`，历史上从未进过主菜单（GL4ES 时代同样失败），
+  无法确定卡屏是否 Sodium/zink 引入；
+- 尝试过的诊断手段：
+  - `kill -3`（SIGQUIT 线程 dump）→ 信号被 ART 吃掉，无输出；
+  - `.attach_pid` + SIGQUIT（hotspot attach）→ 同样无效；
+  - `-agentlib:jdwp`（经 settings.json 的全局 jvm_args）→ **JVM 卡死在初始化**，
+    Pojav JRE 上不可用，已回退；
+- 下一步建议：二分禁用 mod（首选 kubejs、forgematica/mafglib、immediatelyfast），
+  或在 `launch.rs` 的 jvm args 里临时加 JVM TI agent 抓栈。
 
 ### 设备上做过的临时改动（复现/回退用）
 

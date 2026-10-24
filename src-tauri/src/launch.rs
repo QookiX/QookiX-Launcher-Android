@@ -190,6 +190,13 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             .await
             .map_err(|e| anyhow::anyhow!("安卓原生库准备失败：{e}"))?;
 
+        // 游戏内 DNS：安卓没有 /etc/resolv.conf，JRE 补丁靠 -Dext.net.resolvPath
+        // 读这份文件（不写的话 mod 版本检查之类全部 DNS 超时）。失败不挡启动。
+        #[cfg(target_os = "android")]
+        if let Err(e) = crate::android_env::ensure_resolv_conf(&data_dir) {
+            tracing::warn!("[launcher] resolv.conf 写出失败（游戏内 DNS 将不可用）：{e}");
+        }
+
         // MC 26.3 起清单里是 `org.lwjgl:lwjgl:3.4.3`（窗口层换成 SDL3）——
         // 这时必须换成 3.4.1 组件集，否则 org.lwjgl.sdl 整个包缺失。
         let use_lwjgl341 = needs_lwjgl341(&version_info);
@@ -1811,6 +1818,19 @@ fn build_android_jvm_args(
     args.push("-Dloader.disable_forked_guis=true".to_string());
     // 安卓没有 jspawnhelper，POSIX_SPAWN 会让 ProcessBuilder 直接失败
     args.push("-Djdk.lang.Process.launchMechanism=FORK".to_string());
+    // Sodium 的 PreLaunchChecks（LWJGL 版本串）由该开关把门（BugChecks.ISSUE_2561）。
+    // 2026-10-24 实测：随包 Pojav LWJGL 的版本串已满足 3.3.3，本来就能过；
+    // 设 false 是抄 ZalithLauncher2 的做法 —— 用户装 LWJGL 3.4.1 组件包玩 1.21.1 时
+    // 版本串对不上，这条能保住 Sodium 不中止。（PostLaunch 的 POJAV_RENDERER 检测
+    // 不受它管，那个靠 QOOKIX_RENDERER 改名解决，见 env_map。）
+    args.push("-Dsodium.checks.issue2561=false".to_string());
+    // Pojav 系 JRE 的 DNS 补丁读该属性找 resolv.conf（安卓没有 /etc/resolv.conf）。
+    // 不设的话游戏内所有 DNS 解析超时 —— 之前日志里 163 个 mod 的版本检查全部
+    // HTTP connect timed out 就是这个原因。
+    args.push(format!(
+        "-Dext.net.resolvPath={}/resolv.conf",
+        data_dir.trim_end_matches('/')
+    ));
     args.push(format!(
         "-XX:ActiveProcessorCount={}",
         std::thread::available_parallelism()
