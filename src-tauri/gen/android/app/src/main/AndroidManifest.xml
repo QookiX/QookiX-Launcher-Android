@@ -107,17 +107,6 @@
           换句话说：它现在只是一个「IPC 端点 + 能力宿主」，
           真正的界面在 Compose 版里。
         -->
-        <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
-            android:launchMode="singleTask"
-            android:label="@string/main_activity_title"
-            android:name=".MainActivity"
-            android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize"
-            android:enableOnBackInvokedCallback="true"
-            android:alwaysRetainTaskState="true"
-            android:exported="true">
-        </activity>
 
         <!--
           Compose 版启动器界面 —— **桌面主入口**。
