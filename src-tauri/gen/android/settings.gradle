@@ -1,3 +1,3 @@
 include ':app'
 
-apply from: 'tauri.settings.gradle'
+// 阶段 4（2026-10-25）：tauri 子工程（:tauri-android / 插件）已不再需要 —— 全部走 JNI

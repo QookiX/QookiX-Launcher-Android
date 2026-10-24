@@ -210,4 +210,4 @@ dependencies {
     }
 }
 
-apply(from = "tauri.build.gradle.kts")
+// 阶段 4（2026-10-25）：tauri-android 依赖已移除（原来的 rust 构建挂载由手动 cargo build + jniLibs 承担）
