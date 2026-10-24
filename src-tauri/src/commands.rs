@@ -1813,6 +1813,195 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
+            // ── 收尾全覆盖（阶段 3 第十一批）──────────────────────────
+            // 游戏目录 / 文件访问
+            "get_game_dir_state" => match crate::game_dir::get_game_dir_state().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "get_game_dir_options" => ok(crate::game_dir::get_game_dir_options()),
+            "has_all_files_access" => ok(crate::game_dir::has_all_files_access()),
+            "request_all_files_access" => {
+                crate::game_dir::request_all_files_access();
+                ok(())
+            }
+            "pick_game_dir" => match crate::game_dir::pick_game_dir() {
+                Ok(()) => ok(()),
+                Err(e) => err(e),
+            },
+            "take_picked_game_dir" => match crate::game_dir::take_picked_game_dir().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "set_game_dir" => {
+                let migrate = p.get("migrate").and_then(|x| x.as_bool()).unwrap_or(false);
+                match crate::game_dir::set_game_dir(sarg(&p, &["root"]), migrate).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "set_log_zoom_capture" => {
+                let on = p.get("on").and_then(|x| x.as_bool()).unwrap_or(false);
+                crate::android_bridge::set_log_zoom_capture(on);
+                ok(())
+            }
+            // 实例文件体检 / 清理
+            "check_instance_files" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match crate::instance_files::check_instance_files(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "repair_instance_files" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match crate::instance_files::repair_instance_files(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "shared_game_usage" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match crate::instance_files::shared_game_usage(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "plan_instance_cleanup" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match crate::instance_files::plan_instance_cleanup(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "cleanup_instance_shared" => {
+                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
+                    return err("缺少 instanceId");
+                };
+                match crate::instance_files::cleanup_instance_shared(id).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            // 服务端文件
+            "list_hosted_server_dir" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::server_files::list_hosted_server_dir(
+                    id,
+                    sarg(&p, &["rel"]).unwrap_or_default(),
+                ) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "read_hosted_server_file" => {
+                let (Some(id), Some(rel)) = (sarg(&p, &["id"]), sarg(&p, &["rel"])) else {
+                    return err("缺少 id / rel");
+                };
+                match crate::server_files::read_hosted_server_file(id, rel) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "write_hosted_server_file" => {
+                let (Some(id), Some(rel), Some(content)) = (
+                    sarg(&p, &["id"]),
+                    sarg(&p, &["rel"]),
+                    sarg(&p, &["content"]),
+                ) else {
+                    return err("缺少 id / rel / content");
+                };
+                match crate::server_files::write_hosted_server_file(id, rel, content) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            "list_hosted_server_config_files" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                ok(crate::server_files::list_hosted_server_config_files(id))
+            }
+            "open_hosted_server_folder" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                match crate::server_files::open_hosted_server_folder(id, sarg(&p, &["sub"])) {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            "inspect_server_core_manifest" => {
+                let Some(id) = sarg(&p, &["id"]) else {
+                    return err("缺少 id");
+                };
+                ok(serde_json::Value::String(
+                    crate::server_process::inspect_server_core_manifest(id),
+                ))
+            }
+            "request_battery_unrestricted" => {
+                crate::servers::request_battery_unrestricted();
+                ok(())
+            }
+            "device_thermal_status" => ok(crate::servers::device_thermal_status()),
+            // 陶瓦联机（terracotta）
+            "terracotta_vpn_granted" => match crate::terracotta::terracotta_vpn_granted().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "terracotta_request_vpn" => match crate::terracotta::terracotta_request_vpn().await {
+                Ok(()) => ok(()),
+                Err(e) => err(e),
+            },
+            "terracotta_ping" => match crate::terracotta::terracotta_ping().await {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            "terracotta_request" => {
+                let Some(path) = sarg(&p, &["path"]) else {
+                    return err("缺少 path");
+                };
+                match crate::terracotta::terracotta_request(path).await {
+                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Err(e) => err(e),
+                }
+            }
+            // 自更新（这三条是 Tauri 时代留下的，需要 AppHandle 才能拉 release 信息）
+            "check_for_update" => match crate::progress::app().cloned() {
+                Some(app) => match crate::updater::check_for_update(app).await {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                },
+                None => err("自更新需要 AppHandle（当前进程未初始化 Tauri）"),
+            },
+            "download_update" => match crate::progress::app().cloned() {
+                Some(app) => {
+                    match crate::updater::download_update(app, sarg(&p, &["version"])).await {
+                        Ok(v) => ok(serde_json::Value::String(v)),
+                        Err(e) => err(e),
+                    }
+                }
+                None => err("自更新需要 AppHandle（当前进程未初始化 Tauri）"),
+            },
+            "install_update" => {
+                let Some(path) = sarg(&p, &["path"]) else {
+                    return err("缺少 path");
+                };
+                match crate::updater::install_update(path) {
+                    Ok(()) => ok(()),
+                    Err(e) => err(e),
+                }
+            }
             other => err(format!("native_invoke 未实现的命令：{other}")),
         }
     })
