@@ -742,7 +742,16 @@ async fn download_asset_objects(
                 return;
             }
             let mapped = crate::mirror::map(&mirror_base, &url);
-            let candidates = if mapped == url { vec![url.clone()] } else { vec![mapped, url.clone()] };
+            let base_candidates =
+                if mapped == url { vec![url.clone()] } else { vec![mapped, url.clone()] };
+            // ⚠️ 2026-10-25（真机）：每个候选**再试一轮**。
+            // 实测 3911 个资源里有 87 个是一次性抖动失败（`error sending request`），
+            // 而这里的判据是「一个都不能少」→ 只试一次就整体中止 ✗，
+            // 用户看到「87/3911 个失败，已中止」，其实重试一次基本都能成 ✓。
+            let mut candidates = Vec::with_capacity(base_candidates.len() * 2);
+            for _round in 0..2 {
+                candidates.extend(base_candidates.iter().cloned());
+            }
             let mut reasons: Vec<String> = Vec::new();
             for candidate in candidates {
                 match client.get(&candidate).send().await {
