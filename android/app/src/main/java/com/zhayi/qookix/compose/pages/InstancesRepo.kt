@@ -50,6 +50,17 @@ object InstancesRepo {
         }
     }
 
+    /**
+     * 启动一个实例。
+     *
+     * ⚠️ 原来是 `launchGame(id, null) { }` —— **火并式调用，失败零反馈**：
+     * 核心没装、EULA 没同意、渲染器不对，界面上一点反应都没有，用户只会反复点。
+     * 现在把失败原样交给调用方去展示（实例页已有统一的错误条）。
+     */
+    fun launch(bridge: RustBridge, id: String, onError: (Throwable) -> Unit) {
+        QookixApi(bridge).launchGame(id, null) { r -> r.onFailure(onError) }
+    }
+
     /** 解析 Rust 返回的实例数组（无 context：加载器名回退为英文原文）。 */
     fun parse(json: String): List<InstanceUi> = parse(null, json)
 

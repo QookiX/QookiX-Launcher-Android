@@ -114,6 +114,7 @@ import com.zhayi.qookix.compose.pages.InstallTargetUi
 import com.zhayi.qookix.compose.pages.InstallDialog
 import com.zhayi.qookix.compose.pages.ServerUi
 import com.zhayi.qookix.compose.pages.InstanceUi
+import com.zhayi.qookix.compose.pages.InstancesRepo
 import com.zhayi.qookix.compose.pages.FrpPage
 import com.zhayi.qookix.compose.pages.FrpUiState
 import com.zhayi.qookix.compose.pages.FrpTunnelUi
@@ -835,9 +836,7 @@ fun PageHost(
                 onSelectedInstanceIdChange(id)
                 onNavigate(NavDestination.InstanceDetail)
             },
-            onLaunch = { id ->
-                QookixApi(bridge).launchGame(id, null) { }
-            },
+            onLaunch = { id -> InstancesRepo.launch(bridge, id) { e -> instancesError = context.getString(R.string.launch_failed_msg, friendlyError(context, e)) } },
             onDelete = { target ->
                 // A2 写状态机：登记 key → 发请求 → 无论成败解除。
                 // **不再本地摘列表**（那是乐观更新）：列表由 Rust 的
