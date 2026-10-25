@@ -480,6 +480,9 @@ pub async fn get_settings() -> Result<Settings> {
 /// 以 patch 模式更新设置：读取现有设置 → 合并 patch → 写回
 pub async fn update_settings_patch(patch: Value) -> Result<()> {
     // ⚠️ 必须走 mutate_raw_settings：严格读（坏文件拒绝写）+ 全程持锁（防丢更新）。
+    if !patch.is_object() {
+        return Err(anyhow::anyhow!("设置 patch 必须是对象"));
+    }
     mutate_raw_settings(move |map| {
         if let Some(obj) = patch.as_object() {
             for (k, v) in obj {

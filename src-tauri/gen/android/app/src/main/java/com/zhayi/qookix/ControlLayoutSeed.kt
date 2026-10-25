@@ -69,11 +69,20 @@ object ControlLayoutSeed {
         if (target.isFile && target.length() > 0L && installed == wanted) return true
 
         return try {
+            // ⚠️ 版本号变化要覆盖 default.json 前，先把用户手里那份备份走。
+            // default.json 是编辑器的默认打开对象，用户手调过的布局会在启动器
+            // 升级皮肤版本时被内置布局无声覆盖 —— 先备份到 default.user-backup.json，
+            // 用户仍能从文件管理器/布局导入里找回。
+            if (target.isFile && target.length() > 0L) {
+                val backup = File(target.parentFile, "default.user-backup.json")
+                runCatching { target.copyTo(backup, overwrite = true) }
+                    .onFailure { Log.w(TAG, "备份用户默认布局失败", it) }
+            }
             ctx.resources.openRawResource(R.raw.pojav_default_control).use { input ->
                 target.outputStream().use { output -> input.copyTo(output) }
             }
             marker.writeText(wanted)
-            Log.i(TAG, "内置控制布局已更新到皮肤版本 $wanted（原版本 '${installed.ifEmpty { "无" }}'）")
+            Log.i(TAG, "内置控制布局已更新到皮肤版本 $wanted（原版本 '${installed.ifEmpty { "无" }}'，用户旧版已备份为 default.user-backup.json）")
             true
         } catch (e: Throwable) {
             Log.w(TAG, "默认控制布局写入失败", e)

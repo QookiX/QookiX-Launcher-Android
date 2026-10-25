@@ -887,6 +887,12 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             &instance.id,
         );
 
+        // 游玩时长：落**会话标记**而不是挂在 JLI_Launch 返回之后 —— 游戏
+        // System.exit 会带走整个启动器进程（同进程 JNI），正常退出路径上
+        // JLI_Launch 根本不返回。对账在启动器下次拉起时做
+        // （playtime::reconcile_pending_session，见 jni_bridge::nativeAttach）。
+        crate::playtime::mark_session_start(&instance.id).await;
+
         let launch_outcome = JvmLauncher::launch(
             jre_home,
             &jvm_args,

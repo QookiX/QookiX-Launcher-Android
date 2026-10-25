@@ -61,6 +61,13 @@ pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeAttach(
                 let _ = std::panic::catch_unwind(|| {
                     crate::sleep::resume_on_start();
                 });
+                // ⚠️ 游戏会话时长对账：上一轮游戏 System.exit 带走了整个进程，
+                // 时长账在「启动器重新拉起」的这一刻补记（见 playtime.rs 的说明）。
+                let _ = std::panic::catch_unwind(|| {
+                    crate::util::block_on(async {
+                        crate::playtime::reconcile_pending_session().await;
+                    });
+                });
             }
             Err(e) => tracing::warn!("nativeAttach: 获取 JavaVM 失败: {e}"),
         }

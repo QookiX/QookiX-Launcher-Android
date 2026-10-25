@@ -367,6 +367,26 @@ pub async fn set_content_enabled(
     write_instance(&inst).await.map_err(|e| e.to_string())
 }
 
+/// 记录一轮游戏会话的游玩时长（游戏退出时由 launch.rs 调用）。
+///
+/// 持实例锁 + 锁内重读：与用户改实例设置并发时不丢字段。
+pub async fn record_playtime(instance_id: &str, secs: u64) -> Result<()> {
+    crate::fsutil::validate_id(instance_id, "实例").map_err(|e| anyhow::anyhow!(e))?;
+    let _guard = INSTANCE_WRITE_LOCK.lock().await;
+    let file_path = crate::settings::instance_dir(instance_id)
+        .await?
+        .join("instance.json");
+    let content = fs::read_to_string(&file_path).await
+        .with_context(|| format!("Failed to read instance: {}", file_path.display()))?;
+    let mut instance: MinecraftProfile = serde_json::from_str(&content)?;
+    instance.last_played = Some(Utc::now().timestamp());
+    instance.total_play_time = instance.total_play_time.saturating_add(secs as i64);
+    let updated = serde_json::to_string_pretty(&instance)?;
+    crate::fsutil::write_text_atomic(&file_path, &updated)
+        .with_context(|| format!("Failed to write instance file: {}", file_path.display()))?;
+    Ok(())
+}
+
 fn content_list_mut<'a>(inst: &'a mut MinecraftProfile, kind: &str) -> &'a mut Vec<InstalledContent> {
     match kind {
         "resourcepack" => &mut inst.resource_packs,

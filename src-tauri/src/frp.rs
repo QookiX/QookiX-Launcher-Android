@@ -440,7 +440,9 @@ pub async fn login_poll(session: String) -> Result<Value> {
             let name = flex_str(info.get("username"));
             let mut st = load_stored().await?;
             st.username = name.clone();
-            let _ = save_stored(&st).await;
+            if let Err(e) = save_stored(&st).await {
+                tracing::warn!("[frp] 保存面板登录名失败（不影响登录）：{e:#}");
+            }
             name
         }
         Err(_) => String::new(),
