@@ -112,6 +112,27 @@ fun PlaytimePage(
                     SkeletonList(rows = 3, rowHeight = 80.dp)
                 }
 
+            // 读失败 ≠ 没玩过：`error` 之前根本没人渲染，读失败时整页显示
+            // 「还没有游玩记录」+ 全都 0 分钟 —— 和「统计坏了」看起来一样。
+            state.totalSeconds == 0L && state.error != null -> Box(
+                Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = state.error.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                    Spacer(Modifier.height(QkSpacing.sm))
+                    androidx.compose.material3.TextButton(onClick = onRefresh) {
+                        Text(stringResource(R.string.first_run_retry))
+                    }
+                }
+            }
+
             state.totalSeconds == 0L -> Box(
                 Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
