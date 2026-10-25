@@ -997,7 +997,7 @@ private fun FilesTab(
                         loading = false,
                         error = ctx.getString(
                             R.string.instance_detail_read_failed,
-                            friendlyError(ctx, it.message),
+                            friendlyError(ctx, it),
                         ),
                     )
                 },
@@ -1092,7 +1092,7 @@ private fun FilesTab(
                             state = state.copy(
                                 error = ctx.getString(
                                     R.string.instance_detail_file_op_failed,
-                                    friendlyError(ctx, e.message),
+                                    friendlyError(ctx, e),
                                 ),
                             )
                         },
@@ -1107,7 +1107,7 @@ private fun FilesTab(
                             state = state.copy(
                                 error = ctx.getString(
                                     R.string.instance_detail_file_op_failed,
-                                    friendlyError(ctx, err.message),
+                                    friendlyError(ctx, err),
                                 ),
                             )
                         },
@@ -1122,7 +1122,7 @@ private fun FilesTab(
                             state = state.copy(
                                 error = ctx.getString(
                                     R.string.instance_detail_file_op_failed,
-                                    friendlyError(ctx, err.message),
+                                    friendlyError(ctx, err),
                                 ),
                             )
                         },

@@ -677,7 +677,7 @@ fun StoragePane(
                         onFailure = { e ->
                             dirMessage = context.getString(
                                 R.string.settings_game_dir_change_failed,
-                                friendlyError(context, e.message),
+                                friendlyError(context, e),
                             )
                         },
                     )
@@ -793,7 +793,7 @@ fun StoragePane(
                                         onFailure = { e ->
                                             dirMessage = context.getString(
                                                 R.string.settings_game_dir_change_failed,
-                                                friendlyError(context, e.message),
+                                                friendlyError(context, e),
                                             )
                                         },
                                     )
@@ -835,7 +835,7 @@ fun StoragePane(
                             onFailure = {
                                 statsError = context.getString(
                                     R.string.settings_storage_read_failed,
-                                    friendlyError(context, it.message),
+                                    friendlyError(context, it),
                                 )
                             },
                         )
@@ -876,7 +876,7 @@ fun StoragePane(
                             onFailure = {
                                 statsError = context.getString(
                                     R.string.settings_storage_read_failed,
-                                    friendlyError(context, it.message),
+                                    friendlyError(context, it),
                                 )
                             },
                         )

@@ -103,7 +103,13 @@ class RustBridge(@Suppress("unused") private val activity: Activity?) {
                 if (o.optBoolean("ok")) {
                     o.get("data").toString()
                 } else {
-                    throw IllegalStateException(o.optString("error", "命令执行失败"))
+                    // 解析成结构化错误（见 ApiError）：老命令没有 code 字段，
+                    // 此时退化为 "unknown" + 不可重试，与改造前行为一致。
+                    throw ApiError(
+                        code = o.optString("code", ApiError.CODE_UNKNOWN),
+                        message = o.optString("error", "命令执行失败"),
+                        retryable = o.optBoolean("retryable", false),
+                    )
                 }
             }
             if (result.isFailure) {

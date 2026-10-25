@@ -3,7 +3,12 @@
 - 状态：**进行中**（2026-10-25）
   - 切片 1 已落地：Rust `app_state::mark_dirty` → `state://dirty` 事件；Kotlin `CoreState`
     持有实例列表的 `StateFlow`，`PageHost` 改为只读 + 事件驱动重拉
-  - 待做：写操作状态机（禁止乐观更新）、`AppError` / `ApiResult` 契约、其余领域（服务器 / 任务）迁移
+  - 切片 2 已落地（错误契约，**未给 155 个命令改签名**）：Rust 在信封层统一给出
+    `{code, retryable}`（`commands::classify_error`，网络/鉴权/找不到/读写/解析/未知），
+    Kotlin `ApiError` + `friendlyError(context, throwable)` 按 `code` 出稳定文案。
+    理由：逐个改 `Result<T, AppError>` 是周级改动，而 UI 真正需要的是「能区分原因」。
+  - 待做：写操作状态机（`Idle → Pending → Success | Failure`，禁止先改 UI 再请求）、
+    其余领域（服务器 / 任务）迁移到 `CoreState`
 
 ## 背景与现状
 

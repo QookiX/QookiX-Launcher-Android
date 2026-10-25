@@ -1243,6 +1243,8 @@
     <string name="prop_level_name">主世界存档文件夹名</string>
     <!-- ── friendlyError（错误提示本地化）── -->
     <string name="error_unknown">未知错误</string>
+    <string name="error_disk_io">读写失败：请检查存储空间与文件权限</string>
+    <string name="error_bad_response">返回数据异常（可能是服务端变动或版本不匹配）</string>
     <string name="error_network">网络连接失败，请检查网络或用代理后重试</string>
     <string name="error_server_unavailable">服务器暂时不可用，请稍后重试</string>
     <string name="error_not_found">找不到该内容（可能已被删除或下架）</string>

@@ -138,7 +138,7 @@ fun ServerDetailRoute(
                         loadingPlugins = false,
                         error = ctx.getString(
                             R.string.server_detail_load_plugins_failed,
-                            friendlyError(ctx, it.message),
+                            friendlyError(ctx, it),
                         ),
                     )
                 },
@@ -211,7 +211,7 @@ fun ServerDetailRoute(
                 state = state.copy(
                     error = ctx.getString(
                         R.string.server_detail_load_failed,
-                        friendlyError(ctx, it.message),
+                        friendlyError(ctx, it),
                     )
                 )
             }
@@ -228,7 +228,7 @@ fun ServerDetailRoute(
                         loadingConfig = false,
                         error = ctx.getString(
                             R.string.server_detail_load_config_failed,
-                            friendlyError(ctx, it.message),
+                            friendlyError(ctx, it),
                         ),
                     )
                 },

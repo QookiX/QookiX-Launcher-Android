@@ -1151,7 +1151,7 @@ private fun FrpRoute(
                     probeBusy = false,
                     probeResult = pr.fold(
                         onSuccess = { context.getString(R.string.selfcheck_passed, it) },
-                        onFailure = { context.getString(R.string.selfcheck_failed, friendlyError(context, it.message)) },
+                        onFailure = { context.getString(R.string.selfcheck_failed, friendlyError(context, it)) },
                     ),
                 )
             }
@@ -1568,7 +1568,7 @@ private fun AccountRoute(
                 },
                 onFailure = {
                     loading = false
-                    error = context.getString(R.string.account_read_failed, friendlyError(context, it.message))
+                    error = context.getString(R.string.account_read_failed, friendlyError(context, it))
                 },
             )
         }
@@ -1868,7 +1868,7 @@ private fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
                     }
                     state.copy(plugins = list, loading = false)
                 },
-                onFailure = { state.copy(loading = false, error = context.getString(R.string.plugins_read_failed, friendlyError(context, it.message))) },
+                onFailure = { state.copy(loading = false, error = context.getString(R.string.plugins_read_failed, friendlyError(context, it))) },
             )
         }
         // 插件清单地址（2026-10-21 补：get_plugin_manifest_url 一直没 UI）
@@ -1917,7 +1917,7 @@ private fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
             api.installRecommendedPlugins { r ->
                 state = r.fold(
                     onSuccess = { state.copy(busy = false, ready = true) },
-                    onFailure = { state.copy(busy = false, error = context.getString(R.string.plugins_install_failed, friendlyError(context, it.message))) },
+                    onFailure = { state.copy(busy = false, error = context.getString(R.string.plugins_install_failed, friendlyError(context, it))) },
                 )
                 reload()
             }
@@ -1934,7 +1934,7 @@ private fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
             api.uninstallPlugin(p.id) { r ->
                 r.fold(
                     onSuccess = { state = state.copy(plugins = state.plugins.filterNot { it.id == p.id }) },
-                    onFailure = { state = state.copy(error = context.getString(R.string.plugins_install_failed, friendlyError(context, it.message))) },
+                    onFailure = { state = state.copy(error = context.getString(R.string.plugins_install_failed, friendlyError(context, it))) },
                 )
             }
         },
@@ -1942,7 +1942,7 @@ private fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
             api.setPluginManifestUrl(url) { r ->
                 r.fold(
                     onSuccess = { state = state.copy(manifestUrl = url) },
-                    onFailure = { state = state.copy(error = context.getString(R.string.plugins_install_failed, friendlyError(context, it.message))) },
+                    onFailure = { state = state.copy(error = context.getString(R.string.plugins_install_failed, friendlyError(context, it))) },
                 )
             }
         },
@@ -1976,7 +1976,7 @@ private fun SkinRoute(
                     val first = list.firstOrNull()
                     state.copy(skins = list, loading = false, selected = first)
                 },
-                onFailure = { state.copy(loading = false, error = context.getString(R.string.skin_lib_read_failed, friendlyError(context, it.message))) },
+                onFailure = { state.copy(loading = false, error = context.getString(R.string.skin_lib_read_failed, friendlyError(context, it))) },
             )
         }
         // 顺带读一下当前账号（用于「应用到账号」按钮）
@@ -2032,7 +2032,7 @@ private fun SkinRoute(
         if (state.imageDataUrl.isNotBlank() && state.selected?.filename == f) return@LaunchedEffect
         repo.loadImage(f) { r ->
             r.onSuccess { state = state.copy(imageDataUrl = it) }
-            r.onFailure { state = state.copy(error = context.getString(R.string.skin_image_read_failed, friendlyError(context, it.message))) }
+            r.onFailure { state = state.copy(error = context.getString(R.string.skin_image_read_failed, friendlyError(context, it))) }
         }
     }
 
@@ -2268,7 +2268,7 @@ private fun SkinRoute(
             ) { r ->
                 state = r.fold(
                     onSuccess = { state.copy(applying = "") },
-                    onFailure = { state.copy(applying = "", error = context.getString(R.string.skin_apply_failed, friendlyError(context, it.message))) },
+                    onFailure = { state.copy(applying = "", error = context.getString(R.string.skin_apply_failed, friendlyError(context, it))) },
                 )
             }
         },
@@ -2403,7 +2403,7 @@ private fun SkinRoute(
                             }
                         },
                         onFailure = { e ->
-                            state = state.copy(error = context.getString(R.string.skin_delete_failed, friendlyError(context, e.message)))
+                            state = state.copy(error = context.getString(R.string.skin_delete_failed, friendlyError(context, e)))
                         },
                     )
                 }
@@ -2546,7 +2546,7 @@ private fun SettingsRoute(
                         previewRenderMode = activity?.previewRenderModePref() ?: "compose",
                     )
                 },
-                onFailure = { state.copy(loading = false, error = context.getString(R.string.settings_read_failed, friendlyError(context, it.message))) },
+                onFailure = { state.copy(loading = false, error = context.getString(R.string.settings_read_failed, friendlyError(context, it))) },
             )
         }
     }
@@ -2857,7 +2857,7 @@ private fun SettingsRoute(
                 renderer = r
                 // 渲染器存 Pojav 偏好（不是 settings.json）——旧 UI 也走 setPojavPrefs
                 api.setPojavPrefs(org.json.JSONObject().put("renderer", r)) { res ->
-                    res.onFailure { updateResult = context.getString(R.string.renderer_save_failed, friendlyError(context, it.message)) }
+                    res.onFailure { updateResult = context.getString(R.string.renderer_save_failed, friendlyError(context, it)) }
                 }
             },
                     onChange = { apply(it) },
@@ -3004,7 +3004,7 @@ private fun SettingsRoute(
                                     updateState.copy(
                                         error = context.getString(
                                             R.string.about_update_install_failed,
-                                            friendlyError(context, e.message),
+                                            friendlyError(context, e),
                                         ),
                                     ),
                                 )
@@ -3148,7 +3148,7 @@ private fun FileBrowserRoute(
         ops.list(path) { r ->
             state = r.fold(
                 onSuccess = { state.copy(entries = it, loading = false) },
-                onFailure = { state.copy(loading = false, error = context.getString(R.string.read_failed, friendlyError(context, it.message))) },
+                onFailure = { state.copy(loading = false, error = context.getString(R.string.read_failed, friendlyError(context, it))) },
             )
         }
     }
@@ -3219,7 +3219,7 @@ private fun FileBrowserRoute(
                             loading = false,
                         )
                     },
-                    onFailure = { editor?.copy(loading = false, error = context.getString(R.string.file_read_failed, friendlyError(context, it.message))) },
+                    onFailure = { editor?.copy(loading = false, error = context.getString(R.string.file_read_failed, friendlyError(context, it))) },
                 )
             }
         },
@@ -3510,7 +3510,7 @@ private fun InstanceDetailRoute(
                 state = state.copy(
                     error = context.getString(
                         R.string.load_failed,
-                        friendlyError(context, e.message),
+                        friendlyError(context, e),
                     ),
                 )
             }
@@ -3548,13 +3548,13 @@ private fun InstanceDetailRoute(
             InstanceTab.Saves -> repo.loadWorlds(instanceId) { r ->
                 state = r.fold(
                     onSuccess = { state.copy(worlds = it, loading = false) },
-                    onFailure = { state.copy(loading = false, error = context.getString(R.string.saves_read_failed, friendlyError(context, it.message))) },
+                    onFailure = { state.copy(loading = false, error = context.getString(R.string.saves_read_failed, friendlyError(context, it))) },
                 )
             }
             InstanceTab.Keys -> repo.loadLayouts { r ->
                 state = r.fold(
                     onSuccess = { state.copy(layouts = it, loading = false) },
-                    onFailure = { state.copy(loading = false, error = context.getString(R.string.read_failed, friendlyError(context, it.message))) },
+                    onFailure = { state.copy(loading = false, error = context.getString(R.string.read_failed, friendlyError(context, it))) },
                 )
             }
             InstanceTab.Content -> {
@@ -3579,7 +3579,7 @@ private fun InstanceDetailRoute(
                         if (isCurrent && err != null) {
                             state = state.copy(
                                 loading = false,
-                                error = context.getString(R.string.read_failed, friendlyError(context, err.message)),
+                                error = context.getString(R.string.read_failed, friendlyError(context, err)),
                             )
                         }
                     }
@@ -3637,7 +3637,7 @@ private fun InstanceDetailRoute(
                             state = state.copy(tab = InstanceTab.Keys)
                         },
                         onFailure = { e ->
-                            layoutError = context.getString(R.string.layout_copy_failed, friendlyError(context, e.message))
+                            layoutError = context.getString(R.string.layout_copy_failed, friendlyError(context, e))
                         },
                     )
                 }
@@ -3906,7 +3906,7 @@ private fun InstanceDetailRoute(
                 launchingWorld = null
                 launchStage = null
                 r.onFailure { e ->
-                    state = state.copy(error = context.getString(R.string.enter_world_failed, friendlyError(context, e.message)))
+                    state = state.copy(error = context.getString(R.string.enter_world_failed, friendlyError(context, e)))
                 }
             }
         },
@@ -4108,7 +4108,7 @@ private fun InstanceDetailRoute(
             repo.loadContent(kind, instanceId) { r ->
                 state = r.fold(
                     onSuccess = { state.copy(content = it, loading = false) },
-                    onFailure = { state.copy(loading = false, error = context.getString(R.string.load_failed, friendlyError(context, it.message))) },
+                    onFailure = { state.copy(loading = false, error = context.getString(R.string.load_failed, friendlyError(context, it))) },
                 )
             }
         },
@@ -4312,7 +4312,7 @@ private fun InstanceDetailRoute(
                                         state.copy(
                                             error = context.getString(
                                                 R.string.instance_detail_save_log_failed,
-                                                friendlyError(context, e.message),
+                                                friendlyError(context, e),
                                             ),
                                         )
                                     },
@@ -4350,7 +4350,7 @@ private fun InstanceDetailRoute(
                                     state = state.copy(
                                         error = context.getString(
                                             R.string.instance_detail_import_file_failed,
-                                            friendlyError(context, e.message),
+                                            friendlyError(context, e),
                                         ),
                                     )
                                 },
@@ -4508,7 +4508,7 @@ private fun MultiplayerRoute(
         repo.loadServers { r ->
             state = r.fold(
                 onSuccess = { state.copy(servers = it, loading = false, error = null) },
-                onFailure = { state.copy(loading = false, error = context.getString(R.string.server_list_read_failed, friendlyError(context, it.message))) },
+                onFailure = { state.copy(loading = false, error = context.getString(R.string.server_list_read_failed, friendlyError(context, it))) },
             )
         }
     }
@@ -5085,7 +5085,7 @@ private fun BrowseRoute(
         repo.search(q, state.type, page = 0, loader = state.loader, sort = state.sort) { r ->
             state = r.fold(
                 onSuccess = { state.copy(items = it, loading = false) },
-                onFailure = { state.copy(loading = false, error = context.getString(R.string.search_failed, friendlyError(context, it.message))) },
+                onFailure = { state.copy(loading = false, error = context.getString(R.string.search_failed, friendlyError(context, it))) },
             )
             // 首页返回不满一页 ⇒ 后面没有了（避免触底后空跑一次请求）
             hasMore = r.getOrNull()?.size == BROWSE_PAGE_SIZE

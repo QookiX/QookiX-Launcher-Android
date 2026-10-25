@@ -59,6 +59,8 @@ mod fsutil;
 mod progress;
 /// 进程级「状态已变」信号（A2 第一步）。不是状态容器，只是失效通知。
 mod app_state;
+/// 错误的稳定分类与失败信封（A2 错误契约）。`code` 的定义只在这里。
+mod error_code;
 /// 插件系统（v1 组件插件；渲染器/驱动沿用同一套机制）。
 mod plugin;
 /// 启动器自更新（查 GitHub Release → 下 APK → 交给系统安装器）。

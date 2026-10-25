@@ -158,11 +158,12 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
     fn ok<T: serde::Serialize>(v: T) -> String {
         match serde_json::to_value(v) {
             Ok(v) => serde_json::json!({ "ok": true, "data": v }).to_string(),
-            Err(e) => serde_json::json!({ "ok": false, "error": format!("序列化失败：{e}") }).to_string(),
+            Err(e) => err(format!("序列化失败：{e}")),
         }
     }
+    /// 失败信封：`{ ok:false, error, code, retryable }`（分类逻辑见 `error_code`）。
     fn err(e: impl std::fmt::Display) -> String {
-        serde_json::json!({ "ok": false, "error": e.to_string() }).to_string()
+        crate::error_code::error_envelope(&e.to_string())
     }
 
     // ⚠️ 2026-10-25 诊断：导入卡死时用来判断命令到底有没有进 Rust。
@@ -3113,3 +3114,4 @@ pub async fn check_renderer_health_latest(
 ) -> Result<Option<crate::models::RendererIssue>, String> {
     crate::renderer_health::check_latest().await
 }
+
