@@ -8,6 +8,7 @@
     "url": "git+https://github.com/QookiX/QookiX-Launcher-Android.git"
   },
   "scripts": {
+    "android": "node scripts/build-android.mjs",
     "version": "node scripts/update-version.mjs",
     "check:size": "node scripts/check-file-size.mjs"
   },

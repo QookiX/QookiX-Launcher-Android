@@ -1,6 +1,6 @@
 # 游戏内逻辑对齐 PojavLauncher —— 移植记录
 
-> 范围：`src-tauri/gen/android/app`（**唯一实际构建的 Android 工程**）
+> 范围：`android/app`（**唯一实际构建的 Android 工程**）
 > 上游：`I:\program\vibe\mc\PojavLauncher`（`v3_openjdk`，HEAD `b12ad0481`）
 > 逐行依赖侦察原始报告：仓库根目录 `POJAV_CONTROL_LAYER_PORT_REPORT.md`
 

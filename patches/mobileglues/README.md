@@ -81,7 +81,7 @@ cmake --build build-android
 
 | 位置 | 形式 |
 |---|---|
-| `src-tauri/gen/android/plugin-libs/<abi>/` | 打包插件 zip 的输入（构建期用，不进 APK） |
+| `android/plugin-libs/<abi>/` | 打包插件 zip 的输入（构建期用，不进 APK） |
 | 仓库 `plugins` Release 的 `qookix-renderer-mobileglues-<版本>-<abi>.zip` | 用户按需下载的「渲染器插件」`libs/` |
 | 安装后的 `<数据目录>/plugins/qookix-renderer-mobileglues/<版本>/libs/` | 运行期实际加载的库 |
 

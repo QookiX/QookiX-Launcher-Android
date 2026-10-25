@@ -148,12 +148,12 @@ jobs:
       # 仪器化测试要真机才能执行，这里只保证**它能编译** ——
       # 否则测试代码烂掉了没人知道；真机执行靠本地 connectedArm64DebugAndroidTest。
       - name: Kotlin 单测
-        working-directory: src-tauri/gen/android
+        working-directory: android
         timeout-minutes: 20
         run: ./gradlew :app:testArm64DebugUnitTest --no-daemon --max-workers=2 --console=plain
 
       - name: 编译仪器化冒烟测试（不执行）
-        working-directory: src-tauri/gen/android
+        working-directory: android
         timeout-minutes: 20
         run: ./gradlew :app:assembleArm64DebugAndroidTest --no-daemon --max-workers=2 --console=plain
 
@@ -161,9 +161,9 @@ jobs:
         working-directory: src-tauri
         run: |
           cp target/aarch64-linux-android/release/libqookix_lib.so \
-             gen/android/app/src/main/jniLibs/arm64-v8a/libqookix_lib.so
+             ../android/app/src/main/jniLibs/arm64-v8a/libqookix_lib.so
           cp target/x86_64-linux-android/release/libqookix_lib.so \
-             gen/android/app/src/main/jniLibs/x86_64/libqookix_lib.so
+             ../android/app/src/main/jniLibs/x86_64/libqookix_lib.so
 
       # ② 签名密钥：Secrets 有则解出临时文件，无则 gradle 退回 debug 签名
       - name: 解出签名密钥
@@ -203,7 +203,7 @@ jobs:
       # --max-workers=2 与 gradle.properties 的 org.gradle.workers.max=2 一致，
       # 显式写出来是为了不依赖 properties 是否被正确读取。
       - name: Gradle 打包
-        working-directory: src-tauri/gen/android
+        working-directory: android
         timeout-minutes: 45
         run: ./gradlew :app:assembleArm64Release :app:assembleX86_64Release --no-daemon --max-workers=2 --console=plain
 
@@ -212,9 +212,9 @@ jobs:
         run: |
           mkdir -p dist
           TAG="${GITHUB_REF_NAME}"
-          cp src-tauri/gen/android/app/build/outputs/apk/arm64/release/app-arm64-release.apk \
+          cp android/app/build/outputs/apk/arm64/release/app-arm64-release.apk \
              "dist/QookiX-Launcher-Android-${TAG}-arm64.apk"
-          cp src-tauri/gen/android/app/build/outputs/apk/x86_64/release/app-x86_64-release.apk \
+          cp android/app/build/outputs/apk/x86_64/release/app-x86_64-release.apk \
              "dist/QookiX-Launcher-Android-${TAG}-x86_64.apk"
           # 同时给出校验值，方便用户核对下载完整性
           (cd dist && sha256sum *.apk > SHA256SUMS.txt)

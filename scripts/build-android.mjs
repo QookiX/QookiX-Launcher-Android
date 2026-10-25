@@ -1,33 +1,39 @@
+#!/usr/bin/env node
 /**
- * 安卓打包（并把「顺序」这件容易踩的事固化成一条命令）。
+ * 安卓打包（把「顺序」这件容易踩的事固化成一条命令）。
  *
  * 用法：
- *   node scripts/build-android.mjs                    # arm64 debug 包（默认）
- *   node scripts/build-android.mjs x86_64             # 模拟器用
- *   node scripts/build-android.mjs arm64 --install    # 打完装到设备（有多个设备要 --device）
+ *   node scripts/build-android.mjs                     # arm64 debug
+ *   node scripts/build-android.mjs x86_64              # 模拟器
+ *   node scripts/build-android.mjs arm64 --release     # release 包
+ *   node scripts/build-android.mjs arm64 --install     # 打完装到设备（多设备要 --device）
  *   node scripts/build-android.mjs arm64 --install --device 685b26c4
  *
- * **为什么必须有这个脚本**：Tauri 的 `generate_context!` 会在**编译 Rust 时**把
- * `frontendDist`（这里就是 gen/android/app/src/main/assets）**嵌进 .so**。
- * 所以只要改了 `bootstrap-public/` 里的静态资源，就必须「先跑 build:web-assets，再 cargo build」，
- * 否则 APK 里虽然是新资源，运行时 WebView 拿到的仍是 .so 里那份旧资源 —— 
- * 表现为「改了没生效」，而且 `adb install -r` 看不出任何异常（今天在这上面栽了两次）。
+ * ## 为什么需要它
  *
- * 顺序：build:web-assets → touch lib.rs（保证 generate_context! 重跑）→ cargo build →
- *      拷 .so 进 jniLibs → gradle assemble<Abi>Debug →（可选）install -r
+ * 顺序是硬要求：**先编译 Rust → 再拷 .so 进 jniLibs → 最后 gradle 打包**。
+ * 顺序颠倒的话 APK 里装的是上一个版本的 .so，表现为「改了没生效」，
+ * 而且 `adb install -r` 看不出任何异常。
+ *
+ * ## 与旧版的区别（2026-10-25）
+ *
+ * 旧脚本是 Tauri 时代的：要先跑 `npm run build:web-assets` 把 index.html 塞进
+ * assets、还要 `touch lib.rs` 逼 `generate_context!` 重跑；NDK 与 adb 路径写死
+ * 在某个人的 `C:\Users\...` 里。这些现在**全部不需要**（纯 JNI，没有 WebView、
+ * 没有 generate_context!）。现在路径从 `ANDROID_HOME` / `NDK` 推导。
  */
-import { execFileSync, execSync } from "node:child_process";
-import { copyFileSync, existsSync, utimesSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = process.cwd();
-const APP = join(ROOT, "src-tauri");
-const GEN = join(APP, "gen", "android");
+const RUST_DIR = join(ROOT, "src-tauri");
+const ANDROID_DIR = join(ROOT, "android");
 
 const ABIS = {
-  arm64: { rust: "aarch64-linux-android", ccPrefix: "aarch64-linux-android", jni: "arm64-v8a", gradle: "Arm64" },
-  x86_64: { rust: "x86_64-linux-android", ccPrefix: "x86_64-linux-android", jni: "x86_64", gradle: "X86_64" },
-  arm: { rust: "armv7-linux-androideabi", ccPrefix: "armv7a-linux-androideabi", jni: "armeabi-v7a", gradle: "Arm" },
+  arm64: { rust: "aarch64-linux-android", cc: "aarch64-linux-android", jni: "arm64-v8a", gradle: "Arm64" },
+  x86_64: { rust: "x86_64-linux-android", cc: "x86_64-linux-android", jni: "x86_64", gradle: "X86_64" },
+  arm: { rust: "armv7-linux-androideabi", cc: "armv7a-linux-androideabi", jni: "armeabi-v7a", gradle: "Arm" },
 };
 
 const argv = process.argv.slice(2);
@@ -37,12 +43,27 @@ if (!abi) {
   console.error(`未知 ABI: ${abiName}（可选：${Object.keys(ABIS).join(" / ")}）`);
   process.exit(1);
 }
+const isRelease = argv.includes("--release");
 const shouldInstall = argv.includes("--install");
 const deviceIdx = argv.indexOf("--device");
 const device = deviceIdx >= 0 ? argv[deviceIdx + 1] : null;
 
-const NDK_BIN = "C:\\Users\\ZhaYi\\AppData\\Local\\Android\\Sdk\\ndk\\android-ndk-r27c\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin";
-const ADB = "C:\\Users\\ZhaYi\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe";
+const SDK =
+  process.env.ANDROID_HOME ||
+  process.env.ANDROID_SDK_ROOT ||
+  (process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Android", "Sdk") : "");
+const HOST = { win32: "windows-x86_64", darwin: "darwin-x86_64" }[process.platform] ?? "linux-x86_64";
+
+/** 找 NDK 里版本号最大的那个（不写死 r27c）。 */
+function ndkBin() {
+  if (process.env.NDK) return join(process.env.NDK, "toolchains", "llvm", "prebuilt", HOST, "bin");
+  const ndkRoot = join(SDK, "ndk");
+  if (!existsSync(ndkRoot)) {
+    throw new Error("找不到 NDK：设置 ANDROID_HOME 或 NDK 环境变量");
+  }
+  const newest = readdirSync(ndkRoot).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).pop();
+  return join(ndkRoot, newest, "toolchains", "llvm", "prebuilt", HOST, "bin");
+}
 
 function step(title) {
   console.log(`\n=== ${title} ===`);
@@ -52,57 +73,64 @@ function run(cmd, args, opts = {}) {
   execFileSync(cmd, args, { stdio: "inherit", shell: process.platform === "win32", ...opts });
 }
 
-/** 取 NDK 里版本号最大的 clang（避免写死 API level） */
+const bin = ndkBin();
+
+/**
+ * NDK 里该 ABI 的 clang 包装脚本。
+ *
+ * Windows 上必须取 `.cmd`（另一个同名文件是给 MSYS 用的 shell 脚本，
+ * execFileSync 跑不起来）；按名字升序取第一个 = 最低 API level（24），
+ * 与 minSdk 一致。
+ */
 function clangFor(prefix) {
-  const list = execSync(`dir /b "${NDK_BIN}\\${prefix}*-clang.cmd"`, { shell: "cmd.exe" })
-    .toString()
-    .trim()
-    .split(/\r?\n/)
-    .sort();
-  if (!list.length) throw new Error(`NDK 里找不到 ${prefix}*-clang.cmd`);
-  return join(NDK_BIN, list[list.length - 1]);
+  const suffix = process.platform === "win32" ? ".cmd" : "";
+  const candidates = readdirSync(bin)
+    .filter((f) => f.startsWith(prefix) && f.endsWith(`-clang${suffix}`) && !f.includes("++"))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (!candidates.length) throw new Error(`NDK 里找不到 ${prefix}*-clang${suffix}`);
+  return join(bin, candidates[0]);
 }
 
-step("1/5 前端资源（bootstrap 静态文件 → gen/android/app/src/main/assets）");
-// Vue 前端已删除（界面全部是 Compose）。这里只拷贝 index.html + skin3d/*.js —— 
-// 那个 index.html 是 Tauri IPC 的引导页，没有它所有 Rust 命令都会静默失效。
-run("npm", ["run", "build:web-assets"]);
-
-step("2/5 重编 Rust（generate_context! 会在这里把前端嵌进 .so）");
-const cc = clangFor(abi.ccPrefix);
+step(`1/3 编译 Rust（${abi.rust}，${isRelease ? "release" : "debug"}）`);
+const cc = clangFor(abi.cc);
 const env = {
   ...process.env,
   [`CC_${abi.rust.replace(/-/g, "_")}`]: cc,
-  [`CXX_${abi.rust.replace(/-/g, "_")}`]: cc.replace(/\.cmd$/, "++.cmd"),
-  [`AR_${abi.rust.replace(/-/g, "_")}`]: join(NDK_BIN, "llvm-ar.exe"),
+  [`CXX_${abi.rust.replace(/-/g, "_")}`]: cc.replace(/(-clang)$/, "-clang++"),
+  [`AR_${abi.rust.replace(/-/g, "_")}`]: join(bin, process.platform === "win32" ? "llvm-ar.exe" : "llvm-ar"),
+  // 16KB 页对齐：本地也需要（CI 由 release.yml 的 CARGO_TARGET_*_RUSTFLAGS 提供）
+  [`CARGO_TARGET_${abi.rust.toUpperCase().replace(/-/g, "_")}_RUSTFLAGS`]:
+    "-C link-arg=-Wl,-z,max-page-size=16384",
 };
-// 触摸 lib.rs：cargo 的增量判断看 mtime，改前端不会让它重编，只能靠这个
-const stamp = new Date();
-utimesSync(join(APP, "src", "lib.rs"), stamp, stamp);
-run("cargo", ["build", "--target", abi.rust], { cwd: APP, env });
+run("cargo", ["build", "--target", abi.rust, ...(isRelease ? ["--release"] : [])], { cwd: RUST_DIR, env });
 
-step("3/5 同步 .so 到 jniLibs");
-const so = join(APP, "target", abi.rust, "debug", "libqookix_lib.so");
+step("2/3 同步 .so 到 jniLibs");
+const profile = isRelease ? "release" : "debug";
+const so = join(RUST_DIR, "target", abi.rust, profile, "libqookix_lib.so");
 if (!existsSync(so)) throw new Error(`没有产出 ${so}`);
-const dest = join(GEN, "app", "src", "main", "jniLibs", abi.jni, "libqookix_lib.so");
+const dest = join(ANDROID_DIR, "app", "src", "main", "jniLibs", abi.jni, "libqookix_lib.so");
 copyFileSync(so, dest);
 console.log(`  ${(statSync(dest).size / 1024 / 1024).toFixed(1)} MB → ${abi.jni}/libqookix_lib.so`);
 
-step(`4/5 gradle assemble${abi.gradle}Debug`);
-run(process.platform === "win32" ? ".\\gradlew.bat" : "./gradlew", [`:app:assemble${abi.gradle}Debug`, "--no-daemon"], { cwd: GEN });
+step(`3/3 gradle assemble${abi.gradle}${isRelease ? "Release" : "Debug"}`);
+run(
+  process.platform === "win32" ? ".\\gradlew.bat" : "./gradlew",
+  [`:app:assemble${abi.gradle}${isRelease ? "Release" : "Debug"}`, "--no-daemon"],
+  { cwd: ANDROID_DIR, shell: process.platform === "win32" },
+);
 
-const apkDir = join(GEN, "app", "build", "outputs", "apk", abiName, "debug");
-const apk = execSync(`dir /b "${apkDir}\\*.apk"`, { shell: "cmd.exe" }).toString().trim().split(/\r?\n/)[0];
-console.log(`  ${join(apkDir, apk)}`);
+const apkDir = join(ANDROID_DIR, "app", "build", "outputs", "apk", abiName, profile);
+const apk = existsSync(apkDir) ? readdirSync(apkDir).find((f) => f.endsWith(".apk")) : null;
+if (apk) console.log(`  ${join(apkDir, apk)}`);
 
 if (shouldInstall) {
-  step("5/5 安装到设备");
+  step("安装到设备");
+  const adb = join(SDK, "platform-tools", process.platform === "win32" ? "adb.exe" : "adb");
+  if (!apk) throw new Error("没找到 APK，无法安装");
   const target = device ? ["-s", device] : [];
-  run(ADB, [...target, "install", "-r", join(apkDir, apk)]);
-  console.log("\n提示：装完若界面还是旧的，先清 WebView 缓存再硬重载 ——");
-  console.log("  node cdp_reload.cjs <ws-url>   （拿 ws-url 见 cdp_drive.js 的用法）");
+  run(adb, [...target, "install", "-r", join(apkDir, apk)]);
 } else {
-  step("5/5 跳过安装（加 --install 可自动装）");
+  step("跳过安装（加 --install 可自动装）");
 }
-console.log("\n完成。");
 
+console.log("\n完成。");

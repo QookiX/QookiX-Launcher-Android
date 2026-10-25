@@ -1,0 +1,7 @@
+# 我们自己编译的 Rust 库不入库：由 `cargo build` + `scripts/build-android.mjs` 生成，
+# CI 里由 release.yml 在打包前拷进来。
+#
+# 其余 .so 是**上游预编译资产**（liblwjgl* / libgl4es_114 / libopenal / libOSMesa /
+# libvulkan_freedreno / libfreetype / libjnidispatch / libunpack200 …）——
+# 仓库里没有别处能再生成它们，一刀切忽略会让新克隆的仓库编不出能跑的包。
+/src/main/jniLibs/**/libqookix_lib.so

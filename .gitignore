@@ -26,7 +26,7 @@ src-tauri/.cargo/config.toml
 # **不要写成 `*.so`** —— 同目录下 liblwjgl*/libopenal/libOSMesa/libgl4es_114/
 # libvulkan_freedreno/libfreetype/libjnidispatch/libunpack200 都是随仓库携带的
 # 预编译资产，是构建的必需输入，忽略掉就再也编不出能跑的包了。
-src-tauri/gen/android/app/src/main/jniLibs/*/libqookix_lib.so
+android/app/src/main/jniLibs/*/libqookix_lib.so
 app/src/main/jniLibs/*/libqookix_lib.so
 # 误提交过一份到 src-tauri/ 根目录（215MB，debug 产物）——正确位置是 target/ 与 jniLibs/，都在上面被忽略
 src-tauri/libqookix_lib.so
@@ -34,18 +34,18 @@ src-tauri/libqookix_lib.so
 # 2026-10-04 改为**随包**：这 3 个库必须进 APK，否则 CI 的 checkout 里没有它们 →
 # 官方包缺 libc++_shared.so（JVM 硬依赖，libjvm.so 会 dlopen 失败 → 游戏秒退）
 # 和 SDL3 / spirv-cross。代价是 APK 从 19MB 回到 ~53MB（用户已确认可以）。
-# 渲染器 / 驱动仍然走插件（库源在 `gen/android/plugin-libs/`），这里只是把
+# 渲染器 / 驱动仍然走插件（库源在 `android/plugin-libs/`），这里只是把
 # 「随包兜底」这条真的兜住 —— 之前 CI 产物根本兜不住。
-src-tauri/gen/android/app/src/main/jniLibs/*/*.bak-unpatched
+android/app/src/main/jniLibs/*/*.bak-unpatched
 
 # 组件（LWJGL 3.4.1 jar/natives + spirv-cross）：2026-10-04 起**入库**。
 # 之前不入库 → CI 产物不带它们 → MC 26.3（需要 LWJGL 3.4.1）在官方包里直接起不来。
 # 仍然是「插件优先」：运行时优先用插件里的版本，这里的只作随包兜底。
-# src-tauri/gen/android/app/src/main/assets-components/
+# android/app/src/main/assets-components/
 
 # vite 产物：会被 `tauri::generate_context!` 编进 .so，属于生成物。
 # 注意同名目录在仓库里有两处（另一处是遗留脚手架），一起忽略免得混淆。
-src-tauri/gen/android/app/src/main/assets/
+android/app/src/main/assets/
 app/src/main/assets/
 
 # ── 本机 / IDE 配置 ─────────────────────────────────────────────
@@ -90,7 +90,11 @@ scripts/lwjgl-glfw-patch/build/
 docs/AUDIT-frontend-backend.md
 
 # Kotlin 2.0 构建缓存
-src-tauri/gen/android/.kotlin/
+android/.kotlin/
+
+# Android 工程已迁到根 `android/`（2026-10-25）。旧路径只剩构建缓存与日志，
+# 整目录忽略，避免 `git add -A` 把 .kotlin 错误日志、build 产物一起带进去。
+src-tauri/gen/
 
 # ══════════════════════════════════════════════════════════════════════
 # 根目录杂物（2026-10-18 加）

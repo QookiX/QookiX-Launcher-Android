@@ -88,10 +88,10 @@ export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
 
 cargo build --target aarch64-linux-android          # 发布用 --release
 
-# 2) 打包
+# 2) 打包（Android 工程在仓库根的 android/，不再是 Tauri 生成目录）
 cp target/aarch64-linux-android/debug/libqookix_lib.so \
-   gen/android/app/src/main/jniLibs/arm64-v8a/
-cd gen/android
+   ../android/app/src/main/jniLibs/arm64-v8a/
+cd ../android
 ./gradlew :app:assembleArm64Debug                   # 发布用 assembleArm64Release
 ```
 

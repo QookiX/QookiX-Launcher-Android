@@ -10,13 +10,13 @@
 
 | 位置 | 内容 |
 |---|---|
-| `src-tauri/gen/android/app/src/main/jni/` | `egl_bridge.c`、`input_bridge_v3.c`、`ctxbridges/*`、`jvm_hooks/*`、`driver_helper/*`、`utils.c`、`stdio_is.c`、`environ/*`（编译为 `libpojavexec.so`） |
-| `src-tauri/gen/android/app/src/main/java/org/lwjgl/glfw/CallbackBridge.java` | 输入桥（应用侧） |
-| `src-tauri/gen/android/app/src/main/java/net/kdt/pojavlaunch/` | `LwjglGlfwKeycode`、`EfficientAndroidLWJGLKeycode`、`GrabListener`、`CriticalNativeTest`、`Logger` |
-| `src-tauri/gen/android/app/src/main/java/dalvik/annotation/optimization/` | `CriticalNative` 注解桩 |
+| `android/app/src/main/jni/` | `egl_bridge.c`、`input_bridge_v3.c`、`ctxbridges/*`、`jvm_hooks/*`、`driver_helper/*`、`utils.c`、`stdio_is.c`、`environ/*`（编译为 `libpojavexec.so`） |
+| `android/app/src/main/java/org/lwjgl/glfw/CallbackBridge.java` | 输入桥（应用侧） |
+| `android/app/src/main/java/net/kdt/pojavlaunch/` | `LwjglGlfwKeycode`、`EfficientAndroidLWJGLKeycode`、`GrabListener`、`CriticalNativeTest`、`Logger` |
+| `android/app/src/main/java/dalvik/annotation/optimization/` | `CriticalNative` 注解桩 |
 | `src-tauri/assets/lwjgl/lwjgl-glfw-classes.jar` | Pojav 版 LWJGL（含纯 Java GLFW stub） |
 | `src-tauri/assets/cacio8|cacio17/*.jar` | Caciocavallo（AWT on Android） |
-| `src-tauri/gen/android/app/src/main/jniLibs/<abi>/*.so` | `liblwjgl*.so`、`libgl4es_114.so`、`libopenal.so`、`libfreetype.so`、`libOSMesa.so`、`libunpack200.so`、`libjnidispatch.so` |
+| `android/app/src/main/jniLibs/<abi>/*.so` | `liblwjgl*.so`、`libgl4es_114.so`、`libopenal.so`、`libfreetype.so`、`libOSMesa.so`、`libunpack200.so`、`libjnidispatch.so` |
 
 ### 我们在 `lwjgl-glfw-classes.jar` 上的修改
 
@@ -32,7 +32,7 @@
 ## 游戏内控制层（2026-09 从 PojavLauncher 原样移植，LGPL-3.0）
 
 「进入游戏之后的逻辑」整体对齐 PojavLauncher 的 `MainActivity` 与 `customcontrols` 包。
-逐文件来源如下（相对 `src-tauri/gen/android/app/src/main/java/`），
+逐文件来源如下（相对 `android/app/src/main/java/`），
 除下表「改动」列标注者外均为**逐字节照搬上游**：
 
 | 位置 | 内容 | 改动 |
@@ -72,7 +72,7 @@
 ## 我们自己编写的部分
 
 `src-tauri/src/**`（Rust 核心、启动器逻辑）、
-`src-tauri/gen/android/app/src/main/java/com/zhayi/qookix/**`（Compose 界面、GameActivity、虚拟控件、服务、JNI 桥接层）
+`android/app/src/main/java/com/zhayi/qookix/**`（Compose 界面、GameActivity、虚拟控件、服务、JNI 桥接层）
 等，不在此许可覆盖范围内 ——
 它们通过**动态库**（`libpojavexec.so`）与上述 LGPL 组件交互，符合 LGPL-3.0 的「允许替换库」要求。
 

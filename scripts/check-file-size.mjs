@@ -46,7 +46,7 @@ const HEALTHY_LIMIT = 600;
 /** 要检查的源码根目录（相对仓库根）。 */
 const SOURCE_DIRS = [
   "src-tauri/src",
-  "src-tauri/gen/android/app/src/main/java",
+  "android/app/src/main/java",
 ];
 
 /** 只检查这些扩展名。 */

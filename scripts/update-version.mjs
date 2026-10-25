@@ -8,7 +8,7 @@
  * 会同步以下文件（**只有这几个是真的在用的**）：
  *  - package.json                                    (前端/脚本版本)
  *  - src-tauri/Cargo.toml                            (Rust 包版本)
- *  - src-tauri/gen/android/app/build.gradle.kts       (安卓 versionName / versionCode)
+ *  - android/app/build.gradle.kts                     (安卓 versionName / versionCode)
  *
  * ⚠️ 2026-10-25 修：原来还写 `src-tauri/tauri.conf.json`、`app/tauri.properties`
  * 和 `src/views/SettingsView.vue` —— 那三个文件在纯 JNI 改造时都删了（tauri 配置、
@@ -79,7 +79,7 @@ patch(
 
 // 3. 安卓 versionName / versionCode（两者都在 defaultConfig 里，各出现一次）
 patch(
-  "src-tauri/gen/android/app/build.gradle.kts",
+  "android/app/build.gradle.kts",
   (c) => {
     const next = c.replace(/^(\s*versionCode\s*=\s*)\d+$/m, `$1${versionCode}`);
     return next.replace(/^(\s*versionName\s*=\s*)".*"$/m, `$1"${newVersion}"`);
