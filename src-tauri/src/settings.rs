@@ -271,17 +271,23 @@ async fn write_settings_file(settings_path: &Path, content: &str) -> Result<()> 
         "{file_name}.tmp.{}-{seq}",
         std::process::id()
     ));
-    {
+    let result = async {
         let mut f = fs::File::create(&tmp_path).await
             .with_context(|| format!("无法创建临时设置文件：{}", tmp_path.display()))?;
         use tokio::io::AsyncWriteExt;
         f.write_all(content.as_bytes()).await
             .with_context(|| format!("写入临时设置文件失败：{}", tmp_path.display()))?;
         f.sync_all().await.ok();
+        drop(f);
+        fs::rename(&tmp_path, settings_path).await
+            .with_context(|| format!("设置文件落盘失败：{} → {}", tmp_path.display(), settings_path.display()))
     }
-    fs::rename(&tmp_path, settings_path).await
-        .with_context(|| format!("设置文件落盘失败：{} → {}", tmp_path.display(), settings_path.display()))?;
-    Ok(())
+    .await;
+    if result.is_err() {
+        // 失败时清掉 tmp，不在 files/ 里堆垃圾（正主文件未被动过，用户设置无损）。
+        let _ = fs::remove_file(&tmp_path).await;
+    }
+    result
 }
 
 /// ⚠️ 所有「读-改-写设置」周期的全局串行锁（2026-10-25）。
@@ -312,22 +318,9 @@ where
     Ok(())
 }
 
-/// 写入设置文件原始 JSON。
-///
-/// 调用方自带 map（先读过再改的旧模式）——同样要持全局写锁，
-/// 否则与 `mutate_raw_settings` 并发时又会回到丢更新的老路。
-pub async fn save_raw_settings(map: &HashMap<String, Value>) -> Result<()> {
-    let _guard = SETTINGS_WRITE_LOCK.lock().await;
-    let data_dir = get_data_dir().await?;
-    let settings_path = Path::new(&data_dir).join("settings.json");
-    let content = serde_json::to_string_pretty(map)?;
-    write_settings_file(&settings_path, &content).await?;
-    // 写盘必须是**唯一**的失效入口：缓存与文件不一致的话，用户改完设置不生效才是最难查的 bug
-    invalidate_settings_cache();
-    // 代理/镜像等设置改变后让缓存的 HTTP 客户端立即重建
-    crate::util::reset_http_client();
-    Ok(())
-}
+// ⚠️ 2026-10-25 删除了 `save_raw_settings`（pub、零调用者的死代码）：
+// 它的签名诱导「锁外读 → 持锁写」的旧模式 —— 正是并发丢更新的来源。
+// 改设置请走 [`mutate_raw_settings`]（锁罩住整个读改写周期）。
 
 /// 进程内缓存：`(data_dir, 解析后的设置原始 JSON)`。
 ///
@@ -480,55 +473,10 @@ pub async fn get_settings() -> Result<Settings> {
     }
 }
 
-pub async fn update_settings(settings: Settings) -> Result<()> {
-    // ⚠️ 2026-10-25：从**现有文件**出发，而不是新建空表。
-    // 这份「全量写」的键名单当年定下后就再没同步过（ui_scale / game_root 都不在），
-    // 直接覆盖会把不在名单里的键抹掉 —— game_root 丢了实例就全部消失。
-    // 虽然目前安卓链路走的是 update_settings_patch，但这是 pub 接口，必须防患。
-    // 全程走 mutate_raw_settings：严格读 + 持锁（防丢更新）+ 原子写。
-    mutate_raw_settings(move |map| {
-        map.insert("java_path".to_string(), Value::String(settings.java_path.unwrap_or_default()));
-        map.insert("max_memory_mb".to_string(), Value::Number(settings.max_memory_mb.into()));
-        map.insert("min_memory_mb".to_string(), Value::Number(settings.min_memory_mb.into()));
-        map.insert("memory_mode".to_string(), Value::String(settings.memory_mode));
-        map.insert("jvm_args".to_string(), Value::String(settings.jvm_args));
-        map.insert("game_args".to_string(), Value::String(settings.game_args));
-        map.insert("download_threads".to_string(), Value::Number(settings.download_threads.into()));
-        map.insert("download_chunk_threads".to_string(), Value::Number(settings.download_chunk_threads.into()));
-        map.insert("curseforge_api_key".to_string(), Value::String(settings.curseforge_api_key.unwrap_or_default()));
-        map.insert("translate_provider".to_string(), Value::String(settings.translate_provider));
-        map.insert("translate_api_base".to_string(), Value::String(settings.translate_api_base));
-        map.insert("translate_api_key".to_string(), Value::String(settings.translate_api_key.unwrap_or_default()));
-        map.insert("translate_api_model".to_string(), Value::String(settings.translate_api_model));
-        map.insert("body_translate_auto".to_string(), Value::Bool(settings.body_translate_auto));
-        map.insert("theme".to_string(), Value::String(settings.theme));
-        map.insert("theme_color".to_string(), Value::String(settings.theme_color));
-        map.insert("close_behavior".to_string(), Value::String(settings.close_behavior));
-        map.insert("auto_launch".to_string(), Value::Bool(settings.auto_launch));
-        map.insert("keep_open".to_string(), Value::Bool(settings.keep_open));
-        map.insert("ms_client_id".to_string(), Value::String(settings.ms_client_id));
-        map.insert("selected_account".to_string(), Value::String(settings.selected_account.unwrap_or_default()));
-        map.insert("proxy_mode".to_string(), Value::String(settings.proxy_mode));
-        map.insert("proxy".to_string(), Value::String(settings.proxy.unwrap_or_default()));
-        map.insert("mirror".to_string(), Value::String(settings.mirror));
-        map.insert("mirror_custom".to_string(), Value::String(settings.mirror_custom.unwrap_or_default()));
-        map.insert("background_image".to_string(), Value::String(settings.background_image.unwrap_or_default()));
-        map.insert("background_blur".to_string(), Value::Number(settings.background_blur.into()));
-        map.insert("background_dim".to_string(), Value::Number(settings.background_dim.into()));
-        map.insert("glass_blur".to_string(), Value::Number(settings.glass_blur.into()));
-        map.insert("show_sidebar_collapse_btn".to_string(), Value::Bool(settings.show_sidebar_collapse_btn));
-        map.insert("show_news".to_string(), Value::Bool(settings.show_news));
-        map.insert("show_home_downloads".to_string(), Value::Bool(settings.show_home_downloads));
-        map.insert("show_home_recent".to_string(), Value::Bool(settings.show_home_recent));
-        map.insert("show_home_stats".to_string(), Value::Bool(settings.show_home_stats));
-        map.insert("dismissed_update_version".to_string(), Value::String(settings.dismissed_update_version.unwrap_or_default()));
-        map.insert("auto_update".to_string(), Value::Bool(settings.auto_update));
-        map.insert("update_source".to_string(), Value::String(settings.update_source));
-        map.insert("orientation".to_string(), Value::String(settings.orientation));
-    })
-    .await
-}
-
+// ⚠️ 2026-10-25 删除了 `update_settings(Settings)`（全量写、零调用者的死代码）：
+// 它按硬编码键名单整表覆写，键名单外的键（ui_scale / game_root）会被抹掉；
+// 且它写 snake_case 键，会与 camelCase patch 形成孪生键互相遮蔽。
+// 改设置一律走 [`update_settings_patch`] / [`mutate_raw_settings`]。
 /// 以 patch 模式更新设置：读取现有设置 → 合并 patch → 写回
 pub async fn update_settings_patch(patch: Value) -> Result<()> {
     // ⚠️ 必须走 mutate_raw_settings：严格读（坏文件拒绝写）+ 全程持锁（防丢更新）。

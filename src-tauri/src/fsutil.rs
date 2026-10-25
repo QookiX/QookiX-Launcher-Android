@@ -180,12 +180,42 @@ pub fn write_text(path: &Path, rel: &str, content: String) -> Result<Value, Stri
         std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
     let len = content.len() as u64;
-    std::fs::write(path, content).map_err(|e| format!("写入文件失败: {e}"))?;
+    write_text_atomic(path, &content).map_err(|e| format!("写入文件失败: {e}"))?;
     let meta = std::fs::metadata(path).ok();
     Ok(json!({
         "rel": rel,
         "size": meta.as_ref().map(|m| m.len()).unwrap_or(len),
         "modified": meta.as_ref().map(modified_secs).unwrap_or(0),
     }))
+}
+
+/// 原子写文本：先写**唯一命名的** tmp（pid+序号），sync 后 rename 覆盖目标。
+///
+/// ⚠️ 2026-10-25 全仓统一：直接 `fs::write`（open+O_TRUNC+write）在进程被杀/
+/// 断电时会留下半截 JSON —— settings.json 就这么坏过，之后「读空表→合并→写回」
+/// 把用户设置全部抹掉（详见 settings.rs 的长注释）。凡写 JSON 配置一律走这里。
+/// tmp 用唯一名：并发写互不干扰；失败时顺手删掉 tmp，不在目录里堆垃圾。
+pub fn write_text_atomic(path: &Path, content: &str) -> std::io::Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file.json".to_string());
+    let tmp_path = path.with_file_name(format!("{file_name}.tmp.{}-{seq}", std::process::id()));
+    let result = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp_path)?;
+        f.write_all(content.as_bytes())?;
+        f.sync_all().ok();
+        drop(f);
+        std::fs::rename(&tmp_path, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result
 }
 

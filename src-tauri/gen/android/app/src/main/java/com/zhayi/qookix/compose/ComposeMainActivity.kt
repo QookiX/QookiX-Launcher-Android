@@ -1,6 +1,7 @@
 package com.zhayi.qookix.compose
 
 import com.zhayi.qookix.nativebridge.PojavShim
+import net.kdt.pojavlaunch.prefs.LauncherPreferences
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -221,6 +222,18 @@ class ComposeMainActivity : ComponentActivity() {
         // MainActivity 里有 `applyStoredOrientation()`（onCreate 调用），
         // 但实际运行的是 ComposeMainActivity，它没搬这个调用。
         applyStoredOrientation()
+        // ⚠️⚠️ 加载 Pojav 偏好到 LauncherPreferences 静态字段（2026-10-25 修）。
+        //
+        // 读端（HostCapabilities.readPojavPrefs → get_pojav_prefs，以及 launch.rs
+        // 启动时选渲染器）读的全是 `LauncherPreferences` 的**静态字段**，而原来
+        // 只有 GameActivity / CustomControlsActivity 的 onCreate 会从
+        // SharedPreferences 加载它们 —— 启动器进程里永远是默认值。后果：
+        //   · 设置页「当前渲染器」永远显示 GL4ES（默认值），改了重启又变回去；
+        //   · launch.rs 读到的渲染器也永远是默认 —— 全局渲染器设置从未生效过。
+        // 这里与 GameActivity.onCreate:367 对齐：指向同一份偏好文件并加载。
+        LauncherPreferences.DEFAULT_PREF =
+            getSharedPreferences("launcher_preferences", MODE_PRIVATE)
+        LauncherPreferences.loadPreferences(this)
         // ── 以下三项在 MainActivity 里就有，迁移时漏了（2026-10-17 系统核对补回）──
         //
         // 1) 通知权限：Android 13+ 不申请就没有通知栏权限 →
@@ -1065,8 +1078,59 @@ class ComposeMainActivity : ComponentActivity() {
     }.getOrNull()
 
     fun writePojavPrefs(json: String) {
-        runCatching { java.io.File(filesDir, "pojav_prefs.json").writeText(json) }
-            .onFailure { Log.w(TAG, "写 Pojav 偏好失败", it) }
+        runCatching {
+            val obj = org.json.JSONObject(json)
+            // 键类型与 LauncherPreferences.loadPreferences（81-102 行）一一对应：
+            // int 档 / bool 档，其余（renderer、defaultCtrl）按字符串。
+            val intKeys = setOf(
+                "buttonscale", "mousescale", "mousespeed", "timeLongPressTrigger",
+                "resolutionRatio", "gyroSensitivity", "gamepad_deadzone_scale",
+            )
+            val boolKeys = setOf(
+                "ignoreNotch", "disableGestures", "disableDoubleTap", "mouse_start",
+                "alternate_surface", "enableGyro", "gyroInvertX", "gyroInvertY",
+                "buttonAllCaps", "sustained_performance",
+            )
+            val prefs = getSharedPreferences("launcher_preferences", MODE_PRIVATE)
+            val editor = prefs.edit()
+            for (key in obj.keys()) {
+                val v = obj.get(key)
+                if (v == org.json.JSONObject.NULL) continue
+                try {
+                    when {
+                        key in intKeys -> {
+                            val n = v.toString().toIntOrNull()
+                            if (n != null) editor.putInt(key, n)
+                        }
+                        key in boolKeys -> editor.putBoolean(
+                            key,
+                            when (v) {
+                                is Boolean -> v
+                                is Number -> v.toInt() != 0
+                                else -> v.toString() == "true" || v.toString() == "1"
+                            },
+                        )
+                        else -> editor.putString(key, v.toString())
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "写 Pojav 偏好 $key 失败", e)
+                }
+            }
+            // commit（同步）而非 apply：必须先落盘，下面的静态字段重载才有意义。
+            if (!editor.commit()) Log.w(TAG, "Pojav 偏好 commit 失败")
+            // ⚠️ 关键一步：此前这里写的是 filesDir/pojav_prefs.json —— 一个全仓库
+            // 没有任何读者的死文件；读端（readPojavPrefs / launch.rs 渲染器选择）
+            // 读的是 LauncherPreferences 的静态字段，而那只在 GameActivity 等
+            // 界面 onCreate 时才从 SharedPreferences 加载。于是「设置页改渲染器
+            // → 显示保存成功 → 重启又变回去」，正是用户报的「某些设置每次开启
+            // 就被重置」。这里写完立即重载静态字段：当场生效，重启后也从真存储读回。
+            // 重载前必须先把 DEFAULT_PREF 指到同一份偏好文件（GameActivity.onCreate
+            // 也这么做，见 GameActivity.kt:367）：loadPreferences 本体不负责赋值，
+            // 它只读已就位的 DEFAULT_PREF，为 null 时会直接放弃。
+            LauncherPreferences.DEFAULT_PREF =
+                getSharedPreferences("launcher_preferences", MODE_PRIVATE)
+            LauncherPreferences.loadPreferences(this)
+        }.onFailure { Log.w(TAG, "写 Pojav 偏好失败", it) }
     }
 
     fun importControlLayoutFromPath(path: String): String {

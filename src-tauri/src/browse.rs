@@ -1025,6 +1025,9 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
         crate::version::install_version_tracked(&mc_version, Some(&ctx)).await?;
 
         // Install loader if needed
+        // 本轮安装解析出的加载器版本（若实例原本没写）。最后统一合并进**新读的**文件，
+        // 不能攒在开头那份快照里 —— 见函数尾部写盘处的说明。
+        let mut resolved_loader_version: Option<String> = None;
         if loader != "vanilla" {
             let mut loader_version = instance["loader_version"].as_str().unwrap_or("").to_string();
             println!("[install] 加载器分支: loader={loader} 版本参数='{loader_version}'");
@@ -1039,7 +1042,10 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
                     .next()
                 {
                     loader_version = latest;
-                    instance["loader_version"] = json!(loader_version);
+                    // ⚠️ 只记下来，最后写盘时再合并（见函数尾部）：
+                    // 安装全程可能持续数分钟，期间用户完全可能改实例设置，
+                    // 用开头那份快照整体覆写会把用户的改动回滚掉。
+                    resolved_loader_version = Some(loader_version.clone());
                 }
             }
             if !loader_version.is_empty() {
@@ -1088,11 +1094,22 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
         let total_bytes: i64 = calculate_dir_size(&instance_path).await;
         let file_count = count_files(&instance_path).await;
 
-        // 标记游戏已安装，前端据此隐藏「未安装」横幅
-        instance["installed"] = json!(true);
-        let updated = serde_json::to_string_pretty(&instance)
+        // 标记游戏已安装，前端据此隐藏「未安装」横幅。
+        // ⚠️ 2026-10-25：必须**重新读盘**再只合并自己拥有的两个键。
+        // 安装全程（弱网下数分钟到数十分钟）用的都是开头那份快照 —— 期间用户
+        // 改的渲染器/内存/java_args 都已落盘，拿旧快照整体覆写等于把用户的
+        // 改动静默回滚（「安装完设置就变回去」的真凶之一）。
+        let mut fresh: Value = match tokio::fs::read_to_string(&instance_json).await {
+            Ok(c) => serde_json::from_str(&c).unwrap_or_else(|_| instance.clone()),
+            Err(_) => instance.clone(),
+        };
+        fresh["installed"] = json!(true);
+        if let Some(v) = &resolved_loader_version {
+            fresh["loader_version"] = json!(v);
+        }
+        let updated = serde_json::to_string_pretty(&fresh)
             .context("Failed to serialize instance.json")?;
-        tokio::fs::write(&instance_json, updated).await
+        crate::fsutil::write_text_atomic(&instance_json, &updated)
             .context("Failed to write instance.json")?;
 
         Ok(json!({

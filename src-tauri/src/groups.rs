@@ -38,12 +38,31 @@ async fn load_all() -> HashMap<String, InstanceGroup> {
         .unwrap_or_default()
 }
 
+/// ⚠️ 给「读改写」入口用的严格版：文件损坏时**报错**而不是拿空表继续 ——
+/// 否则下一次任意分组操作会把损坏文件（连带全部分组）覆盖成空表，永久丢失。
+async fn load_all_strict() -> Result<HashMap<String, InstanceGroup>, String> {
+    let path = groups_path().await?;
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let text = fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("读取分组文件失败：{e}"))?;
+    let list: Vec<InstanceGroup> = serde_json::from_str(&text)
+        .map_err(|e| format!("分组文件损坏（{e}），拒绝写入以免覆盖丢失；可手工修复 {path:?}"))?;
+    Ok(list
+        .into_iter()
+        .map(|g| (g.id.clone(), g))
+        .collect())
+}
+
 async fn save_all(map: &HashMap<String, InstanceGroup>) -> Result<(), String> {
     let path = groups_path().await?;
     let mut list: Vec<&InstanceGroup> = map.values().collect();
     list.sort_by_key(|g| g.created);
     let json = serde_json::to_string_pretty(&list).map_err(|e| e.to_string())?;
-    fs::write(&path, json).await.map_err(|e| e.to_string())
+    // ⚠️ 原子写：撕裂的分组文件 + 「损坏→静默空表→写回」= 分组永久丢失。
+    crate::fsutil::write_text_atomic(&path, &json).map_err(|e| e.to_string())
 }
 
 /// 分组列表（按创建时间排序）
@@ -60,7 +79,7 @@ pub async fn create_group(name: String, color: Option<String>) -> Result<Instanc
     if name.is_empty() {
         return Err("分组名称不能为空".into());
     }
-    let mut map = load_all().await;
+    let mut map = load_all_strict().await?;
     let group = InstanceGroup {
         id: Uuid::new_v4().to_string(),
         name,
@@ -82,7 +101,7 @@ pub async fn rename_group(
     if name.is_empty() {
         return Err("分组名称不能为空".into());
     }
-    let mut map = load_all().await;
+    let mut map = load_all_strict().await?;
     let group = map.get_mut(&id).ok_or_else(|| "分组不存在".to_string())?;
     group.name = name;
     group.color = color.filter(|c| !c.trim().is_empty());
@@ -93,7 +112,7 @@ pub async fn rename_group(
 
 /// 删除分组，同时清空所有实例上的 group 引用
 pub async fn delete_group(id: String) -> Result<(), String> {
-    let mut map = load_all().await;
+    let mut map = load_all_strict().await?;
     if map.remove(&id).is_none() {
         return Err("分组不存在".into());
     }
@@ -118,7 +137,7 @@ pub async fn delete_group(id: String) -> Result<(), String> {
 
 /// 按给定顺序重排分组（返回新列表）
 pub async fn reorder_groups(ids: Vec<String>) -> Result<Vec<InstanceGroup>, String> {
-    let map = load_all().await;
+    let map = load_all_strict().await?;
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
         if let Some(g) = map.get(&id) {

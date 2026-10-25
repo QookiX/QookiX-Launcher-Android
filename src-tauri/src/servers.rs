@@ -472,7 +472,11 @@ pub fn ensure_server_files(id: &str, s: &ServerConfig) -> Result<(), String> {
 pub fn write_server_property(id: &str, key: &str, value: &str) -> Result<(), String> {
     let dir = server_dir(id)?;
     let path = dir.join("server.properties");
-    let cur = std::fs::read_to_string(&path).unwrap_or_default();
+    // ⚠️ 读失败必须报错而不是拿空串继续：原来这里 unwrap_or_default()，
+    // 文件被占用/权限问题时整份 properties 会被清成只剩刚改的这一个键，
+    // 其余服务器设置（motd、难度、视距…）在下次启动全部回落默认值。
+    let cur = std::fs::read_to_string(&path)
+        .map_err(|e| format!("读取 server.properties 失败（拒绝覆盖写入）：{e}"))?;
     let mut lines: Vec<String> = cur.lines().map(|l| l.to_string()).collect();
     let kv = format!("{key}={value}");
     if let Some(slot) = lines
@@ -483,7 +487,8 @@ pub fn write_server_property(id: &str, key: &str, value: &str) -> Result<(), Str
     } else {
         lines.push(kv);
     }
-    std::fs::write(&path, lines.join("\n")).map_err(|e| e.to_string())
+    // 原子写：撕裂的 properties 会让服务端读_config 出错（同 settings.json 的教训）。
+    crate::fsutil::write_text_atomic(&path, &lines.join("\n")).map_err(|e| e.to_string())
 }
 
 /// 读 `server.properties` 的某个键

@@ -4,6 +4,14 @@ use uuid::Uuid;
 use chrono::Utc;
 use crate::models::*;
 
+/// ⚠️ 所有「读 instance.json → 改 → 写回」周期的全局串行锁（2026-10-25）。
+///
+/// 与 settings.rs 的 SETTINGS_WRITE_LOCK 同理：实例的读改写入口
+/// （update_instance / add_content 系列 / 分组清理 / 模组包导入）没有互斥时，
+/// 并发的「后写者」会把「先写者」的整份实例元数据（含 renderer、内存、
+/// java_args）覆盖掉 —— 表现就是实例设置莫名被重置。锁罩住**整个**读改写周期。
+static INSTANCE_WRITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub async fn list_instances() -> Result<Vec<MinecraftProfile>> {
     let instances_dir = crate::settings::instances_root().await?;
 
@@ -16,15 +24,28 @@ pub async fn list_instances() -> Result<Vec<MinecraftProfile>> {
 
     let mut entries = fs::read_dir(&instances_dir).await
         .context("Failed to read instances directory")?;
-    
+
     while let Some(entry) = entries.next_entry().await
         .context("Failed to read next entry")? {
         let file_path = entry.path().join("instance.json");
         if file_path.exists() {
-            let content = fs::read_to_string(&file_path).await
-                .context("Failed to read instance file")?;
-            let instance: MinecraftProfile = serde_json::from_str(&content)
-                .context("Failed to parse instance")?;
+            // ⚠️ 跳过损坏的实例而不是让整条命令失败：原来这里 `?` 直接向上抛，
+            // 一个坏文件（非原子写被杀 / 用户手改出错）会让**整个实例列表消失**，
+            // 用户以为所有实例都丢了。坏文件保留在盘上可人工修复，这里只跳过。
+            let content = match fs::read_to_string(&file_path).await {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[instances] 读取失败，跳过 {}: {e}", file_path.display());
+                    continue;
+                }
+            };
+            let instance: MinecraftProfile = match serde_json::from_str(&content) {
+                Ok(i) => i,
+                Err(e) => {
+                    eprintln!("[instances] 解析失败，跳过 {}: {e}", file_path.display());
+                    continue;
+                }
+            };
             instances.push(instance);
         }
     }
@@ -57,7 +78,9 @@ pub async fn write_instance(instance: &MinecraftProfile) -> Result<()> {
         .await?
         .join("instance.json");
     let content = serde_json::to_string_pretty(instance)?;
-    fs::write(&file_path, content).await
+    // ⚠️ 原子写：直接 fs::write 在进程被杀时会留下半截 JSON，
+    // 一个坏 instance.json 曾经能把整个实例列表搞消失（见 list_instances 的跳过逻辑）。
+    crate::fsutil::write_text_atomic(&file_path, &content)
         .with_context(|| format!("Failed to write instance file: {}", file_path.display()))?;
     Ok(())
 }
@@ -123,7 +146,7 @@ pub async fn create_instance(config: serde_json::Value) -> Result<MinecraftProfi
 
     let file_path = instance_dir.join("instance.json");
     let content = serde_json::to_string_pretty(&instance)?;
-    fs::write(&file_path, content).await
+    crate::fsutil::write_text_atomic(&file_path, &content)
         .context("Failed to write instance file")?;
 
     Ok(instance)
@@ -153,10 +176,15 @@ fn pick<'a>(patch: &'a serde_json::Value, keys: &[&str]) -> Option<&'a serde_jso
 pub async fn update_instance(patch: serde_json::Value) -> Result<MinecraftProfile> {
     let instance_id = patch.get("id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing instance id in patch"))?;
-    crate::fsutil::validate_id(instance_id, "实例").map_err(|e| anyhow::anyhow!(e))?;
+        .ok_or_else(|| anyhow::anyhow!("Missing instance id in patch"))?
+        .to_string();
+    crate::fsutil::validate_id(&instance_id, "实例").map_err(|e| anyhow::anyhow!(e))?;
 
-    let file_path = crate::settings::instance_dir(instance_id)
+    // ⚠️ 整个读改写周期持锁：与 add_content 系列 / 分组清理 / 安装流程并发时，
+    // 没有锁的话后写者会用自己那份旧快照盖掉先写者的改动（丢 renderer 等）。
+    let _guard = INSTANCE_WRITE_LOCK.lock().await;
+
+    let file_path = crate::settings::instance_dir(&instance_id)
         .await?
         .join("instance.json");
 
@@ -237,7 +265,7 @@ pub async fn update_instance(patch: serde_json::Value) -> Result<MinecraftProfil
     }
 
     let content = serde_json::to_string_pretty(&instance)?;
-    fs::write(&file_path, content).await
+    crate::fsutil::write_text_atomic(&file_path, &content)
         .context("Failed to write instance file")?;
 
     Ok(instance)
@@ -269,6 +297,7 @@ pub async fn list_content_records(instance_id: &str, kind: &str) -> Vec<Installe
 /// 新增/覆盖一条内容记录（同名覆盖）。
 pub async fn add_content(instance_id: &str, kind: &str, record: InstalledContent) -> Result<(), String> {
     crate::fsutil::validate_id(instance_id, "实例")?;
+    let _guard = INSTANCE_WRITE_LOCK.lock().await;
     let mut inst = get_instance(instance_id).await.map_err(|e| e.to_string())?;
     let list = content_list_mut(&mut inst, kind);
     list.retain(|c| c.filename != record.filename);
@@ -282,6 +311,7 @@ pub async fn add_content_batch(
     kind: &str,
     records: Vec<InstalledContent>,
 ) -> Result<(), String> {
+    let _guard = INSTANCE_WRITE_LOCK.lock().await;
     let mut inst = get_instance(instance_id).await.map_err(|e| e.to_string())?;
     let list = content_list_mut(&mut inst, kind);
     for rec in records {
@@ -295,6 +325,7 @@ pub async fn add_content_batch(
 pub async fn remove_content(instance_id: &str, kind: &str, filename: &str) -> Result<(), String> {
     crate::fsutil::validate_id(instance_id, "实例")?;
     crate::fsutil::validate_name(filename)?;
+    let _guard = INSTANCE_WRITE_LOCK.lock().await;
     let mut inst = get_instance(instance_id).await.map_err(|e| e.to_string())?;
     let list = content_list_mut(&mut inst, kind);
     list.retain(|c| c.filename != filename);
@@ -311,6 +342,7 @@ pub async fn set_content_enabled(
     if !crate::util::is_safe_filename(filename) {
         return Err("非法文件名".into());
     }
+    let _guard = INSTANCE_WRITE_LOCK.lock().await;
     let mut inst = get_instance(instance_id).await.map_err(|e| e.to_string())?;
     let item = content_list_mut(&mut inst, kind)
         .iter_mut()
