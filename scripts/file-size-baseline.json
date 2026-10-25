@@ -12,7 +12,7 @@
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/ApiError.kt": 44,
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/CoreState.kt": 152,
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/Errors.kt": 44,
-  "android/app/src/main/java/com/zhayi/qookix/compose/bridge/QookixApi.kt": 755,
+  "android/app/src/main/java/com/zhayi/qookix/compose/bridge/QookixApi.kt": 507,
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/QookixApiContent.kt": 202,
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/QookixApiInstanceOps.kt": 194,
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/QookixApiInstanceTabs.kt": 302,

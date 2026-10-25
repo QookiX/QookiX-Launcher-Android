@@ -43,6 +43,15 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-25 · Q2 收尾：删白名单分叉（**发现并修了 A2 的真 bug**）
+- `QookixApi.kt` **755 → 507**（累计 2337 → 507，**-78%**），进入 600 行健康线
+- 删 `NATIVE_COMMANDS`（214 行白名单）+ `call()` 里的双路径分叉
+- **顺带修了 A2 的核心 bug**：`ApiError`（结构化 code/retryable）我加在 `RustBridge.invoke` 里，但 `call()` 的白名单分支自己起线程、自己抛 `IllegalStateException` —— 白名单覆盖的绝大多数命令**根本拿不到结构化错误**，错误契约在实际路径上形同虚设
+- 现在两条路合并为一条（bridge 也是纯 JNI + 后台线程 + 主线程回调），`call` 只剩一行委托
+- 影响面：所有命令的错误从 `IllegalStateException` 变成 `ApiError`（Exception 子类，`message` 语义不变；已 grep 确认无调用点依赖旧类型）
+- 验证：`assembleArm64Release` ✅、单测 10 ✅、仪器化编译 ✅、闸门 ✅
+- commit `待补`
+
 ### 2026-10-25 · Q2 第四、五刀：内容 / 实例操作 / 系统能力
 - `QookixApiContent.kt`（202）：内容中心 + 内容/翻译
 - `QookixApiInstanceOps.kt`（194）：文件管理 + 实例内操作
