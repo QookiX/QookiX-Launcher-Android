@@ -1152,66 +1152,20 @@ pub async fn create_instance_entry(
     rel: String,
     is_dir: bool,
 ) -> Result<Value, String> {
-    let last = rel.rsplit('/').next().unwrap_or("");
-    fsutil::validate_name(last)?;
-    let path = resolve_instance_path(&instance_id, &rel).await?;
-    if path.exists() {
-        return Err("已存在同名的文件或文件夹".into());
-    }
-    if is_dir {
-        std::fs::create_dir_all(&path).map_err(|e| format!("创建文件夹失败: {e}"))?;
-    } else {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-        }
-        std::fs::write(&path, "").map_err(|e| format!("创建文件失败: {e}"))?;
-    }
-    Ok(json!({ "rel": rel, "is_dir": is_dir }))
+    let base = instance_root(&instance_id).await?;
+    fsutil::create_entry(&base, &rel, is_dir, "实例")
 }
 pub async fn delete_instance_path(instance_id: String, rel: String) -> Result<(), String> {
-    if rel.trim().is_empty() {
-        return Err("不能删除实例根目录".into());
-    }
-    let path = resolve_instance_path(&instance_id, &rel).await?;
-    if !path.exists() {
-        return Err("文件或文件夹不存在".into());
-    }
-    if path.is_dir() {
-        std::fs::remove_dir_all(&path).map_err(|e| format!("删除文件夹失败: {e}"))?;
-    } else {
-        std::fs::remove_file(&path).map_err(|e| format!("删除文件失败: {e}"))?;
-    }
-    Ok(())
+    let base = instance_root(&instance_id).await?;
+    fsutil::delete_entry(&base, &rel, "实例")
 }
 pub async fn rename_instance_path(
     instance_id: String,
     rel: String,
     new_name: String,
 ) -> Result<Value, String> {
-    if rel.trim().is_empty() {
-        return Err("不能重命名实例根目录".into());
-    }
-    fsutil::validate_name(&new_name)?;
-    let path = resolve_instance_path(&instance_id, &rel).await?;
-    if !path.exists() {
-        return Err("文件或文件夹不存在".into());
-    }
-    let parent = path.parent().ok_or("无法重命名该路径")?;
-    let target = parent.join(new_name.trim());
-    if target.exists() {
-        return Err("已存在同名的文件或文件夹".into());
-    }
-    std::fs::rename(&path, &target).map_err(|e| format!("重命名失败: {e}"))?;
-    let parent_rel = match rel.rfind('/') {
-        Some(i) => rel[..i].to_string(),
-        None => String::new(),
-    };
-    let new_rel = if parent_rel.is_empty() {
-        new_name.trim().to_string()
-    } else {
-        format!("{}/{}", parent_rel, new_name.trim())
-    };
-    Ok(json!({ "rel": new_rel, "name": new_name.trim().to_string() }))
+    let base = instance_root(&instance_id).await?;
+    fsutil::rename_entry(&base, &rel, &new_name, "实例")
 }
 
 // ==================== 图片导入（实例图标 / 背景图） ====================

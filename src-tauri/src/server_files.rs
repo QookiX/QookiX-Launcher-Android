@@ -45,6 +45,36 @@ pub fn write_hosted_server_file(
     fsutil::write_text(&path, &rel, content)
 }
 
+/// 新建空文件 / 文件夹（与实例文件管理器共用 `fsutil` 的实现）。
+///
+/// 这三条命令（新建/重命名/删除）以前**根本没有**：`FileOps` 里直接抛
+/// `UnsupportedOperationException`，而工具栏按钮照常渲染 —— 点了没反应，
+/// 用户只会以为「这个 app 的删除坏了」。
+pub fn create_hosted_server_entry(
+    id: String,
+    rel: String,
+    is_dir: bool,
+) -> Result<serde_json::Value, String> {
+    let base = server_dir(&id)?;
+    fsutil::create_entry(&base, &rel, is_dir, "服务器")
+}
+
+/// 重命名服务器目录内的文件/文件夹。
+pub fn rename_hosted_server_path(
+    id: String,
+    rel: String,
+    new_name: String,
+) -> Result<serde_json::Value, String> {
+    let base = server_dir(&id)?;
+    fsutil::rename_entry(&base, &rel, &new_name, "服务器")
+}
+
+/// 删除服务器目录内的文件/文件夹（递归）。
+pub fn delete_hosted_server_path(id: String, rel: String) -> Result<(), String> {
+    let base = server_dir(&id)?;
+    fsutil::delete_entry(&base, &rel, "服务器")
+}
+
 /// 服务器根目录下的常用配置文件（设置页用）
 pub fn list_hosted_server_config_files(id: String) -> Vec<serde_json::Value> {
     let Ok(dir) = server_dir(&id) else { return Vec::new() };

@@ -2924,8 +2924,8 @@ pub async fn install_content_to_server(
 
     // 任务中心里要能区分「装到哪个服务器」
     let server_name = crate::servers::list_servers()
-        .into_iter()
-        .find(|s| s.id == server_id)
+        .unwrap_or_default()
+        .into_iter().find(|s| s.id == server_id)
         .map(|s| s.name)
         .unwrap_or_else(|| server_id.to_string());
     let provider_label = if provider == "curseforge" { "CurseForge" } else { "Modrinth" };

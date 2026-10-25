@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -27,6 +28,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -67,8 +72,27 @@ fun FileEditorPage(
                 .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) {
+            // 有未保存修改时先确认，不能一按就丢（审查 24 号问题）
+            var confirmDiscard by remember { mutableStateOf(false) }
+            IconButton(onClick = { if (state.dirty) confirmDiscard = true else onBack() }) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.file_back))
+            }
+            if (confirmDiscard) {
+                AlertDialog(
+                    onDismissRequest = { confirmDiscard = false },
+                    title = { Text(stringResource(R.string.file_editor_unsaved)) },
+                    text = { Text(stringResource(R.string.file_editor_discard_msg)) },
+                    confirmButton = {
+                        TextButton(onClick = { confirmDiscard = false; onBack() }) {
+                            Text(stringResource(R.string.file_editor_modified))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmDiscard = false }) {
+                            Text(stringResource(R.string.common_cancel))
+                        }
+                    },
+                )
             }
 
             Column(modifier = Modifier.weight(1f)) {
@@ -93,7 +117,8 @@ fun FileEditorPage(
             }
 
             if (state.dirty) {
-                TextButton(onClick = { /* 放弃修改 = 返回时确认 */ }) {
+                // 放弃修改 = 把内容还原成打开时的样子（dirty 由内容比较得出，会自动归零）
+                TextButton(onClick = { onContentChange(state.originalContent) }) {
                     Text(stringResource(R.string.file_editor_modified))
                 }
             }
@@ -128,7 +153,9 @@ fun FileEditorPage(
                     CircularProgressIndicator()
                 }
 
-                state.error != null -> Column(
+                // 只有「根本没读出来」才整页报错。保存失败不能把正在编辑的内容换掉
+                //（审查 23 号问题：点保存失败后，用户刚写的东西直接从屏幕上消失）。
+                state.error != null && state.content.isEmpty() -> Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(QkSpacing.xl),
@@ -148,21 +175,33 @@ fun FileEditorPage(
                     )
                 }
 
-                else -> BasicTextField(
-                    value = state.content,
-                    onValueChange = onContentChange,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(QkSpacing.md),
-                    textStyle = TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                )
+                else -> Column(modifier = Modifier.fillMaxSize()) {
+                    // 保存失败等错误：横幅提示，编辑区保留
+                    state.error?.let { msg ->
+                        Text(
+                            text = msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp),
+                        )
+                    }
+                    BasicTextField(
+                        value = state.content,
+                        onValueChange = onContentChange,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(QkSpacing.md),
+                        textStyle = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    )
+                }
             }
         }
     }

@@ -59,7 +59,7 @@ fun ServerDetailRoute(
     //
     // ⚠️ 必须按 serverId 过滤：同一时刻可能有多台服务器在启动。
     androidx.compose.runtime.DisposableEffect(bridge, serverId) {
-        bridge.listen("server://stage") { payload ->
+        val sub = bridge.listen("server://stage") { payload ->
             runCatching {
                 org.json.JSONObject(payload).optString("id") to
                     org.json.JSONObject(payload).optString("stage")
@@ -69,7 +69,7 @@ fun ServerDetailRoute(
                 }
             }
         }
-        onDispose { bridge.unlisten("server://stage") }
+        onDispose { bridge.unlisten(sub) }
     }
 
     var serverName by remember(serverId) { mutableStateOf("") }
@@ -348,8 +348,16 @@ fun ServerDetailRoute(
         onCommandSend = {
             val cmd = state.commandInput.trim()
             if (cmd.isNotEmpty()) {
-                repo.sendCommand(serverId, cmd)
-                state = state.copy(commandInput = "")
+                // ⚠️ 发送成功后才清输入框：以前是先清再发、且不接回调，
+                // 发不出去（服务端没跑 / RCON 没就绪）时用户毫无察觉。
+                repo.sendCommand(serverId, cmd) { r ->
+                    r.fold(
+                        onSuccess = { state = state.copy(commandInput = "") },
+                        onFailure = { e ->
+                            state = state.copy(error = ctx.getString(R.string.server_detail_send_failed, e.message ?: ""))
+                        },
+                    )
+                }
             }
         },
         // 快捷命令（list / save-all）：跳过输入框直接下发。

@@ -857,6 +857,9 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
                 Err(e) => format!("异常退出: {e}"),
             };
             tracing::info!("[server] {note}");
+            // 进程没了 = 启动阶段必须收尾：正常停止、崩溃、起不来都走这里。
+            // 不清的话界面会永远停在「正在启动服务端进程…」（审查 17 号问题）。
+            crate::progress::emit_server_stage(&spec2.id, "");
             if let Ok(dir) = server_dir(&spec2.id) {
                 // 同时落一份纯文本：JVM 崩溃（abort/segfault）时 runtime.json
                 // 可能来不及更新，launch-error.txt 是唯一能看到的线索。

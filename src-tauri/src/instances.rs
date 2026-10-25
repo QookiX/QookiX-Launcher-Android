@@ -22,6 +22,7 @@ pub async fn list_instances() -> Result<Vec<MinecraftProfile>> {
     }
 
     let mut instances = Vec::new();
+    let mut broken = 0usize;
 
     let mut entries = fs::read_dir(&instances_dir).await
         .context("Failed to read instances directory")?;
@@ -36,19 +37,36 @@ pub async fn list_instances() -> Result<Vec<MinecraftProfile>> {
             let content = match fs::read_to_string(&file_path).await {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("[instances] 读取失败，跳过 {}: {e}", file_path.display());
+                    broken += 1;
+                    crate::util::log_line(&format!(
+                        "[instances] 读取失败，跳过 {}: {e}",
+                        file_path.display()
+                    ));
                     continue;
                 }
             };
             let instance: MinecraftProfile = match serde_json::from_str(&content) {
                 Ok(i) => i,
                 Err(e) => {
-                    eprintln!("[instances] 解析失败，跳过 {}: {e}", file_path.display());
+                    broken += 1;
+                    crate::util::log_line(&format!(
+                        "[instances] 解析失败，跳过 {}: {e}",
+                        file_path.display()
+                    ));
                     continue;
                 }
             };
             instances.push(instance);
         }
+    }
+
+    // 有 instance.json 但一个都读不出来：别把「读不出来」伪装成「没有实例」。
+    // 单个坏文件仍然只跳过（其余实例照常显示），**全部**坏才报错 ——
+    // 否则界面显示「还没有游戏实例」，用户会以为数据被删了。
+    if instances.is_empty() && broken > 0 {
+        anyhow::bail!(
+            "{broken} 个实例目录的 instance.json 读取失败（损坏或无权访问），已全部跳过"
+        );
     }
 
     // Sort by last played

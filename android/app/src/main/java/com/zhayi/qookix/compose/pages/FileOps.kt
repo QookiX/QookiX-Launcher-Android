@@ -89,15 +89,16 @@ class ServerFileOps(private val api: QookixApi, private val serverId: String) : 
     override fun write(rel: String, content: String, onResult: (Result<String>) -> Unit) =
         api.writeHostedServerFile(serverId, rel, content, onResult)
 
-    // 服务器侧没有「新建/重命名」命令（见 api.ts），用明确失败代替静默无效
+    // 2026-10-26：这三条以前直接抛 UnsupportedOperationException ——
+    // 按钮照常渲染，点了没反应。Rust 侧已补齐命令，与实例侧共用 fsutil。
     override fun create(rel: String, isDir: Boolean, onResult: (Result<String>) -> Unit) =
-        onResult(Result.failure(UnsupportedOperationException("server file ops: create not supported")))
+        api.createHostedServerEntry(serverId, rel, isDir, onResult)
 
     override fun rename(rel: String, newName: String, onResult: (Result<String>) -> Unit) =
-        onResult(Result.failure(UnsupportedOperationException("server file ops: rename not supported")))
+        api.renameHostedServerPath(serverId, rel, newName, onResult)
 
     override fun delete(rel: String, onResult: (Result<String>) -> Unit) =
-        onResult(Result.failure(UnsupportedOperationException("server file ops: delete not supported")))
+        api.deleteHostedServerPath(serverId, rel, onResult)
 }
 
 /**

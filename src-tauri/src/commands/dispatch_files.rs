@@ -32,6 +32,9 @@ pub(crate) const HANDLED: &[&str] = &[
     "list_hosted_server_config_files",
     "open_hosted_server_folder",
     "open_hosted_server_directory",
+    "create_hosted_server_entry",
+    "rename_hosted_server_path",
+    "delete_hosted_server_path",
 ];
 
 pub(crate) async fn dispatch(cmd: &str, p: &Value) -> Option<String> {
@@ -258,6 +261,42 @@ async fn run(cmd: &str, p: &Value) -> String {
             };
             match crate::server_files::write_hosted_server_file(id, rel, content) {
                 Ok(v) => ok(v),
+                Err(e) => err(e),
+            }
+        }
+        "create_hosted_server_entry" => {
+            let (Some(id), Some(rel)) = (sarg(p, &["id"]), sarg(p, &["rel"])) else {
+                return err("缺少 id / rel");
+            };
+            let is_dir = p
+                .get("isDir")
+                .or_else(|| p.get("is_dir"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            match crate::server_files::create_hosted_server_entry(id, rel, is_dir) {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            }
+        }
+        "rename_hosted_server_path" => {
+            let (Some(id), Some(rel), Some(new_name)) = (
+                sarg(p, &["id"]),
+                sarg(p, &["rel"]),
+                sarg(p, &["newName", "new_name"]),
+            ) else {
+                return err("缺少 id / rel / newName");
+            };
+            match crate::server_files::rename_hosted_server_path(id, rel, new_name) {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            }
+        }
+        "delete_hosted_server_path" => {
+            let (Some(id), Some(rel)) = (sarg(p, &["id"]), sarg(p, &["rel"])) else {
+                return err("缺少 id / rel");
+            };
+            match crate::server_files::delete_hosted_server_path(id, rel) {
+                Ok(()) => ok(()),
                 Err(e) => err(e),
             }
         }

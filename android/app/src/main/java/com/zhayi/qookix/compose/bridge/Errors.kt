@@ -28,6 +28,7 @@ internal fun errorResFor(code: String): Int? = when (code) {
     ApiError.CODE_NOT_FOUND -> R.string.error_not_found
     ApiError.CODE_IO -> R.string.error_disk_io
     ApiError.CODE_PARSE -> R.string.error_bad_response
+    ApiError.CODE_TIMEOUT -> R.string.error_timeout
     else -> null
 }
 

@@ -96,6 +96,8 @@ fun MultiplayerPage(
     onOpenFrp: () -> Unit = {},
     /** 直接连接服务器并测试（2026-10-21 补）。 */
     onPingServer: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
+    /** 列表读取失败时的重试（错误态必须有出口，否则用户只能杀进程）。 */
+    onRetry: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = state.tab.ordinal) {
@@ -127,6 +129,7 @@ fun MultiplayerPage(
                 onOpenServer = onOpenServer,
                 onCreateServer = onCreateServer,
                 onPingServer = onPingServer,
+                onRetry = onRetry,
             )
             MultiplayerTab.Tunnel -> TunnelTab(
                 state = state,
@@ -198,6 +201,7 @@ private fun ServersTab(
     onOpenServer: (String) -> Unit,
     onCreateServer: () -> Unit,
     onPingServer: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
+    onRetry: () -> Unit = {},
 ) {
     // ⚠️ 2026-10-21 真机修：用户反馈「UI 更新前这个界面有个搜索栏」。
     // 旧 Vue 版多人页顶部有搜索框，Compose 版漏了。服务器多了没法找，
@@ -295,50 +299,20 @@ private fun ServersTab(
             )
         }
 
-        when {
-            state.loading -> SkeletonList(rows = 3, rowHeight = 96.dp)
-            filtered.isEmpty() -> Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = if (query.isNotBlank() && state.servers.isNotEmpty())
-                            stringResource(R.string.multiplayer_search_no_result)
-                        else stringResource(R.string.multiplayer_empty_servers_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(QkSpacing.xs))
-                    if (query.isBlank()) {
-                        Text(
-                            text = stringResource(R.string.multiplayer_empty_servers_desc),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-            ) {
-                items(filtered, key = { it.id }) { s ->
-                    ServerCard(
-                        server = s,
-                        onStart = { onStartServer(s.id) },
-                        onStop = { onStopServer(s.id) },
-                        onOpen = { onOpenServer(s.id) },
-                    )
-                }
-            }
-        }
+        ServersListPane(
+            state = state,
+            filtered = filtered,
+            query = query,
+            onStartServer = onStartServer,
+            onStopServer = onStopServer,
+            onOpenServer = onOpenServer,
+            onRetry = onRetry,
+        )
     }
 }
 
 @Composable
-private fun ServerCard(
+internal fun ServerCard(
     server: ServerUi,
     onStart: () -> Unit,
     onStop: () -> Unit,

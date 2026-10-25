@@ -119,6 +119,9 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
      */
     private var heartbeat: android.os.Handler? = null
 
+    /** 本仓库持有的订阅句柄（按句柄退订，不按事件名）。 */
+    private val subs = mutableListOf<RustBridge.Subscription>()
+
     /**
      * 开始监听全部任务相关事件。
      *
@@ -131,12 +134,14 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
         this.onChange = onChange
         this.onExit = onExit
 
-        bridge.listen("install://progress") { payload -> onInstall(payload) }
-        bridge.listen("download://progress") { payload -> onDownload(payload) }
-        bridge.listen("launch://state") { payload -> onLaunchState(payload) }
-        bridge.listen("launch://exit") { payload -> onLaunchExit(payload) }
+        // 重复 start（页面重进）时先退掉上一轮，免得同一事件被处理两次。
+        unsubscribe()
+        subs += bridge.listen("install://progress") { payload -> onInstall(payload) }
+        subs += bridge.listen("download://progress") { payload -> onDownload(payload) }
+        subs += bridge.listen("launch://state") { payload -> onLaunchState(payload) }
+        subs += bridge.listen("launch://exit") { payload -> onLaunchExit(payload) }
         // 启动进度（审计 H-5）：step 文案 + progress 百分比
-        bridge.listen("launch://progress") { payload ->
+        subs += bridge.listen("launch://progress") { payload ->
             runCatching {
                 val o = JSONObject(payload)
                 o.optString("step") to o.optDouble("progress", 0.0).toFloat()
@@ -170,11 +175,18 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
         heartbeat = null
         onChange = null
         onExit = null
-        bridge.unlisten("install://progress")
-        bridge.unlisten("download://progress")
-        bridge.unlisten("launch://state")
-        bridge.unlisten("launch://exit")
-        bridge.unlisten("launch://progress")
+        unsubscribe()
+    }
+
+    /**
+     * 只退订**本仓库自己的**订阅。
+     *
+     * 以前按事件名退订，会把页面上同名事件的订阅一起删掉；反过来页面退出时
+     * 也会把这里的订阅带走（下载进度条从此不动）。见 `RustBridge.unlisten`。
+     */
+    private fun unsubscribe() {
+        subs.forEach { bridge.unlisten(it) }
+        subs.clear()
     }
 
     /** 取消一个任务（调 Rust 的 cancel_install）。 */

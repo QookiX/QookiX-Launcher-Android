@@ -748,4 +748,22 @@ pub struct ServerConfig {
     /// 读不到就是 None，界面退回显示端口。
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub max_players: Option<i64>,
+    /// **只报给界面、不落 `server.json`** 的运行期字段：这台服务器是否算「运行中」。
+    ///
+    /// 含**空闲休眠**：休眠时 JVM 停了，但唤醒监听仍占着端口 —— 列表里必须能
+    /// 给出「停止」，否则用户以为它已经停了，实际端口一直被占。
+    ///
+    /// 这个字段原来根本不存在，列表里的 `running` 恒为 false → 卡片永远显示
+    /// 「启动」，正在跑的服务器在列表上再也停不掉（2026-10-25 审查发现）。
+    #[serde(default, skip_deserializing, skip_serializing_if = "is_false")]
+    pub running: bool,
+    /// **只报给界面、不落 `server.json`** 的运行期字段：局域网地址 `ip:port`。
+    /// 未运行时为 None（界面据此决定显不显示地址）。
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+}
+
+/// serde 的 `skip_serializing_if` 用：`running == false` 时不写进 JSON。
+fn is_false(v: &bool) -> bool {
+    !*v
 }

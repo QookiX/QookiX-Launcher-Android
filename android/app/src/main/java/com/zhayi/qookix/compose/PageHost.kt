@@ -83,8 +83,8 @@ import com.zhayi.qookix.compose.pages.settings.loadContributors
 import com.zhayi.qookix.compose.pages.DownloadsPage
 import com.zhayi.qookix.compose.pages.DownloadsTab
 import com.zhayi.qookix.compose.pages.DownloadsUiState
-import com.zhayi.qookix.compose.pages.FileEditorPage
-import com.zhayi.qookix.compose.pages.FileEditorUiState
+import com.zhayi.qookix.compose.pages.FileEditorOverlay
+import com.zhayi.qookix.compose.pages.rememberFileEditor
 import com.zhayi.qookix.compose.pages.FileManagerPage
 import com.zhayi.qookix.compose.pages.FileManagerUiState
 import com.zhayi.qookix.compose.pages.FileOps
@@ -103,8 +103,7 @@ import com.zhayi.qookix.compose.pages.MissingItemUi
 import com.zhayi.qookix.compose.pages.InstanceDetailUiState
 import com.zhayi.qookix.compose.pages.ControlButtonUi
 import com.zhayi.qookix.compose.pages.SharedUsageUi
-import com.zhayi.qookix.compose.pages.InstanceSettingsUiState
-import com.zhayi.qookix.compose.pages.InstanceSettingsPatch
+import com.zhayi.qookix.compose.pages.rememberInstanceSettings
 import com.zhayi.qookix.compose.pages.InstanceTab
 import com.zhayi.qookix.compose.pages.InstanceSection
 import com.zhayi.qookix.compose.pages.ProjectUi
@@ -330,8 +329,8 @@ fun PageHost(
                 )
             }
         }
-        bridge.listen("app-update-progress", handler)
-        onDispose { bridge.unlisten("app-update-progress") }
+        val sub = bridge.listen("app-update-progress", handler)
+        onDispose { bridge.unlisten(sub) }
     }
     LaunchedEffect(bridgeReady, instancesReloadKey) {
         if (bridgeReady) {
@@ -1895,7 +1894,7 @@ private fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
     // payload = { id, phase, done, total, message }
     // plugin.rs 在装插件过程中持续推，原来 Compose 端零监听。
     DisposableEffect(bridge) {
-        bridge.listen("plugin://progress") { payload ->
+        val sub = bridge.listen("plugin://progress") { payload ->
             runCatching {
                 val o = org.json.JSONObject(payload)
                 val msg = o.optString("message")
@@ -1909,7 +1908,7 @@ private fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
                 )
             }
         }
-        onDispose { bridge.unlisten("plugin://progress") }
+        onDispose { bridge.unlisten(sub) }
     }
 
     LaunchedEffect(bridgeReady) {
@@ -2657,6 +2656,9 @@ private fun SettingsRoute(
         repo.update(patch) { r ->
             r.onFailure { e ->
                 state = state.copy(error = context.getString(R.string.settings_save_failed, e.message))
+                // 乐观更新失败：回读一次真实设置，把界面上那个「假的新值」冲掉。
+                // 只弹一句错误但界面还显示新值，用户会以为已经改好了（审查发现）。
+                settingsReloadKey++
             }
         }
     }
@@ -3144,8 +3146,8 @@ private fun FileBrowserRoute(
     var path by remember { mutableStateOf("") }
     var state by remember { mutableStateOf(FileManagerUiState(title = context.getString(ops.labelRes))) }
 
-    // 正在编辑的文件（null = 在列表层）
-    var editor by remember { mutableStateOf<FileEditorUiState?>(null) }
+    // 正在编辑的文件（null = 在列表层）；读/改/存都在 FileEditorController 里
+    val editor = rememberFileEditor(ops, context)
 
     // ⚠️ 系统返回键：编辑中就先退出编辑器，否则退出文件浏览（2026-10-17）。
     //
@@ -3153,7 +3155,7 @@ private fun FileBrowserRoute(
     // 它只看 backStack / current，**不知道文件浏览这一层的存在** ——
     // 结果按返回直接跳回首页，连实例详情都跳过。
     androidx.activity.compose.BackHandler {
-        if (editor != null) editor = null else onBack()
+        if (editor.state != null) editor.close() else onBack()
     }
 
     fun reload() {
@@ -3170,70 +3172,16 @@ private fun FileBrowserRoute(
         if (bridgeReady) reload()
     }
 
-    val ed = editor
-    if (ed != null) {
-        FileEditorPage(
-            state = ed,
-            onContentChange = { newText ->
-                // dirty 只在「与打开时的内容不同」时为真。
-                // 不能简单写 `dirty = true` —— 那样改回原样也还显示未保存。
-                editor = ed.copy(
-                    content = newText,
-                    dirty = newText != ed.originalContent,
-                )
-            },
-            onSave = {
-                editor = ed.copy(saving = true)
-                ops.write(ed.rel, ed.content) { r ->
-                    r.fold(
-                        onSuccess = {
-                            // 保存成功后把 originalContent 同步为当前内容，
-                            // 否则「已修改」标记不会消失
-                            editor = ed.copy(
-                                saving = false,
-                                dirty = false,
-                                originalContent = ed.content,
-                                size = ed.content.toByteArray().size.toLong(),
-                            )
-                        },
-                        onFailure = { e ->
-                            editor = ed.copy(saving = false, error = context.getString(R.string.settings_save_failed, e.message))
-                        },
-                    )
-                }
-            },
-            onBack = { editor = null },
-        )
-        return
-    }
+    // 编辑中：整页覆盖列表（同一份状态机也给实例详情的「文件」tab 用）
+    if (FileEditorOverlay(editor)) return
 
     FileManagerPage(
         state = state.copy(path = path),
         onOpenDir = { path = it },
         onOpenFile = { e ->
             // 大文件不进编辑器（会把界面卡死），直接提示
-            if (tooLargeToEdit(e.size)) {
+            if (!editor.open(e)) {
                 state = state.copy(error = context.getString(R.string.file_too_large, e.name, fmtBytes(e.size)))
-                return@FileManagerPage
-            }
-            editor = FileEditorUiState(
-                rel = e.rel,
-                fileName = e.name,
-                size = e.size,
-                loading = true,
-            )
-            ops.read(e.rel) { r ->
-                editor = r.fold(
-                    onSuccess = { text ->
-                        editor?.copy(
-                            content = text,
-                            // 记下原始内容用于 dirty 比较
-                            originalContent = text,
-                            loading = false,
-                        )
-                    },
-                    onFailure = { editor?.copy(loading = false, error = context.getString(R.string.file_read_failed, friendlyError(context, it))) },
-                )
             }
         },
         onBreadcrumb = { path = it },
@@ -3342,7 +3290,7 @@ private fun InstanceDetailRoute(
         if (!bridgeReady) {
             onDispose { }
         } else {
-            bridge.listen("content::identified") { payload ->
+            val sub = bridge.listen("content::identified") { payload ->
                 runCatching {
                     val o = org.json.JSONObject(payload)
                     // 只处理当前实例 + 当前分类的事件
@@ -3366,7 +3314,7 @@ private fun InstanceDetailRoute(
                     )
                 }.onFailure { android.util.Log.w("InstanceDetail", "解析 content::identified 失败", it) }
             }
-            onDispose { bridge.unlisten("content::identified") }
+            onDispose { bridge.unlisten(sub) }
         }
     }
 
@@ -3377,7 +3325,7 @@ private fun InstanceDetailRoute(
         if (!bridgeReady) {
             onDispose { }
         } else {
-            bridge.listen("content://update-finished") { payload ->
+            val sub = bridge.listen("content://update-finished") { payload ->
                 runCatching {
                     val o = org.json.JSONObject(payload)
                     val ok = o.optBoolean("ok", false)
@@ -3398,7 +3346,7 @@ private fun InstanceDetailRoute(
                     }
                 }.onFailure { android.util.Log.w("InstanceDetail", "解析 content://update-finished 失败", it) }
             }
-            onDispose { bridge.unlisten("content://update-finished") }
+            onDispose { bridge.unlisten(sub) }
         }
     }
 
@@ -3409,7 +3357,7 @@ private fun InstanceDetailRoute(
         if (!bridgeReady) {
             onDispose { }
         } else {
-            bridge.listen("launch://log") { payload ->
+            val sub = bridge.listen("launch://log") { payload ->
                 runCatching {
                     val o = org.json.JSONObject(payload)
                     if (o.optString("instanceId") != instanceId) return@runCatching
@@ -3420,7 +3368,7 @@ private fun InstanceDetailRoute(
                     }
                 }.onFailure { android.util.Log.w("InstanceDetail", "解析 launch://log 失败", it) }
             }
-            onDispose { bridge.unlisten("launch://log") }
+            onDispose { bridge.unlisten(sub) }
         }
     }
     var launchingWorld by remember(instanceId) { mutableStateOf<String?>(null) }
@@ -3429,10 +3377,8 @@ private fun InstanceDetailRoute(
     // 单独管理而不是塞进 InstanceDetailUiState：
     // 它有「dirty（未保存）」与「saving」这类**编辑态**，
     // 与其它 tab 的「展示态」性质不同，混在一起容易互相干扰。
-    var settings by remember(instanceId) { mutableStateOf(InstanceSettingsUiState()) }
-    var settingsSaving by remember(instanceId) { mutableStateOf(false) }
-    var settingsHint by remember(instanceId) { mutableStateOf<String?>(null) }
-    var settingsError by remember(instanceId) { mutableStateOf<String?>(null) }
+    // 值 / 载入 / 保存都收在 InstanceSettingsController 里（进 tab 时读真实配置）。
+    val settingsCtl = rememberInstanceSettings(instanceId, state.tab, api, context)
     // ⚠️ 必须 key 到 instanceId（与上面三个一致）：否则在实例 A 打开重命名框、
     // 退出来进实例 B 时，B 会凭空弹出指向 A 的重命名框（状态串台）。
     var renameTarget by remember(instanceId) { mutableStateOf<String?>(null) }
@@ -3833,7 +3779,7 @@ private fun InstanceDetailRoute(
     var repairStage by remember { mutableStateOf("") }
     var repairFraction by remember { mutableStateOf(-1f) }
     DisposableEffect(bridge) {
-        bridge.listen("install://progress") { payload ->
+        val sub = bridge.listen("install://progress") { payload ->
             runCatching {
                 val o = org.json.JSONObject(payload)
                 Triple(o.optString("message"), o.optInt("done", 0), o.optInt("total", 0))
@@ -3844,7 +3790,7 @@ private fun InstanceDetailRoute(
                 }
             }
         }
-        onDispose { bridge.unlisten("install://progress") }
+        onDispose { bridge.unlisten(sub) }
     }
 
     // ── 把实例信息注册到顶栏（2026-10-17）────────────────────────────
@@ -3932,9 +3878,9 @@ private fun InstanceDetailRoute(
                 )
             }
         },
-        onRestore = { file ->
-            val world = state.worlds.firstOrNull()?.name ?: return@InstanceDetailPage
+        onRestore = { world, file ->
             // ⚠️ 恢复备份会覆盖当前存档、进度不可撤销 —— 必须二次确认。
+            // world 由行内传下来（以前这里取 worlds.first()，多世界实例会恢复进错的世界）。
             dangerConfirm = DangerConfirm(
                 title = context.getString(R.string.backup_restore_title),
                 message = context.getString(R.string.backup_restore_msg, file),
@@ -3949,8 +3895,7 @@ private fun InstanceDetailRoute(
                 },
             )
         },
-        onDeleteBackup = { file ->
-            val world = state.worlds.firstOrNull()?.name ?: return@InstanceDetailPage
+        onDeleteBackup = { world, file ->
             dangerConfirm = DangerConfirm(
                 title = context.getString(R.string.backup_delete_title),
                 message = context.getString(R.string.backup_delete_msg),
@@ -4392,55 +4337,13 @@ private fun InstanceDetailRoute(
                 )
             }
         },
-        settings = settings,
-        onSettingsChange = { patch ->
-            // 乐观更新本地状态（不打 IPC），保存时一次性提交。
-            // 逐字段发请求的话，用户拖滑杆会产生几十次请求。
-            settings = when (patch) {
-                is InstanceSettingsPatch.MemoryMode -> settings.copy(memoryMode = patch.value, dirty = true)
-                is InstanceSettingsPatch.MaxMemory -> settings.copy(maxMemoryMb = patch.value, dirty = true)
-                is InstanceSettingsPatch.JvmArgs -> settings.copy(jvmArgs = patch.value, dirty = true)
-                is InstanceSettingsPatch.GameArgs -> settings.copy(gameArgs = patch.value, dirty = true)
-                is InstanceSettingsPatch.Alias -> settings.copy(alias = patch.value, dirty = true)
-                is InstanceSettingsPatch.CheckFiles -> settings.copy(checkFilesOnLaunch = patch.value, dirty = true)
-                is InstanceSettingsPatch.Renderer -> settings.copy(renderer = patch.value, dirty = true)
-            }
-            settingsHint = null
-            settingsError = null
-        },
-        onSettingsSave = {
-            if (settingsSaving) return@InstanceDetailPage
-            settingsSaving = true
-            settingsError = null
-            val patch = org.json.JSONObject().put("id", instanceId)
-            // 有默认值的字段全发（patch 语义：Rust 只认它白名单里的键）
-            patch.put("memory_mode", settings.memoryMode)
-            patch.put("max_memory_mb", settings.maxMemoryMb)
-            patch.put("jvm_args", settings.jvmArgs)
-            patch.put("game_args", settings.gameArgs)
-            patch.put("alias", settings.alias.trim())
-            patch.put("check_files_on_launch", settings.checkFilesOnLaunch)
-            // 渲染器 —— 不加这个的话保存时会被忽略（Rust 只认 patch 里带的键）
-            patch.put("renderer", settings.renderer)
-
-            // ⚠️ 命令名是 `update_instance`（不是 update_instance_settings）
-            api.updateInstance(patch) { r ->
-                settingsSaving = false
-                r.fold(
-                    onSuccess = {
-                        settings = settings.copy(dirty = false)
-                        settingsHint = context.getString(R.string.saved)
-                    },
-                    onFailure = { e ->
-                        settingsError = context.getString(R.string.settings_save_failed, e.message)
-                    },
-                )
-            }
-        },
-        settingsSaving = settingsSaving,
-        settingsHint = settingsHint,
-        settingsError = settingsError,
-        onDismissSettingsHint = { settingsHint = null; settingsError = null },
+        settings = settingsCtl.value,
+        onSettingsChange = settingsCtl::applyPatch,
+        onSettingsSave = settingsCtl::save,
+        settingsSaving = settingsCtl.saving,
+        settingsHint = settingsCtl.hint,
+        settingsError = settingsCtl.error,
+        onDismissSettingsHint = { settingsCtl.hint = null; settingsCtl.error = null },
         onAnalyzeCrash = { file ->
             android.util.Log.i("QkCrash", "analyze file=[" + file + "] len=" + file.length)
             api.analyzeCrashLog(instanceId, file) { r ->
@@ -4517,13 +4420,21 @@ private fun MultiplayerRoute(
     DisposableEffect(Unit) { onDispose { alive = false } }
 
     fun reload() {
-        state = state.copy(loading = true)
+        // error 在**开始时**清，不在成功回调里清 —— 否则「启动失败」的红字
+        // 会被紧随其后的列表刷新顺手抹掉。
+        state = state.copy(loading = true, error = null)
         repo.loadServers { r ->
             state = r.fold(
-                onSuccess = { state.copy(servers = it, loading = false, error = null) },
+                onSuccess = { state.copy(servers = it, loading = false) },
                 onFailure = { state.copy(loading = false, error = context.getString(R.string.server_list_read_failed, friendlyError(context, it))) },
             )
         }
+    }
+
+    /** 启停失败必须给反馈（以前 `{ reload() }` 把 Result 丢了，失败零提示）。 */
+    fun serverActionFailed(failRes: Int, e: Throwable?) {
+        if (e == null) return
+        state = state.copy(error = context.getString(failRes, friendlyError(context, e)))
     }
 
     // 服务器列表：bridge 就绪时拉一次；Rust 推 servers 脏事件时重拉（A2）。
@@ -4547,8 +4458,8 @@ private fun MultiplayerRoute(
     MultiplayerPage(
         state = state,
         onTabChange = { state = state.copy(tab = it) },
-        onStartServer = { id -> repo.start(id) { reload() } },
-        onStopServer = { id -> repo.stop(id) { reload() } },
+        onStartServer = { id -> repo.start(id) { r -> reload(); serverActionFailed(R.string.server_detail_start_failed, r.exceptionOrNull()) } },
+        onStopServer = { id -> repo.stop(id) { r -> reload(); serverActionFailed(R.string.server_detail_stop_failed, r.exceptionOrNull()) } },
         onOpenServer = onOpenServer,
         // 2026-10-18：从弹窗改成独立页面（用户反馈「对话框不合适，
         // 像新建实例那样做成页面会好一点」）。见 ServerCreatePage.kt。
@@ -4573,7 +4484,7 @@ private fun MultiplayerRoute(
         },
         onOpenFrp = { onNavigate(NavDestination.Frp) },
         onOpenFrpRooms = { onNavigate(NavDestination.FrpRooms) },
-        tunnelBusy = tunnelBusy,
+        tunnelBusy = tunnelBusy, onRetry = { reload() },
         // 复制房间码 —— 房间码本来就是要发给朋友的，
         // 不能复制就得手抄（旧 UI 的 copyRoom 就是这个作用）
         onCopyRoom = {
@@ -4779,7 +4690,7 @@ private fun CreateRoute(
     var importDone by remember { mutableStateOf(0) }
     var importTotal by remember { mutableStateOf(0) }
     DisposableEffect(bridge) {
-        bridge.listen("install://progress") { payload ->
+        val sub = bridge.listen("install://progress") { payload ->
             runCatching {
                 val o = org.json.JSONObject(payload)
                 Triple(o.optString("message"), o.optInt("done", 0), o.optInt("total", 0))
@@ -4792,7 +4703,7 @@ private fun CreateRoute(
                 }
             }
         }
-        onDispose { bridge.unlisten("install://progress") }
+        onDispose { bridge.unlisten(sub) }
     }
     var importMsg by remember { mutableStateOf<String?>(null) }
 
@@ -5354,11 +5265,13 @@ private fun BrowseRoute(
                     }
                 }
             },
+            // 目标二选一：不清掉另一侧的话，两个 id 同时非空 → 模组会被装进服务器目录
             onSelectInstance = { id ->
                 installInstanceId = id
+                installServerId = null
                 loadInstallVersions(p)
             },
-            onSelectServer = { installServerId = it },
+            onSelectServer = { installServerId = it; installInstanceId = null },
             onTypeFilterChange = { installTypeFilter = it },
             onOpenDependency = { d ->
                 // 切到那个依赖项目（在同一个对话框里）

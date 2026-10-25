@@ -395,7 +395,7 @@ async fn wake(id: String) {
 /// 不补的话：休眠中的服务器没人监听（朋友连不进来，界面却写着「休眠中」），
 /// 运行中的服务器不再巡检（永远不休眠）。这两种都是静默失效，最不该出现。
 pub fn resume_on_start() {
-    for s in crate::servers::list_servers() {
+    for s in crate::servers::list_servers().unwrap_or_default() {
         if read_state(&s.id).map(|st| st.sleeping).unwrap_or(false) {
             if s.sleep_timeout_min == 0 {
                 // 用户在休眠期间把功能关了：不再监听，如实回到「已停止」。

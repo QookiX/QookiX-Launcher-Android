@@ -28,6 +28,8 @@ mod modpack;
 mod hangar;
 mod frp;
 mod servers;
+/// 服务器根目录定位与列表读取（从 `servers` 拆出，Q2 体量棘轮）。
+mod server_list;
 /// 服务器空闲休眠与唤醒（无人时停服省电，有人连接自动拉起）。
 mod sleep;
 mod server_process;
@@ -36,6 +38,8 @@ mod instance_files;
 mod rcon;
 mod crash;
 mod renderer_health;
+/// 按 MC 版本挑默认渲染器（1.21.x 的 GL4ES 崩溃判断）。
+mod renderer_pick;
 mod storage;
 /// 游戏目录设置（内部 / 应用专属外部 / 自定义）。
 mod game_dir;

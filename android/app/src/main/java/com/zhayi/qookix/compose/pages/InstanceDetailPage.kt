@@ -142,10 +142,10 @@ fun InstanceDetailPage(
     onViewCrashRaw: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
     /** 文件操作实现（实例侧）—— 由外层构造，因为它需要 instanceId。 */
     fileOps: FileOps,
-    // 存档
+    // 存档：(世界名, 备份文件名) —— 必须带世界名，否则多世界实例会恢复到错的世界
     onBackup: (String) -> Unit,
-    onRestore: (String) -> Unit,
-    onDeleteBackup: (String) -> Unit,
+    onRestore: (String, String) -> Unit,
+    onDeleteBackup: (String, String) -> Unit,
     /** 快速进入某个世界（quick-play，直接带着世界启动）。 */
     onLaunchWorld: ((String) -> Unit)? = null,
     /** 正在启动的世界名。 */
@@ -468,12 +468,12 @@ fun InstanceDetailPage(
 private fun SavesTab(
     state: InstanceDetailUiState,
     onBackup: (String) -> Unit,
-    onRestore: (String) -> Unit,
+    onRestore: (String, String) -> Unit,
     /** 快速进入某个世界（quick-play）。旧 UI 的 launchWorld。 */
     onLaunchWorld: ((String) -> Unit)? = null,
     /** 正在启动的世界名（用于按钮态）。 */
     launchingWorld: String? = null,
-    onDeleteBackup: (String) -> Unit,
+    onDeleteBackup: (String, String) -> Unit,
 ) {
     when {
         state.loading -> Column(modifier = Modifier.padding(QkSpacing.lg)) {
@@ -544,7 +544,7 @@ private fun SavesTab(
                                 Text(stringResource(R.string.instance_detail_backup))
                             }
                             if (w.backups.isNotEmpty()) {
-                                TextButton(onClick = { onRestore(w.backups.first()) }) {
+                                TextButton(onClick = { onRestore(w.name, w.backups.first()) }) {
                                     Icon(Icons.Filled.Restore, null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
                                     Text(stringResource(R.string.instance_detail_restore_latest))
@@ -570,10 +570,10 @@ private fun SavesTab(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    IconButton(onClick = { onRestore(b) }) {
+                                    IconButton(onClick = { onRestore(w.name, b) }) {
                                         Icon(Icons.Filled.Restore, stringResource(R.string.instance_detail_restore), modifier = Modifier.size(18.dp))
                                     }
-                                    IconButton(onClick = { onDeleteBackup(b) }) {
+                                    IconButton(onClick = { onDeleteBackup(w.name, b) }) {
                                         Icon(
                                             Icons.Filled.Delete, stringResource(R.string.instance_detail_delete),
                                             modifier = Modifier.size(18.dp),
@@ -984,6 +984,9 @@ private fun FilesTab(
     val ctx = LocalContext.current
     var path by remember { mutableStateOf("") }
     var state by remember { mutableStateOf(FileManagerUiState(title = ctx.getString(ops.labelRes))) }
+    // 点文件进编辑器（原来 onOpenFile 是空 lambda：点 jar / options.txt 毫无反应）
+    val editor = rememberFileEditor(ops, ctx)
+    if (FileEditorOverlay(editor)) return
     // `reload()` 是普通局部函数（不是 @Composable），拿不到 stringResource，
     // 所以先在 composable 作用域里取好 Context。
 
@@ -1080,7 +1083,11 @@ private fun FilesTab(
             modifier = Modifier.weight(1f),
             state = state.copy(path = path),
             onOpenDir = { path = it },
-            onOpenFile = { /* 实例文件编辑走简化路径：目前只支持查看 */ },
+            onOpenFile = { e ->
+                if (!editor.open(e)) {
+                    state = state.copy(error = ctx.getString(R.string.file_too_large, e.name, fmtBytes(e.size)))
+                }
+            },
             onBreadcrumb = { path = it },
             onGoUp = { path = path.substringBeforeLast('/', "") },
             onCreate = { name, isDir ->
@@ -1133,13 +1140,6 @@ private fun FilesTab(
         )
     }
 }
-
-@Composable
-private fun SettingsTabStub() =
-    EmptyHint(
-        stringResource(R.string.instance_detail_settings_stub_title),
-        stringResource(R.string.instance_detail_settings_stub_desc),
-    )
 
 /**
  * 日志 tab。

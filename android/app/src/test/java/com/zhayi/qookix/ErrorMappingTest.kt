@@ -26,6 +26,12 @@ class ErrorMappingTest {
     }
 
     @Test
+    fun timeout_maps_to_timeout_hint() {
+        // 桥层自己的超时（Rust 侧不会发这个 code，见 RustBridge.invoke）
+        assertEquals(R.string.error_timeout, errorResFor(ApiError.CODE_TIMEOUT))
+    }
+
+    @Test
     fun io_and_parse_have_dedicated_hints() {
         assertEquals(R.string.error_disk_io, errorResFor(ApiError.CODE_IO))
         assertEquals(R.string.error_bad_response, errorResFor(ApiError.CODE_PARSE))

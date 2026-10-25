@@ -30,12 +30,37 @@ class QookixApi(private val bridge: RustBridge) {
         private const val TAG = "QookixApi"
 
         /**
-         * 已迁移到 **JNI 直连**（不经 WebView）的命令白名单。
+         * 长任务命令的特征词。
          *
-         * 迁移原则：先挑「纯查询、无副作用、调用频繁」的命令做试点，
-         * 每迁一个就在 Rust `commands::native_invoke` 里补一条 match。
-         * 全部迁完后，`bridge.invoke` 就可以连同 WebView 一起删掉。
+         * 命中的命令**不设超时**：安装/下载/导入/启动本来就要跑几分钟，
+         * 它们靠事件推进度，不能按「命令多久返回」判死（会把正常的慢网安装
+         * 误判成卡死）。其余命令一律走 [RustBridge.DEFAULT_TIMEOUT_MS]。
+         *
+         * 宁可漏判（长任务少了保护）也不要误判（正常安装被掐断）。
          */
+        private val LONG_TASK_HINTS = listOf(
+            "install", "import", "download", "launch", "modpack",
+            "extract", "unpack", "upload", "backup", "restore",
+        )
+
+        /**
+         * 精确名单：不命中上面的词、但确实是长任务的命令。
+         *
+         * ⚠️ 刻意**不**把 `update` / `copy` 当通用词：`update_instance`、
+         * `update_settings` 都是毫秒级的保存，正好是最需要超时保护的那类。
+         */
+        private val LONG_TASK_EXACT = setOf(
+            "check_updates", "check_for_update", "apply_update",
+            "export_instance_logs", "export_control_layout",
+        )
+
+        /** 该命令允许等多久（0 = 不限时）。 */
+        internal fun timeoutFor(cmd: String): Long =
+            if (cmd in LONG_TASK_EXACT || LONG_TASK_HINTS.any { cmd.contains(it) }) {
+                0L
+            } else {
+                RustBridge.DEFAULT_TIMEOUT_MS
+            }
     }
 
     // ── 通用调用工具 ──────────────────────────────────────────────────────
@@ -60,7 +85,7 @@ class QookixApi(private val bridge: RustBridge) {
         // 两条路现在完全等价（bridge 也是纯 JNI），但白名单那条**没有解析 ApiError**，
         // 于是大多数命令的错误仍退化成 IllegalStateException —— A2 的错误契约
         // 在这种路径下形同虚设。删掉分叉后，所有命令共用同一套解析。
-        bridge.invoke(cmd, payload?.toString() ?: "{}") { r ->
+        bridge.invoke(cmd, payload?.toString() ?: "{}", timeoutFor(cmd)) { r ->
             onResult(r.mapCatching { unwrapJsonString(it) })
         }
     }

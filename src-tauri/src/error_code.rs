@@ -51,6 +51,12 @@ pub(crate) fn classify_error(msg: &str) -> (&'static str, bool) {
     if has(&[
         "permission denied",
         "eacces",
+        // Android 上「所有文件访问」没真正生效时报的是 EPERM，文案是
+        // "Operation not permitted (os error 1)" —— 不走 eacces 那条分支，
+        // 不加这几个词就会被归到 unknown，界面给不出「去开权限」的引导。
+        "operation not permitted",
+        "eperm",
+        "read-only file system",
         "no space left",
         "enospc",
         "写入失败",
@@ -124,6 +130,15 @@ mod tests {
     fn io_and_parse_are_classified() {
         assert_eq!(classify_error("no space left on device"), ("io", false));
         assert_eq!(classify_error("解析 JSON 失败"), ("parse", false));
+    }
+
+    #[test]
+    fn android_eperm_counts_as_io() {
+        // 真实事故文案：「所有文件访问」显示已允许，写 /sdcard/QookiX 却 EPERM。
+        assert_eq!(
+            classify_error("读取服务器目录失败：/sdcard/QookiX（Operation not permitted (os error 1))"),
+            ("io", false)
+        );
     }
 
     #[test]

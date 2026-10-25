@@ -224,6 +224,7 @@
     <string name="instance_detail_crash_list_failed">读取崩溃列表失败：%1$s</string>
     <string name="instance_detail_log_load_failed">读取日志失败：%1$s</string>
     <string name="instance_detail_file_op_failed">文件操作失败：%1$s</string>
+    <string name="instance_settings_load_failed">读取实例设置失败：%1$s</string>
     <string name="instance_detail_reload">重新读取</string>
     <string name="instance_detail_log_lines">共 %1$d 行</string>
     <string name="instance_detail_refresh">刷新</string>
@@ -849,6 +850,7 @@
     <string name="file_back">返回</string>
     <string name="file_editor_unsaved">未保存的修改</string>
     <string name="file_editor_modified">放弃修改</string>
+    <string name="file_editor_discard_msg">返回会丢掉这次的编辑内容。</string>
     <string name="file_editor_saving">保存中…</string>
     <string name="file_editor_save">保存</string>
     <string name="file_editor_open_failed">打不开这个文件</string>
@@ -1246,6 +1248,7 @@
     <string name="error_disk_io">读写失败：请检查存储空间与文件权限</string>
     <string name="instances_delete_failed">删除实例失败：%1$s</string>
     <string name="error_bad_response">返回数据异常（可能是服务端变动或版本不匹配）</string>
+    <string name="error_timeout">操作超时（后台长时间没有响应），请重试</string>
     <string name="error_network">网络连接失败，请检查网络或用代理后重试</string>
     <string name="error_server_unavailable">服务器暂时不可用，请稍后重试</string>
     <string name="error_not_found">找不到该内容（可能已被删除或下架）</string>

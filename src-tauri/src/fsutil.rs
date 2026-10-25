@@ -109,6 +109,78 @@ pub fn resolve_in_dir(dir: &Path, rel: &str, label: &str) -> Result<PathBuf, Str
     }
 }
 
+/// 新建空文件 / 文件夹。
+///
+/// 实例文件管理器与服务器文件管理器共用这一份；`base` 是各自的根目录，
+/// `label` 只影响错误文案（「实例」/「服务器」）。
+pub fn create_entry(base: &Path, rel: &str, is_dir: bool, label: &str) -> Result<Value, String> {
+    let last = rel.rsplit('/').next().unwrap_or("");
+    validate_name(last)?;
+    let path = resolve_in_dir(base, rel, label)?;
+    if path.exists() {
+        return Err("已存在同名的文件或文件夹".into());
+    }
+    if is_dir {
+        std::fs::create_dir_all(&path).map_err(|e| format!("创建文件夹失败: {e}"))?;
+    } else {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+        }
+        std::fs::write(&path, "").map_err(|e| format!("创建文件失败: {e}"))?;
+    }
+    Ok(json!({ "rel": rel, "is_dir": is_dir }))
+}
+
+/// 删除文件或文件夹（文件夹递归）。根目录本身不允许删。
+pub fn delete_entry(base: &Path, rel: &str, label: &str) -> Result<(), String> {
+    if rel.trim().is_empty() {
+        return Err(format!("不能删除{label}根目录"));
+    }
+    let path = resolve_in_dir(base, rel, label)?;
+    if !path.exists() {
+        return Err("文件或文件夹不存在".into());
+    }
+    if path.is_dir() {
+        std::fs::remove_dir_all(&path).map_err(|e| format!("删除文件夹失败: {e}"))?;
+    } else {
+        std::fs::remove_file(&path).map_err(|e| format!("删除文件失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 重命名（同目录内改名）。返回新的相对路径。
+pub fn rename_entry(
+    base: &Path,
+    rel: &str,
+    new_name: &str,
+    label: &str,
+) -> Result<Value, String> {
+    if rel.trim().is_empty() {
+        return Err(format!("不能重命名{label}根目录"));
+    }
+    validate_name(new_name)?;
+    let path = resolve_in_dir(base, rel, label)?;
+    if !path.exists() {
+        return Err("文件或文件夹不存在".into());
+    }
+    let parent = path.parent().ok_or("无法重命名该路径")?;
+    let target = parent.join(new_name.trim());
+    if target.exists() {
+        return Err("已存在同名的文件或文件夹".into());
+    }
+    std::fs::rename(&path, &target).map_err(|e| format!("重命名失败: {e}"))?;
+    let parent_rel = match rel.rfind('/') {
+        Some(i) => rel[..i].to_string(),
+        None => String::new(),
+    };
+    let new_rel = if parent_rel.is_empty() {
+        new_name.trim().to_string()
+    } else {
+        format!("{}/{}", parent_rel, new_name.trim())
+    };
+    Ok(json!({ "rel": new_rel, "name": new_name.trim().to_string() }))
+}
+
 /// 列举目录内容：目录在前，同类型按名称（不区分大小写）排序。
 pub fn list_dir(dir: &Path, base_rel: &str) -> Result<Vec<FsEntry>, String> {
     let base = base_rel.trim_end_matches('/').to_string();

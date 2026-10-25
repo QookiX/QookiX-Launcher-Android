@@ -94,8 +94,20 @@ class RustBridge(@Suppress("unused") private val activity: Activity?) {
      * 返回值的形状与旧 Tauri 通道一致：裸 JSON（字符串结果带引号），
      * 所以上层调用方一行都不用改 ✓。
      */
-    fun invoke(cmd: String, payload: String = "{}", onResult: (Result<String>) -> Unit) {
+    fun invoke(
+        cmd: String,
+        payload: String = "{}",
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        onResult: (Result<String>) -> Unit,
+    ) {
         val main = android.os.Handler(android.os.Looper.getMainLooper())
+        // 只交付一次：JNI 调用无法取消，超时后那个线程迟早还会回来，
+        // 不能让同一个回调跑两遍（否则界面会收到「先超时失败、又突然成功」）。
+        val answered = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun deliver(result: Result<String>) {
+            if (!answered.compareAndSet(false, true)) return
+            main.post { onResult(result) }
+        }
         Thread {
             val result = runCatching {
                 val raw = TauriBridge.nativeInvoke(cmd, payload)
@@ -119,19 +131,51 @@ class RustBridge(@Suppress("unused") private val activity: Activity?) {
                 // 需要区分「命令根本没进 Rust」与「进了 Rust 但卡住」。
                 Log.i(TAG, "← $cmd 返回（${payload.length}B 请求）")
             }
-            main.post { onResult(result) }
+            deliver(result)
         }.start()
+        if (timeoutMs > 0) {
+            main.postDelayed({
+                if (answered.compareAndSet(false, true)) {
+                    Log.w(TAG, "$cmd 超时：${timeoutMs}ms 内没有返回")
+                    onResult(
+                        Result.failure(
+                            ApiError(
+                                code = ApiError.CODE_TIMEOUT,
+                                message = "命令 $cmd 超过 ${timeoutMs / 1000} 秒未返回",
+                                retryable = true,
+                            ),
+                        ),
+                    )
+                }
+            }, timeoutMs)
+        }
     }
 
+    /** 一次事件订阅的句柄。见 [listen] / [unlisten]。 */
+    class Subscription internal constructor(
+        internal val event: String,
+        internal val handler: (String) -> Unit,
+    )
+
     /** 订阅 Rust 事件（走 JNI 静态表，见 companion 的 [deliverEvent]）。 */
-    fun listen(event: String, onPayload: (String) -> Unit) {
+    fun listen(event: String, onPayload: (String) -> Unit): Subscription {
         globalHandlers
             .getOrPut(event) { java.util.Collections.synchronizedList(mutableListOf()) }
             .add(onPayload)
+        return Subscription(event, onPayload)
     }
 
-    fun unlisten(event: String) {
-        globalHandlers.remove(event)
+    /**
+     * 退订**这一次**订阅。
+     *
+     * ⚠️ 原来的 `unlisten(event)` 会把该事件的**所有**订阅一次删光：页面退出时
+     * 顺手带走 TasksRepo 的 `install://progress` 订阅，下载进度条从此不再更新
+     * （2026-10-25 审查发现）。现在只按句柄移除自己那一个。
+     */
+    fun unlisten(sub: Subscription) {
+        val list = globalHandlers[sub.event] ?: return
+        list.removeAll { it === sub.handler }
+        if (list.isEmpty()) globalHandlers.remove(sub.event)
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -139,7 +183,7 @@ class RustBridge(@Suppress("unused") private val activity: Activity?) {
 
     /** 兼容旧调用点：做一次最轻的往返，用于诊断。 */
     fun selfTest(onResult: (Result<String>) -> Unit) {
-        invoke("get_settings", "{}", onResult)
+        invoke("get_settings", "{}", onResult = onResult)
     }
 
     fun destroy() {
@@ -149,6 +193,19 @@ class RustBridge(@Suppress("unused") private val activity: Activity?) {
 
     companion object {
         private const val TAG = "RustBridge"
+
+        /**
+         * 普通命令的超时上限。
+         *
+         * 为什么要有：JNI 调用是**同步阻塞**的，Rust 一旦死锁或卡在 IO 上，
+         * 这个线程永远不回来，界面就永久转圈、连「取消」都没有（导入卡在
+         * 「解压整合包内容 0/1」那次就是这样）。
+         *
+         * 2 分钟：本地读盘/写文件的命令正常都在毫秒级，2 分钟足够宽。
+         * **长任务（安装/下载/导入/启动）不走这个上限**，见 `QookixApi.call`
+         * 里的长任务判定 —— 它们本来就要几分钟，靠事件报进度。
+         */
+        const val DEFAULT_TIMEOUT_MS = 120_000L
 
         /**
          * 事件订阅表（静态）：Rust 经 JNI 调 `TauriBridge.onCoreEvent`，

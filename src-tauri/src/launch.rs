@@ -1431,34 +1431,9 @@ pub(crate) fn normalize_renderer(key: &str) -> String {
     }
 }
 
-/// MC 版本的主版本号：`26.3` → 26、`1.8.9` → 1、`26.3-snapshot-3` → 26。
-pub(crate) fn version_major(mc_version: &str) -> u32 {
-    mc_version
-        .trim()
-        .split(['.', '-', '_', ' '])
-        .next()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(0)
-}
-
-/// 按 MC 版本自动挑渲染器（实例设置为「自动」时用）。
-///
-/// - **26.x 起**：MC 换了整套着色器体系（UBO + 新的 `core/*` 管线），GL4ES 在第一步就
-///   `GL_INVALID_VALUE`，必须走 MobileGlues（我们另外给 MG 打了 UBO 词边界补丁，见
-///   `MobileGlues-src` 那边的修改）。
-/// - **其余版本（1.x）**：GL4ES 兼容性最好（1.8.9 / 1.18.2 等都实测能跑）。
-///   反过来 MG 在这些老版本上会翻不动 `shaders/post/*`（实测 1.8.9 报
-///   `Invalid #version`，MC 判定「无效着色器」直接崩在启动阶段），
-///   所以不能拿 MG 当老版本的默认。
-///
-/// 自动结果只是**默认值**：实例设置里随时可以改成「跟随全局」或具体渲染器。
-pub(crate) fn auto_renderer_for(mc_version: &str) -> &'static str {
-    if version_major(mc_version) >= 26 {
-        "mobileglues"
-    } else {
-        "opengles2"
-    }
-}
+/// 按 MC 版本挑默认渲染器（版本解析与规则见 `renderer_pick`）。
+/// 这里再导出，是为了让 `renderer_health` 等调用方路径不变。
+pub(crate) use crate::renderer_pick::auto_renderer_for;
 
 /// 本次启动实际使用的渲染器（内部后端名）。
 ///

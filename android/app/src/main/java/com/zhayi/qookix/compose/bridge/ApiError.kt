@@ -40,5 +40,11 @@ class ApiError(
         const val CODE_IO = "io"
         const val CODE_PARSE = "parse"
         const val CODE_UNKNOWN = "unknown"
+
+        /**
+         * 桥层自己产生的超时（Rust 侧不会发这个 code）。
+         * 见 [RustBridge.invoke] 的 `timeoutMs`：命令卡住时至少给界面一个可重试的出口。
+         */
+        const val CODE_TIMEOUT = "timeout"
     }
 }

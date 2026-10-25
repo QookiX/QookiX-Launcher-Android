@@ -107,7 +107,12 @@ async fn run(cmd: &str, p: &Value) -> String {
                 Err(e) => err(e),
             }
         }
-        "list_hosted_servers" => ok(crate::servers::list_hosted_servers()),
+        // ⚠️ 不能用 ok(...) 包住：list_hosted_servers 现在会报错（读不到目录 /
+        // server.json 全坏），包成 ok 就又变回「成功 + 空列表」了。
+        "list_hosted_servers" => match crate::servers::list_hosted_servers() {
+            Ok(v) => ok(v),
+            Err(e) => err(e),
+        },
         "get_hosted_server" => {
             let Some(id) = sarg(p, &["id"]) else {
                 return err("缺少 id");
@@ -171,13 +176,20 @@ async fn run(cmd: &str, p: &Value) -> String {
             let Some(id) = sarg(p, &["id"]) else {
                 return err("缺少 id");
             };
+            let stage_id = id.clone();
             match crate::servers::start_hosted_server(id).await {
                 Ok(v) => {
                     // 启停会改 "running" 字段，列表要跟着变
                     crate::app_state::mark_servers_dirty();
+                    // 起来了 → 收掉「正在启动…」（异常退出时由 server_process 那边清）
+                    crate::progress::emit_server_stage(&stage_id, "");
                     ok(v)
                 }
-                Err(e) => err(e),
+                Err(e) => {
+                    // 失败也要收尾，否则界面永远停在「正在启动服务端进程…」
+                    crate::progress::emit_server_stage(&stage_id, "");
+                    err(e)
+                }
             }
         }
         "stop_hosted_server" => {

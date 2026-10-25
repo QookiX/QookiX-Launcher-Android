@@ -28,13 +28,14 @@ class CreateRepo(private val api: QookixApi) {
          *
          * ── 为什么不能依赖 Rust 的「按版本自动」─────────────────────────
          *
-         * Rust 侧 `launch::auto_renderer_for` 的规则是：
+         * Rust 侧 `renderer_pick::auto_renderer_for` 原来的规则是：
          * ```text
          *   MC >= 26 → mobileglues
          *   其余      → opengles2（GL4ES）
          * ```
          * 注释写「其余版本 GL4ES 兼容性最好（1.8.9 / 1.18.2 实测能跑）」，
-         * **但这条经验在 1.21.x 上不成立**。真机实测（OnePlus 8 / Android 16）：
+         * **但这条经验在 1.21.x 上不成立**（Rust 侧已于 2026-10-26 一并修正，
+         * 现在两边规则一致；这里保留是为了新建实例时直接写对默认值）。真机实测（OnePlus 8 / Android 16）：
          *
          * | MC 版本 | GL4ES | MobileGlues |
          * |---|---|---|
@@ -59,13 +60,16 @@ class CreateRepo(private val api: QookixApi) {
          * 这里定的只是**新建时的默认值** —— 不能让新用户一点启动就崩。
          */
         fun autoRendererFor(mcVersion: String): String {
-            val major = mcVersion.trim().split('.', '-', '_', ' ')
-                .firstOrNull()?.toIntOrNull() ?: 0
+            // ⚠️ 必须取**主.次**两段：MC 的版本是 1.21.x，只取第一段永远是 1，
+            // 下面那个 `minor >= 21` 的判断就永远不命中（旧代码正是这么错的）。
+            val parts = mcVersion.trim().split('.', '-', '_', ' ').filter { it.isNotEmpty() }
+            val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+            val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
             return when {
                 // 26.x 起 MC 换了整套着色器体系（UBO + core/* 管线），只有 MG 能跑
                 major >= 26 -> "mobileglues"
                 // 1.21.x 起用到 glMapBufferRange，GL4ES 不支持 -> 同样用 MG
-                major >= 21 -> "mobileglues"
+                major == 1 && minor >= 21 -> "mobileglues"
                 // 更老的版本 GL4ES 兼容性确实更好（MG 在 1.8.9 报 Invalid #version）
                 else -> "opengles2"
             }

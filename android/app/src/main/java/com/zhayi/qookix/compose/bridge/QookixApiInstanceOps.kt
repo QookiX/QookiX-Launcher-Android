@@ -94,6 +94,41 @@ fun QookixApi.writeHostedServerFile(
     onResult,
 )
 
+/** 新建服务器目录内的文件/目录（2026-10-26 补：原来这三条命令根本不存在）。 */
+fun QookixApi.createHostedServerEntry(
+    id: String,
+    rel: String,
+    isDir: Boolean,
+    onResult: (Result<String>) -> Unit = {},
+) = call(
+    "create_hosted_server_entry",
+    JSONObject().put("id", id).put("rel", rel).put("isDir", isDir),
+    onResult,
+)
+
+/** 重命名服务器目录内的文件/目录。 */
+fun QookixApi.renameHostedServerPath(
+    id: String,
+    rel: String,
+    newName: String,
+    onResult: (Result<String>) -> Unit = {},
+) = call(
+    "rename_hosted_server_path",
+    JSONObject().put("id", id).put("rel", rel).put("newName", newName),
+    onResult,
+)
+
+/** 删除服务器目录内的文件/目录。 */
+fun QookixApi.deleteHostedServerPath(
+    id: String,
+    rel: String,
+    onResult: (Result<String>) -> Unit = {},
+) = call(
+    "delete_hosted_server_path",
+    JSONObject().put("id", id).put("rel", rel),
+    onResult,
+)
+
 // ── 实例内操作 ────────────────────────────────────────────────────────
 
 /** 安装游戏文件（补齐版本/库/素材）。 */
@@ -191,4 +226,4 @@ fun QookixApi.getCrashReportContent(
     filename: String,
     onResult: (Result<String>) -> Unit,
 ) = call("get_crash_report_content", JSONObject().put("id", instanceId).put("filename", filename), onResult)
-
+
