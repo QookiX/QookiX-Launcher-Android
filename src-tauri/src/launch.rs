@@ -218,6 +218,13 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
                     &loader_str,
                     &instance.mc_version,
                 ) {
+                    // ⚠️ 2026-10-25 时序修复：strip 必须在 classpath 合并**之前**。
+                    // 原来只在下面构造 jvm/game 参数前才 strip —— 但这段代码上面
+                    // 已经把 profile 的 libraries 并进 classpath 了，earlydisplay
+                    // 总能混进去，gl4es 上 ElementShader link 失败
+                    //（"An error occurred initializing shaders"）卡死启动画面。
+                    // 幂等：已清过就什么都不做。
+                    crate::loader_install::strip_earlydisplay_library(&profile);
                     let libs_dir = Path::new(&data_dir).join("libraries");
                     let (lib_paths, missing) =
                         crate::loader_install::profile_library_paths(&profile, &libs_dir);
@@ -1883,6 +1890,13 @@ fn build_android_jvm_args(
     args.push(format!("-Dglfwstub.windowWidth={width}"));
     args.push(format!("-Dglfwstub.windowHeight={height}"));
     args.push("-Dglfwstub.initEgl=false".to_string());
+
+    // 线程栈抓取 agent（诊断用，见 jni/thread_dump_agent.c）：natives 里有就加载。
+    // 它只在 127.0.0.1:12857 起服务，连上才 dump，平时零开销。
+    let agent_path = format!("{natives_dir}/libthreaddump.so");
+    if std::path::Path::new(&agent_path).exists() {
+        args.push(format!("-agentpath:{agent_path}"));
+    }
 
     args.push("-Dlog4j2.formatMsgNoLookups=true".to_string());
     args.push("-Dfml.earlyprogresswindow=false".to_string());

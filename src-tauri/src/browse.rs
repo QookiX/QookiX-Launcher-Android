@@ -1169,7 +1169,30 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
         tracing::info!("加载器 profile 已存在，跳过生成（仍会校验依赖）");
         crate::util::log_line("[loader] profile 已存在，跳过生成，继续校验依赖");
     }
-    if !dest.exists() {
+    // ⚠️ 2026-10-25：本地已有可用的 installer jar 就不再联网下载。
+    // 真机网络拦 maven.neoforged.net，之前每次安装都死在这一行；
+    // jar 可以由 adb 预先推到 <game_root>/libraries/。判据「存在且够大」：
+    // Forge/NeoForge installer 都在 5MB 上下，1MB 以下必是下载中断的残件，
+    // 删掉重下；Fabric/Quilt 的 loader jar 本体只有几百 KB，用 100KB 底线。
+    let min_jar_bytes: u64 = if matches!(loader, "forge" | "neoforge") {
+        1024 * 1024
+    } else {
+        100 * 1024
+    };
+    let mut jar_ok = false;
+    if let Ok(meta) = std::fs::metadata(&dest) {
+        if meta.len() >= min_jar_bytes {
+            jar_ok = true;
+            crate::util::log_line(&format!(
+                "[loader] 本地已有 installer jar（{} 字节），跳过下载",
+                meta.len()
+            ));
+        } else {
+            crate::util::log_line("[loader] 本地 installer jar 过小（残件），删除后重新下载");
+            let _ = std::fs::remove_file(&dest);
+        }
+    }
+    if !jar_ok {
         // `download_file` 内部会按镜像设置改写地址并回退官方源，这里只给官方地址
         let url = match loader {
             "fabric" => format!("https://maven.fabricmc.net/net/fabricmc/fabric-loader/{loader_version}/fabric-loader-{loader_version}.jar"),
@@ -1180,7 +1203,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
             other => return Err(anyhow::anyhow!("不支持的加载器：{other}")),
         };
         download::download_file(&url, &dest.to_string_lossy(), None).await?;
-        crate::util::log_line("[loader] profile 已存在，跳过生成，继续校验依赖");
+        crate::util::log_line("[loader] installer jar 下载完成");
     }
 
     // ── 真正运行 installer，生成加载器 profile ──────────────────────
@@ -1225,6 +1248,21 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
             .join("libraries")
             .join(format!(".qookix-processors-{loader}-{loader_version}.done"));
         if !patch_marker.exists() {
+            // ⚠️ 2026-10-25：installer 要靠 java 子进程跑 processors，但
+            // `runtimes/` 只在**启动**链路里才被补齐 —— 全新实例走安装链路时
+            // 这里拿到的是空目录，installer 永远「没有可用的 Java 运行时」。
+            // 在这里就地补齐：没有 JRE 就先下一个（与启动共用同一套逻辑）。
+            if find_jre(std::path::Path::new(&data_dir)).is_none() {
+                crate::util::log_line("[loader] 没有可用的 Java 运行时，先下载（约 27MB）");
+                let instance_id =
+                    instance_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                match crate::instance_files::ensure_instance_java(instance_id).await {
+                    Ok(_) => crate::util::log_line("[loader] Java 运行时就绪"),
+                    Err(e) => crate::util::log_line(&format!(
+                        "[loader] Java 运行时下载失败（{e}），installer 仍会尝试"
+                    )),
+                }
+            }
             match run_official_installer(std::path::Path::new(&data_dir), &dest).await {
                 Ok(()) => {
                     let _ = std::fs::write(&patch_marker, b"1");
@@ -1253,6 +1291,13 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
         let libs = crate::loader_install::profile_libraries(&profile);
         println!("[install] profile={} 依赖 {} 个", profile.display(), libs.len());
         if !libs.is_empty() {
+            // ⚠️ 2026-10-25：下载与校验必须同一个根。
+            // `download_libraries` 落盘 data_dir/libraries，启动 classpath 也从
+            // data_dir/libraries 取（见 launch.rs）—— 但这里的校验/重试/缺失列表
+            // 却传了 `libs_dir`（<game_root>/libraries，只放 installer jar 那个）。
+            // 结果真机上「依赖库下载完成 → 已就绪 0 / 缺 47」：47 个库明明都
+            // 下到了 data_dir，却去游戏根找，永远对不上。
+            let deps_dir = std::path::Path::new(&data_dir).join("libraries");
             crate::util::log_line(&format!("[loader] 开始下载 {} 个依赖库", libs.len()));
             // ⚠️ 2026-10-19 真机修：这段原来没有超时保护。
             // 弱网下其中一个库（通常是带 `+` 号的 sponge-mixin）卡住不返回，
@@ -1272,7 +1317,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                     // 但弱网下它可能报成功却有文件没落盘（重试耗尽后不再抛错）。
                     // 这里再点一遍，把真正还缺的文件列出来，用户点「补全」才有方向。
                     let (ok, left) =
-                        crate::loader_install::profile_library_paths(&profile, &libs_dir);
+                        crate::loader_install::profile_library_paths(&profile, &deps_dir);
                     if left > 0 {
                         // ⚠️ 定向重试缺失的那几个（真机实测：8 个里总有 1 个
                         // 首次下不下来，再跑一遍就成功）。并发下载时它可能
@@ -1288,7 +1333,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                                 else {
                                     return false;
                                 };
-                                !libs_dir.join(&a.path).exists()
+                                !deps_dir.join(&a.path).exists()
                             })
                             .cloned()
                             .collect();
@@ -1308,7 +1353,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                             }
                         }
                         let (ok2, left2) =
-                            crate::loader_install::profile_library_paths(&profile, &libs_dir);
+                            crate::loader_install::profile_library_paths(&profile, &deps_dir);
                         crate::util::log_line(&format!(
                             "[loader] 最终：已就绪 {} / 缺 {left2}",
                             ok2.len()
@@ -1324,7 +1369,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                                     l.downloads
                                         .as_ref()
                                         .and_then(|d| d.artifact.as_ref())
-                                        .map(|a| (a.path.clone(), libs_dir.join(&a.path)))
+                                        .map(|a| (a.path.clone(), deps_dir.join(&a.path)))
                                 })
                                 .filter(|(_, p)| !p.exists())
                                 .map(|(path, _)| path)
@@ -1353,7 +1398,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                     // 超时不当成致命错误：已下载的库仍是有效缓存，
                     // 下次补全会跳过它们、只重试缺的。
                     let (ok, left) =
-                        crate::loader_install::profile_library_paths(&profile, &libs_dir);
+                        crate::loader_install::profile_library_paths(&profile, &deps_dir);
                     crate::util::log_line(&format!(
                         "[loader] 依赖库下载超时（180s）：已就绪 {} / 缺 {left}，请再点一次「补全游戏文件」",
                         ok.len()

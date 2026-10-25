@@ -428,7 +428,7 @@ fn zip_ends_ok(path: &std::path::Path) -> bool {
 }
 
 /// 确保该实例有可用的 Java 运行时；没有就下一个（约 27MB）。
-async fn ensure_instance_java(instance_id: &str) -> Result<String, String> {
+pub(crate) async fn ensure_instance_java(instance_id: &str) -> Result<String, String> {
     use std::sync::atomic::Ordering;
 
     // ⚠️ 一个操作只能有**一个** `TaskCtx`：`TaskCtx::new` 会分配新的自增 task id
