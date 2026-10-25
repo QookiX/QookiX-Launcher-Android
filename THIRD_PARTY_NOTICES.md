@@ -50,7 +50,7 @@
 | `net/kdt/pojavlaunch/{LwjglGlfwKeycode,EfficientAndroidLWJGLKeycode,GrabListener,Logger}.java` | 键码表 / Grab 监听 / 日志 | 照搬 |
 | `com/kdt/` | `SideDialogView`、`LoggerView`、`DefocusableScrollView`、`CustomSeekbar`、`SimpleArrayAdapter`、`pickafile/*` | 照搬 |
 | `com/ipaulpro/afilechooser/FileListAdapter.java` | 文件选择器适配器 | 照搬 |
-| `res/values/pojav_*.xml`、`res/values-zh-rCN/pojav_strings.xml`、`res/layout/activity_basemain.xml` 等 | Pojav 的字符串/数组/样式/尺寸/布局/图标 | 见 `POJAV_INGAME_PORT.md` 的「资源」一节 |
+| `res/values/pojav_*.xml`、`res/values-zh-rCN/pojav_strings.xml`、`res/layout/activity_basemain.xml` 等 | Pojav 的字符串/数组/样式/尺寸/布局/图标 | 见 [`docs/pojav-ingame-port.md`](docs/pojav-ingame-port.md) 的「资源」一节 |
 | `app/src/main/assets/pojav_default_control.json` | Pojav 的默认控制布局 | 照搬 |
 
 ### 自行编写的替身（shim）与内嵌第三方库
@@ -71,8 +71,9 @@
 
 ## 我们自己编写的部分
 
-`src-tauri/src/**`（Rust 核心、启动器逻辑）、`src/**`（Tauri 前端）、
-`com/zhayi/qookix/**`（GameActivity、虚拟控件、服务、桥接层）等，不在此许可覆盖范围内 ——
+`src-tauri/src/**`（Rust 核心、启动器逻辑）、
+`src-tauri/gen/android/app/src/main/java/com/zhayi/qookix/**`（Compose 界面、GameActivity、虚拟控件、服务、JNI 桥接层）
+等，不在此许可覆盖范围内 ——
 它们通过**动态库**（`libpojavexec.so`）与上述 LGPL 组件交互，符合 LGPL-3.0 的「允许替换库」要求。
 
 ## LGPL-3.0 的自定义义务（我们已遵守）
@@ -84,7 +85,8 @@
 ## 渲染后端（本次新增，用于「设置 → 游戏内 → 渲染器」）
 
 为了让渲染器能在 GL4ES 之外提供 **Zink + Turnip**，本仓库新增 3 个**预编译原生库**，
-直接取自 `I:\program\vibe\mc\PojavLauncher\app_pojavlauncher\src\main\jniLibs\arm64-v8a\`：
+取自 PojavLauncher 上游发布包中 `app_pojavlauncher/src/main/jniLibs/arm64-v8a/` 下的同名文件
+（未修改二进制，来源与许可如下）：
 
 | 库 | 来源 | 许可 | 与 GPL-3.0 的兼容性 |
 |---|---|---|---|
@@ -103,9 +105,13 @@
 | `libjnidispatch.so` | JNA | LGPL-2.1-or-later 或 Apache-2.0（双许可） |
 | `libunpack200.so` | OpenJDK（JRE 内工具） | GPL-2.0 with Classpath Exception |
 
-> 注意：这些 `.so` 都是 **4 KB 页对齐**（`PT_LOAD.p_align = 0x1000`）。
-> Android 15+ 的 16 KB 页设备上可能无法 dlopen —— 详见 `MOBILE_AUDIT_NATIVE.md` 第一节。
-> `libqookix_lib.so` 由我们自己编译，已经改成 16 KB 对齐。
+> 注意：上表中的上游预编译库多数仍是 **4 KB 页对齐**（`PT_LOAD.p_align = 0x1000`），
+> Android 15+ 的 16 KB 页设备上可能无法 dlopen。**逐库的实测对齐情况**见
+> [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) 的「16 KB 页设备」一节。
+>
+> 本项目自建的原生库都已按 16 KB 编译：`libqookix_lib.so`（Rust，
+> `-Wl,-z,max-page-size=16384`，CI 会校验 PT_LOAD 对齐）与
+> `libpojavexec.so` / `liblinkerhook.so` / `libthreaddump.so`（`Android.mk` 中的 `PAGE_ALIGN_LDFLAGS`）。
 
 ## MobileGlues 渲染器（LGPL-2.1，**分发的是修改版**）
 

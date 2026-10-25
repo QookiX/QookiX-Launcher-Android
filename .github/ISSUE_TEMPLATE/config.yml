@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 已知问题与限制
+    url: https://github.com/QookiX/QookiX-Launcher-Android/blob/master/KNOWN_ISSUES.md
+    about: 16 KB 页设备、CurseForge Key、系统 VPN 冲突等架构限制，先看这里
+  - name: 下载最新版本
+    url: https://github.com/QookiX/QookiX-Launcher-Android/releases
+    about: 反馈前请确认已升级到最新 Release
