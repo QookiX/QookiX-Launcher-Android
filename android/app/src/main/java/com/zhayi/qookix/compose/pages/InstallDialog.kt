@@ -346,7 +346,11 @@ fun InstallDialog(
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.install_cancel)) }
+            // 安装中必须和 onDismissRequest 一样禁用：下载在后台继续，
+            // 关掉对话框用户就找不到这个任务的进度了（只拦了外部点击，按钮漏了）
+            OutlinedButton(onClick = onDismiss, enabled = !installing) {
+                Text(stringResource(R.string.install_cancel))
+            }
         },
     )
 }
