@@ -92,7 +92,7 @@ fun AboutPane(
     /**
      * 社区贡献者名单。
      *
-     * 来源：`bootstrap-public/contributors.json`（构建时打进 APK 的 assets/）。
+     * 来源：`src-tauri/gen/android/app/src/main/assets/contributors.json`（随 APK 打包）。
      * 由 PageHost 读出后传进来 —— 这个 composable 不碰 IO，方便预览和测试。
      */
     contributors: List<String> = emptyList(),

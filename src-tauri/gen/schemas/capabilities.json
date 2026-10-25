@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Default capabilities for QookiX Launcher","local":true,"windows":["main"],"permissions":["core:default","opener:default","dialog:default"]}}

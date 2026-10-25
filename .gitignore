@@ -137,4 +137,12 @@ __pycache__/
 # 里面有审计报告、旧 UI 对照表、迁移笔记，以及旧 Vue 的原始词表
 # （zh-CN.json 1624 条，其中 756 条未采纳 —— 以后补文案时对照用）。
 # 这些是开发过程的产物，不是项目文档，不往 GitHub 上传。
-/docs/
+#
+# ⚠️ 2026-10-25：整目录忽略用的是 `/docs/*` 而不是 `/docs/` ——
+# 后者连**新增的公共文档**也会吞掉（git 无法 re-include 被排除目录里的文件）。
+# 现在只放行两份对外文档：
+#   · docs/adr/                 架构决策记录（对外，review 时用）
+#   · docs/pojav-ingame-port.md Pojav 移植说明（THIRD_PARTY_NOTICES 引用它）
+/docs/*
+!/docs/adr/
+!/docs/pojav-ingame-port.md

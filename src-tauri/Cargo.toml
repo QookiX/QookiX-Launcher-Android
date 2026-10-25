@@ -14,11 +14,6 @@ name = "qookix_lib"
 crate-type = ["staticlib", "cdylib", "lib"]
 
 [dependencies]
-# Tauri Core
-# protocol-asset：启用 `asset:` / `http://asset.localhost` 协议。
-# 前端 6 处用 convertFileSrc() 显示导入的图标/背景/截图，没有这个 feature
-# 那些图片在 WebView 里会被 CSP 拦掉（导入成功但显示不出来）。
-
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
@@ -74,9 +69,7 @@ zip = { version = "0.6", features = ["deflate"] }
 # Base64 (皮肤数据等)
 base64 = "0.22"
 
-# Tauri plugins
-
-# JNI for Android
+# JNI for Android（Kotlin ↔ Rust 的唯一通道，见 commands::native_invoke）
 jni = { version = "0.21", features = ["invocation"] }
 
 # Dynamic library loading (for dlopen libjli.so on Android)

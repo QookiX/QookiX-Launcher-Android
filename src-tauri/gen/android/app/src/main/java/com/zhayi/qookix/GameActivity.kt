@@ -82,87 +82,6 @@ import java.io.IOException
  */
 class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExitable {
 
-    /**
-     * 游戏启动前把 wry 的 WebView 移出渲染管线。
-     *
-     * 见 `onCreate` 里的详细注释：游戏与 WebView 同进程，游戏重建图形表面时
-     * WebView 持有的 `AHardwareBuffer` 会失效，其 native 层解引用 NULL 直接
-     * SIGSEGV（崩溃在 Render thread）。
-     *
-     * 这里做三件事，缺一不可：
-     *   1. `removeView` —— 从视图树摘掉，合成器不再为它分配缓冲
-     *   2. `alpha = 0f`  —— 即使被重新挂上也保持不可见
-     *   3. `onPause` + `pauseTimers` —— 停掉 Chromium 的渲染/定时器
-     *
-     * 失败不致命（拿不到 WebView 时直接跳过），但**不能抛异常** ——
-     * 它在 onCreate 的关键路径上，崩了游戏就起不来。
-     */
-    private fun detachTauriWebViewForGame() {
-        try {
-            // ⚠️ 不能在 `window.decorView` 里找！
-            //
-            // wry 的 WebView 挂在 **ComposeMainActivity 的窗口**里，而 GameActivity
-            // 有自己的窗口 —— 两个 Activity 的视图树彼此独立。
-            // 实测（真机）：用 `window.decorView` 找永远是 null，日志打
-            //   「启动游戏：未找到 WebView（跳过摘除）」
-            // 于是崩溃照旧。
-            //
-            // 两个 Activity 在**同一个进程**里，所以直接遍历进程内的 Activity
-            // 栈去拿启动器那个窗口。
-            val wv = findWebViewAcrossActivities() ?: run {
-                android.util.Log.i(TAG, "启动游戏：未找到 WebView（跳过摘除）")
-                return
-            }
-            (wv.parent as? android.view.ViewGroup)?.removeView(wv)
-            wv.alpha = 0f
-            wv.onPause()
-            try { wv.pauseTimers() } catch (e: Throwable) { /* 非致命 */ }
-            android.util.Log.i(TAG, "启动游戏：WebView 已移出渲染管线（防 AHardwareBuffer 崩溃）")
-        } catch (t: Throwable) {
-            android.util.Log.w(TAG, "启动游戏：摘除 WebView 失败（不影响游戏）", t)
-        }
-    }
-
-    /**
-     * 遍历**进程内所有 Activity** 的窗口去找 WebView。
-     *
-     * 用反射拿 `ActivityThread.mActivities`（同进程内的 Activity 记录），
-     * 逐个翻 decorView。反射失败时退回只查自己的窗口（至少不会崩）。
-     */
-    private fun findWebViewAcrossActivities(): android.webkit.WebView? {
-        // 先查自己（理论上没有，但保底）
-        findWebView(window?.decorView)?.let { return it }
-        return try {
-            val atClass = Class.forName("android.app.ActivityThread")
-            val currentAT = atClass.getMethod("currentActivityThread").invoke(null)
-            val f = atClass.getDeclaredField("mActivities")
-            f.isAccessible = true
-            val map = f.get(currentAT) as? Map<*, *> ?: return null
-            for (rec in map.values) {
-                if (rec == null) continue
-                val actField = rec.javaClass.getDeclaredField("activity")
-                actField.isAccessible = true
-                val act = actField.get(rec) as? android.app.Activity ?: continue
-                findWebView(act.window?.decorView)?.let { return it }
-            }
-            null
-        } catch (t: Throwable) {
-            android.util.Log.w(TAG, "跨 Activity 查找 WebView 失败", t)
-            null
-        }
-    }
-
-    /** 在视图树里找第一个 WebView。 */
-    private fun findWebView(root: android.view.View?): android.webkit.WebView? {
-        if (root !is android.view.ViewGroup) return null
-        for (i in 0 until root.childCount) {
-            val c = root.getChildAt(i)
-            if (c is android.webkit.WebView) return c
-            findWebView(c)?.let { return it }
-        }
-        return null
-    }
-
     companion object {
         private const val EXTRA_INSTANCE_ID = "instance_id"
         private const val EXTRA_ACCOUNT_UUID = "account_uuid"
@@ -372,37 +291,15 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         LauncherPreferences.DEFAULT_PREF = getSharedPreferences(PREF_NAME, MODE_PRIVATE)
         LauncherPreferences.loadPreferences(this)
 
-        // ⚠️⚠️ 游戏启动前**必须**把 wry 的 WebView 彻底移出渲染管线（2026-10-16 修）。
+        // ⚠️ 2026-10-25：这里原来还有一段「把 wry 的 WebView 移出渲染管线」的
+        // 兜底逻辑（removeView + alpha=0 + pauseTimers）。WebView 已随纯 JNI
+        // 改造整体移除，那段代码永远找不到 WebView、只留一行日志，已删除。
         //
-        // ── 崩溃现象（真机 tombstone 实测）─────────────────────────────
-        //   pid: …  name: Render thread  >>> com.zhayi.qookix <<<
-        //   signal 11 (SIGSEGV), fault addr 0x28, Cause: null pointer dereference
-        //   backtrace:
-        //     #07 AHardwareBuffer_getNativeHandle+24  /system/lib64/libandroid.so
-        //     #08 libpojavexec.so
-        //     #01/#02 libwebviewchromium.so
-        //     #03/#04 libjvm.so
-        //
-        // ── 原因 ───────────────────────────────────────────────────────
-        // 游戏和 WebView **在同一个进程里**。游戏起来时要重建图形表面
-        //（`MinecraftGLSurface` 自建 SurfaceView），而 WebView 的合成器仍持有
-        // 旧的 `AHardwareBuffer` —— handle 被回收后 `getNativeHandle` 返回 NULL，
-        // WebView 的 native 层解引用它 → SIGSEGV。
-        //
-        // 表现：点「启动游戏」→ 黑一下 → 退回启动器，Java 侧**没有任何异常**，
-        // 只有 tombstone 里能看到真相，极难归因。
-        //
-        // ── 修法 ───────────────────────────────────────────────────────
-        // game 期间把 WebView 从视图树摘掉（`removeView`）+ `alpha=0`，
-        // 并让它暂停一切绘制。游戏退出后由启动器重新挂回（见
-        // `ComposeMainActivity.attachComposeOverlay` 的重试逻辑）。
-        // 同 ComposeMainActivity：GameActivity 也可能成为进程内的**首个** Activity
-        //（例如从多任务直接切回游戏），此时必须补上 Pojav 的平台上下文，
-        // 否则 nativeLibDir() 返回 null → libpojavexec 加载失败 →
-        // pojavWindow 为 NULL → egl_bridge.c 的 ANativeWindow_setBuffersGeometry 崩溃。
+        // GameActivity 可能成为进程内的**首个** Activity（例如从多任务直接切回游戏），
+        // 此时必须补上 Pojav 的平台上下文，否则 nativeLibDir() 返回 null →
+        // libpojavexec 加载失败 → pojavWindow 为 NULL →
+        // egl_bridge.c 的 ANativeWindow_setBuffersGeometry 崩溃。
         PojavShim.init(this)
-
-        detachTauriWebViewForGame()
 
         // 沉浸式全屏必须在 setContentView 之前：View 尺寸在这里定下来，
         // 而游戏窗口尺寸随后由 MinecraftGLSurface.refreshSize() 取 View 尺寸算出。

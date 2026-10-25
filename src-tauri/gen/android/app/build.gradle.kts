@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -8,12 +6,9 @@ plugins {
     id("rust")
 }
 
-val tauriProperties = Properties().apply {
-    val propFile = file("tauri.properties")
-    if (propFile.exists()) {
-        propFile.inputStream().use { load(it) }
-    }
-}
+// ⚠️ 2026-10-25：原来这里读 `tauri.properties` 取 versionName/versionCode，
+// 纯 JNI 改造后该文件不再生成（原来是 `cargo tauri android build` 写的）。
+// 版本号现在是下面 `defaultConfig` 里的字面量，由 `scripts/update-version.mjs` 同步。
 
 android {
     compileSdk = 36

@@ -11,6 +11,11 @@
 在手机上直接运行 **Minecraft: Java Edition**：自带 Java 运行时下载、多实例管理、内容下载与完整的触控操作层。
 与 [QookiX Launcher（桌面端）](https://github.com/weimosheng/QookiX-Launcher) 保持一致的界面与使用体验。
 
+> **成熟度：Beta。** 主路径（建实例 / 装加载器 / 进游戏 / 开服）已在多台真机跑通，
+> 但机型与 ROM 差异仍然会造出「只在某台机器上复现」的问题。
+> 装机前请先看 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，遇到问题请按
+> [issue 模板](.github/ISSUE_TEMPLATE/bug_report.yml) 附上机型 / Android 版本 / 渲染器 / 日志。
+
 ---
 
 ## 下载与安装
@@ -60,32 +65,44 @@
 | 层 | 说明 |
 |---|---|
 | 界面 | **Jetpack Compose + Material 3**（Kotlin 2.0.21，Compose BOM 2025.04.01，原生渲染） |
-| 外壳与后端 | **Tauri 2** + Rust（IPC 桥与事件总线；下载、实例、Java 管理、文件与备份等约 30 个模块） |
+| 外壳与后端 | **Rust 静态库 + 纯 JNI**（`libqookix_lib.so`；命令走 `nativeInvoke`，事件走 `onCoreEvent`，无 WebView、无 Tauri 运行时） |
 | 游戏内原生层 | Kotlin/Java + C（`libpojavexec.so`：JVM 引导、EGL/Surface 桥、输入桥） |
 | 图形后端 | GL4ES（默认）、MobileGlues、Mesa（OSMesa + Zink + Turnip） |
 
 ## 构建
 
-环境：Node.js 20+、Rust（含 `aarch64-linux-android` target）、Android SDK（compileSdk 36）、Android NDK。
+环境：Rust（含 `aarch64-linux-android` target）、Android SDK（compileSdk 36）、Android NDK。
+Node.js 20+ 只在跑发布说明脚本 / 版本号脚本时需要。
 
 ```bash
-# 1) 静态资源（只有 index.html 与 skin3d/*.js —— 那个 index.html 是 Tauri 的
-#    IPC 引导页，没有它所有 Rust 命令都会静默失效）
-npm ci
-npm run build:web-assets
-
-# 2) Rust（注意：只设目标级 CC/CXX/AR，不要设全局，否则宿主 crate 构建失败）
+# 1) Rust（注意：只设目标级 CC/CXX/AR，不要设全局，否则宿主 crate 构建失败）
 cd src-tauri
 export CC_aarch64_linux_android=$NDK/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android24-clang
 export CXX_aarch64_linux_android=$NDK/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android24-clang++
 export AR_aarch64_linux_android=$NDK/toolchains/llvm/prebuilt/<host>/bin/llvm-ar
+
+# 16KB 页对齐：Android 15+ 的 16KB 设备要求 .so 的 PT_LOAD 对齐是 0x4000。
+# 本机可以写进 src-tauri/.cargo/config.toml（该文件被 gitignore，含本机 NDK 路径），
+# CI 里由 release.yml 的 CARGO_TARGET_*_RUSTFLAGS 提供。
+export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
+
 cargo build --target aarch64-linux-android          # 发布用 --release
 
-# 3) 打包
+# 2) 打包
 cp target/aarch64-linux-android/debug/libqookix_lib.so \
    gen/android/app/src/main/jniLibs/arm64-v8a/
 cd gen/android
 ./gradlew :app:assembleArm64Debug                   # 发布用 assembleArm64Release
+```
+
+### 本地跑闸门
+
+```bash
+# Rust 单测（宿主目标，CI 里也跑）
+cd src-tauri && cargo test --lib
+
+# 文件体量棘轮：巨文件只许变小
+node scripts/check-file-size.mjs
 ```
 
 **自动发布**：推送 `v*` 标签即触发 [GitHub Actions](.github/workflows/release.yml) —— 构建 arm64 release APK 并以仓库 Secrets 中的密钥签名，随后发布到 Releases。

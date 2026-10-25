@@ -91,34 +91,13 @@
         android:usesCleartextTraffic="${usesCleartextTraffic}">
 
         <!--
-          旧 WebView 入口。
+          启动器界面 —— **唯一入口**（2026-10-13 起 LAUNCHER intent-filter 在这里）。
 
-          ⚠️ **已不再是桌面入口**（2026-10-13 起 LAUNCHER 移到 Compose 版）。
-
-          它现在的作用：
-            1. 提供 19 项原生能力的历史实现（能力已收敛到 HostCapabilities，
-               两个入口共用 —— 这里保留是为了不动既有代码）
-            2. 兜底入口，只在 adb 显式指定时才会启动
-
-          ⚠️ 注意：它现在**没有可显示的界面**。
-          前端资源已被替换成最小引导页（bootstrap/index.html），
-          而旧界面本来就靠 Vue 渲染 —— Vue 不在包里了，所以它是一片空白。
-
-          换句话说：它现在只是一个「IPC 端点 + 能力宿主」，
-          真正的界面在 Compose 版里。
+          2026-10-25 纯 JNI 改造后，这一页不再创建任何 WebView：
+          命令走 `TauriBridge.nativeInvoke`（JNI 直连 Rust），事件走 `onCoreEvent`。
+          旧的 `MainActivity`（承载隐藏 WebView 的 IPC 端点）已从清单里移除。
         -->
 
-        <!--
-          Compose 版启动器界面 —— **桌面主入口**。
-
-          2026-10-13 起 LAUNCHER intent-filter 从旧 MainActivity 移到这里。
-          前置条件（6/6）已全部达成，见 COMPOSE-PHASE5-READY.md：
-            1. 19 项原生能力（HostCapabilities）
-            2. TauriBridge.attach(this)
-            3. onCreate 初始化三项（控制布局播种 / 中转清理 / 断点续启）
-            4. WebView 与 Vue 脱钩（引导页 4.6 KB）
-            5. 返回键处理（Compose 导航栈）
-            6. 音量键缩放
 
           ── screenOrientation 说明 ──────────────────────────────────────
           用 `sensorLandscape`（横屏优先，两个方向都允许）—— 按用户要求
