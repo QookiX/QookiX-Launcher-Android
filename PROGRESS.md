@@ -43,12 +43,21 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-25 · Q2 第二刀：实例详情 tab + 设置页第二组
+- 再迁两个域：`QookixApiInstanceTabs.kt`（303 行）、`QookixApiSettings.kt`（194 行）
+- **关键决策：调用方改用包级 star import**（`import ...bridge.*`）—— 跨包 extension 必须逐个 import，而 `PageHost` 里上百处 `api.xxx()`；一次性换成 star 后，后续每拆一个域都不用再碰调用方
+- 顺带把 16 个文件里冗余的具体 bridge import 收敛进 star（净减约 20 行）
+- `QookixApi.kt` **2192 → 1724 行**（累计 2337 → 1724，-613）；`PageHost` 也顺带 -7
+- 踩坑：在 PowerShell 双引号里跑 `node -e` 做 `replace`，替换串里的 `$1` 被 shell 吃掉，把两个新文件的 `package` 行删了 —— 报错是「imports are only allowed in the beginning of file」。以后替换串一律用 node 字符串拼接，不走 shell 插值
+- 验证：`assembleArm64Release` ✅、单测 10 ✅、仪器化编译 ✅、闸门 ✅
+- commit `待补`
+
 ### 2026-10-25 · Q2 第一刀：拆 `QookixApi` 的皮肤域
 - 皮肤/披风 10 个方法迁到 `QookixApiSkin.kt`（extension 函数，调用点不用改）
 - `QookixApi.kt` **2337 → 2192 行**（-145）；新文件 168 行（健康线内，不受棘轮约束）
 - 代价：`call`/`callObj`/`callArr` 从 private 放宽到 internal；跨包调用点要补 import（`SkinRepo.kt` +7、`PageHost.kt` +4）
 - 验证：`compileArm64ReleaseKotlin` ✅、体量闸门 ✅（PageHost +4 已显式记账，QookixApi 收紧到 2192）
-- commit `待补`
+- commit `faf561e`
 
 ### 2026-10-25 · 出包链路验证（真机验证的前置）
 - `node scripts/build-android.mjs arm64` 端到端跑通：cargo 编出 160MB debug `.so` → 拷进 jniLibs → gradle 出 APK（114MB），三个产物时间戳链一致（20:36:16 → 20:36:16 → 20:37:16）

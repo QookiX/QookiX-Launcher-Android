@@ -30,7 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
-import com.zhayi.qookix.compose.bridge.RustBridge
+import com.zhayi.qookix.compose.bridge.*
 
 /**
  * 新闻页。

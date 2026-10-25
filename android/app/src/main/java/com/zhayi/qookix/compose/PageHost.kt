@@ -61,14 +61,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import com.zhayi.qookix.compose.bridge.QookixApi
-// 皮肤/披风域已拆到 QookixApiSkin.kt（extension），跨包调用要显式 import
-import com.zhayi.qookix.compose.bridge.applyCapeToAccount
-import com.zhayi.qookix.compose.bridge.deleteSkin
-import com.zhayi.qookix.compose.bridge.fetchPlayerCapes
-import com.zhayi.qookix.compose.bridge.friendlyError
-import com.zhayi.qookix.compose.bridge.CoreState
-import com.zhayi.qookix.compose.bridge.RustBridge
+import com.zhayi.qookix.compose.bridge.*
 import com.zhayi.qookix.compose.motion.qkFadeIn
 import com.zhayi.qookix.compose.motion.qkFadeOut
 import com.zhayi.qookix.compose.motion.qkSlideInLeft

@@ -2,7 +2,7 @@ package com.zhayi.qookix.compose.pages
 
 import com.zhayi.qookix.compose.theme.QkSpacing
 
-import com.zhayi.qookix.compose.bridge.friendlyError
+import com.zhayi.qookix.compose.bridge.*
 
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Image

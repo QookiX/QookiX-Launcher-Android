@@ -5,7 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
 import android.webkit.WebView
-import com.zhayi.qookix.compose.bridge.RustBridge
+import com.zhayi.qookix.compose.bridge.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

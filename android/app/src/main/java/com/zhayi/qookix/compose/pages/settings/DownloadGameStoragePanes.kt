@@ -2,7 +2,7 @@ package com.zhayi.qookix.compose.pages.settings
 
 import com.zhayi.qookix.compose.theme.QkSpacing
 
-import com.zhayi.qookix.compose.bridge.friendlyError
+import com.zhayi.qookix.compose.bridge.*
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Spacer
