@@ -43,6 +43,14 @@ pub fn mark_instances_dirty() {
     mark_dirty("instances");
 }
 
+/// 服务器集合或运行状态变了（创建 / 删除 / 启停）。
+///
+/// 服务器列表页以前只在进入时拉一次，建/删服务器后要退出重进才更新；
+/// 现在 Kotlin 侧按这个 scope 重新拉。
+pub fn mark_servers_dirty() {
+    mark_dirty("servers");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

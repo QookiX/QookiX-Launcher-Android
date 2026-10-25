@@ -7,8 +7,20 @@
     `{code, retryable}`（`commands::classify_error`，网络/鉴权/找不到/读写/解析/未知），
     Kotlin `ApiError` + `friendlyError(context, throwable)` 按 `code` 出稳定文案。
     理由：逐个改 `Result<T, AppError>` 是周级改动，而 UI 真正需要的是「能区分原因」。
-  - 待做：写操作状态机（`Idle → Pending → Success | Failure`，禁止先改 UI 再请求）、
-    其余领域（服务器 / 任务）迁移到 `CoreState`
+  - 切片 3 已落地（写状态机 + 领域收口）：
+    · `CoreState.beginWrite/endWrite` + `pending` 集合：防重复提交、卡片转圈，
+      实例删除**不再本地摘列表**（去掉最后一处乐观更新），失败有错误条；
+    · `CoreState.refresh()` 串行化：并发 `list_instances` 返回乱序会把新数据盖掉，
+      期间的触发合并成一次补跑；
+    · 服务器域：Rust 在 create/delete/start/stop 后推 `mark_servers_dirty`，
+      多人页按 `CoreState.serversRevision` 重拉（不再"建完要退出重进"）；
+      顺手删掉安装对话框里那份重复的服务器 JSON 解析；
+    · 任务域：`TasksRepo` 暴露 `state: StateFlow`，`onChange` 降级为兼容参数；
+      PageHost 改为 collect + 叠加 tab（原来单槽位回调会被第二个订阅者顶掉）。
+  - 边界（有意不做）：服务器**详情页**仍是页面级快照 —— 它是单页生命周期内的
+    临时数据（properties / 日志 / 插件），不是全局状态；做成全局镜像要多一处同步。
+  - 待做：写操作状态机的 UI 覆盖（目前只接了实例删除），
+    其余写入口（改名 / 换图标 / 分组）仍走"发请求 + 等 dirty 回流"但暂无转圈。
 
 ## 背景与现状
 

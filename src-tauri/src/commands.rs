@@ -1584,7 +1584,10 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     return err("缺少 name / core / mcVersion");
                 };
                 match crate::servers::create_hosted_server(name, core, mc) {
-                    Ok(v) => ok(v),
+                    Ok(v) => {
+                        crate::app_state::mark_servers_dirty();
+                        ok(v)
+                    }
                     Err(e) => err(e),
                 }
             }
@@ -1600,7 +1603,10 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     return err("缺少 id");
                 };
                 match crate::servers::delete_hosted_server(id) {
-                    Ok(()) => ok(()),
+                    Ok(()) => {
+                        crate::app_state::mark_servers_dirty();
+                        ok(())
+                    }
                     Err(e) => err(e),
                 }
             }
@@ -1624,7 +1630,11 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     return err("缺少 id");
                 };
                 match crate::servers::start_hosted_server(id).await {
-                    Ok(v) => ok(v),
+                    Ok(v) => {
+                        // 启停会改 "running" 字段，列表要跟着变
+                        crate::app_state::mark_servers_dirty();
+                        ok(v)
+                    }
                     Err(e) => err(e),
                 }
             }
@@ -1633,7 +1643,10 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     return err("缺少 id");
                 };
                 match crate::servers::stop_hosted_server(id).await {
-                    Ok(v) => ok(serde_json::Value::String(v)),
+                    Ok(v) => {
+                        crate::app_state::mark_servers_dirty();
+                        ok(serde_json::Value::String(v))
+                    }
                     Err(e) => err(e),
                 }
             }

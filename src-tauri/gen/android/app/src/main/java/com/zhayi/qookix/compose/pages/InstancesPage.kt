@@ -113,6 +113,15 @@ fun InstancesPage(
     onMoveGroup: (Int, Int) -> Unit = { _, _ -> }, // (fromIndex, toIndex)
     pinnedIds: Set<String> = emptySet(),
     onTogglePin: (String) -> Unit = {},
+    /**
+     * 正在写操作的实例 id（删除中）—— 卡片显示转圈并禁用点击。
+     *
+     * A2：写操作改由 `CoreState.pending` 驱动，**不再先改列表**；
+     * 列表只由 Rust 的 dirty 事件触发重拉后的结果决定。
+     */
+    pendingIds: Set<String> = emptySet(),
+    /** 写操作失败的文案（页面顶部红字，可自动消失）。 */
+    error: String? = null,
 ) {
     // 长按选中的实例（非空 = 弹出操作菜单）
     var menuTarget by remember { mutableStateOf<InstanceUi?>(null) }
@@ -157,6 +166,24 @@ fun InstancesPage(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
         ) {
+            // 写操作失败的错误条（例如删除实例失败）：不弹窗、不打断，
+            // 但必须说出来 —— 以前失败是静默的，用户以为删掉了。
+            if (error != null) {
+                item(key = "error-banner") {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
             // 新建分组按钮（2026-10-21 补）
             item(key = "new-group") {
                 TextButton(onClick = { showNewGroupDialog = true }) {
@@ -186,6 +213,7 @@ fun InstancesPage(
                         onClick = { onOpen(inst.id) },
                         onLongClick = { menuTarget = inst },
                         onLaunch = { onLaunch(inst.id) },
+                        busy = inst.id in pendingIds,
                     )
                 }
                 item(key = "s-${section.key}") { Spacer(Modifier.height(QkSpacing.xxs)) }
@@ -392,6 +420,8 @@ private fun InstanceCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
     onLaunch: () -> Unit = {},
+    /** 该实例有写操作在飞（删除中）：显示转圈、禁掉点击，防止重复提交。 */
+    busy: Boolean = false,
 ) {
     // 按下缩放：combinedClickable 必须显式接收这个 source，
     // 否则它内部自建一个，pressScale 永远收不到按压事件
@@ -405,6 +435,7 @@ private fun InstanceCard(
             .combinedClickable(
                 interactionSource = pressSource,
                 indication = LocalIndication.current,
+                enabled = !busy,
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),
@@ -460,8 +491,17 @@ private fun InstanceCard(
                 )
             }
 
-            IconButton(onClick = onLaunch) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = stringResource(R.string.instances_launch))
+            if (busy) {
+                // 写操作在飞（删除中）：转圈替代启动按钮，顺便告诉用户「在处理」
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(16.dp))
+            } else {
+                IconButton(onClick = onLaunch) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = stringResource(R.string.instances_launch))
+                }
             }
         }
     }

@@ -86,6 +86,19 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
     var runningInstanceId by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * 任务列表的**单一真相源**（A2）。
+     *
+     * 改造前只有一个 `onChange` 单槽位：第二个订阅者会把第一个顶掉
+     * （`InstanceDetailRoute` 想单独订阅就只能靠外层转手传快照）。
+     * StateFlow 天生多订阅，页面各自 `collectAsState()` 即可。
+     */
+    private val _state = kotlinx.coroutines.flow.MutableStateFlow(DownloadsUiState())
+    val state: kotlinx.coroutines.flow.StateFlow<DownloadsUiState> = _state
+
+    /**
+     * 兼容旧调用点（单槽位）。新代码请直接 collect [state]。
+     */
     private var onChange: ((DownloadsUiState) -> Unit)? = null
 
     /**
@@ -106,8 +119,15 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
      */
     private var heartbeat: android.os.Handler? = null
 
-    /** 开始监听全部任务相关事件。 */
-    fun start(onChange: (DownloadsUiState) -> Unit, onExit: ((String, Int) -> Unit)? = null) {
+    /**
+     * 开始监听全部任务相关事件。
+     *
+     * @param onChange 兼容用的单槽位回调；新代码请 collect [state]，传 null 即可。
+     */
+    fun start(
+        onChange: ((DownloadsUiState) -> Unit)? = null,
+        onExit: ((String, Int) -> Unit)? = null,
+    ) {
         this.onChange = onChange
         this.onExit = onExit
 
@@ -355,8 +375,10 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
     }
 
     private fun emit() {
-        val cb = onChange ?: return
         val s = snapshot()
+        // 单一真相源先更新（collect 的页面立刻能看到），再兼容旧回调
+        _state.value = s
+        val cb = onChange ?: return
         android.os.Handler(android.os.Looper.getMainLooper()).post { cb(s) }
     }
 

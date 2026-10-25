@@ -289,6 +289,10 @@ fun PageHost(
     // 好处：Rust 侧写操作完成后推 `state://dirty`，全局自动重拉，
     // 不会再有「某个调用点忘了 ++」导致的幽灵 bug。
     val instances by CoreState.instances.collectAsState()
+    // 写操作在飞的 key（A2）：用于防重复提交与卡片转圈
+    val pendingWrites by CoreState.pending.collectAsState()
+    // 实例页的写操作错误（不弹窗、不打断，但必须说出来）
+    var instancesError by remember { mutableStateOf<String?>(null) }
     var instancesReloadKey by remember { mutableStateOf(0) }
     // 置顶实例 id 列表（2026-10-21 补：getPins/setPins 一直没 UI）
     var pinnedIds by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -427,16 +431,20 @@ fun PageHost(
     // 任务（下载/安装）状态：由 Rust 的事件流驱动，首页与下载页共用。
     // 用 remember 固定一个 repo 实例（它内部持有订阅，不能每次重组都重建）。
     val tasksRepo = remember(bridge) { TasksRepo(bridge, context) }
-    var tasksState by remember { mutableStateOf(DownloadsUiState()) }
+    // A2：任务状态也只有一个真相源（`TasksRepo.state`），页面只读。
+    // 以前是 `var tasksState` + 单槽 onChange —— 第二个订阅者会把第一个顶掉。
+    // 这里保留「当前 tab」这个纯 UI 选择叠加在快照上（不写回 repo）。
+    val taskSnapshot by tasksRepo.state.collectAsState()
     var downloadsTab by remember { mutableStateOf(DownloadsTab.Active) }
+    val tasksState = taskSnapshot.copy(tab = downloadsTab)
 
     // ── 实例详情页要能看到「正在下载」并取消 ────────────────────────────
     //
     // 原来详情页完全看不到下载进度、也没有取消入口，只能切到下载页去翻。
     //
-    // ⚠️ 只记「本次查看的实例 id」，**不另开一份任务订阅**：
-    //   1. `TasksRepo.onChange` 是单槽位（第二个订阅者顶掉第一个），
-    //      而且详情页每次进出都会重建/销毁订阅，事件还会漏；
+    // 只记「本次查看的实例 id」，任务快照仍由外层传下去：
+    //   1. `TasksRepo.state` 已经是多订阅安全的 StateFlow，详情页**可以**自己
+    //      collect —— 但它每次进出都会重建组合，多一个订阅者就多一次重组；
     //   2. 外层那份 `tasksState` 本来就是全量快照（`DownloadsUiState.active`
     //      里已经带了每个任务的归属实例），够详情页用了。
     //
@@ -545,10 +553,6 @@ fun PageHost(
     DisposableEffect(bridgeReady) {
         if (bridgeReady) {
             tasksRepo.start(
-                onChange = { s ->
-                    // 保留当前 tab 选择（事件推送不该把用户切回「进行中」）
-                    tasksState = s.copy(tab = downloadsTab)
-                },
                 onExit = { instanceId, code ->
                     // 游戏退出后查一次渲染器健康度（旧 UI 的行为：非正常退出延迟一点，
                     // 免得和崩溃弹窗叠在一起）
@@ -837,18 +841,29 @@ fun PageHost(
                 QookixApi(bridge).launchGame(id, null) { }
             },
             onDelete = { target ->
-                // 删完必须刷新列表（与创建同理 —— 否则列表还显示已删的项）。
-                // 这里直接用 api（PageHost 作用域内没有 api 变量，现建一个）。
-                QookixApi(bridge).deleteInstance(target.id) { r ->
-                    r.onSuccess {
-                        // 立刻从快照里摘掉（不等 Rust 的 dirty 事件），
-                        // 再触发一次重拉兜底 —— 事件万一丢了也不会留幽灵条目。
-                        CoreState.removeLocally(target.id)
-                        instancesReloadKey++
+                // A2 写状态机：登记 key → 发请求 → 无论成败解除。
+                // **不再本地摘列表**（那是乐观更新）：列表由 Rust 的
+                // state://dirty → CoreState.refresh() 的结果决定。
+                val key = CoreState.instanceKey(target.id)
+                if (CoreState.beginWrite(key)) {
+                    instancesError = null
+                    QookixApi(bridge).deleteInstance(target.id) { r ->
+                        CoreState.endWrite(key)
+                        r.onFailure { e ->
+                            // 以前这里是静默的：用户以为删掉了，实际还在
+                            instancesError = context.getString(
+                                R.string.instances_delete_failed,
+                                friendlyError(context, e),
+                            )
+                        }
                     }
-                    // 失败时列表不变，用户可以重试
                 }
             },
+            pendingIds = pendingWrites
+                .filter { it.startsWith("instance:") }
+                .map { it.removePrefix("instance:") }
+                .toSet(),
+            error = instancesError,
             // 分组管理（2026-10-21 补：后端命令一直没 UI）
             onCreateGroup = { name ->
                 QookixApi(bridge).createInstanceGroup(name, null) { r ->
@@ -896,8 +911,9 @@ fun PageHost(
         )
 
         NavDestination.Downloads -> DownloadsPage(
-            state = tasksState.copy(tab = downloadsTab),
-            onTabChange = { downloadsTab = it; tasksState = tasksState.copy(tab = it) },
+            // tasksState 已经叠了 downloadsTab（见声明处）
+            state = tasksState,
+            onTabChange = { downloadsTab = it },
             onCancel = { id -> tasksRepo.cancel(id) },
             onClearFinished = { tasksRepo.clearFinished() },
         )
@@ -4513,9 +4529,15 @@ private fun MultiplayerRoute(
         }
     }
 
+    // 服务器列表：bridge 就绪时拉一次；Rust 推 servers 脏事件时重拉（A2）。
+    // 以前只在进页面时拉一次 —— 建/删服务器后要退出重进才看到变化。
+    val serversRevision by CoreState.serversRevision.collectAsState()
+    LaunchedEffect(bridgeReady, serversRevision) {
+        if (bridgeReady) reload()
+    }
+
     LaunchedEffect(bridgeReady) {
         if (bridgeReady) {
-            reload()
             // 顺带探一次陶瓦隧道是否就绪（决定按钮文案是「下载」还是「开启」）。
             //
             // ⚠️ 这里以前调 `terracotta_detect` —— Android 上没有这个命令，
@@ -5230,16 +5252,8 @@ private fun BrowseRoute(
             if (canTargetServer) {
                 api.listHostedServers { r ->
                     r.onSuccess { arr ->
-                        installServers = (0 until arr.length()).mapNotNull { i ->
-                            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                            ServerUi(
-                                id = o.optString("id"),
-                                name = o.optString("name"),
-                                core = o.optString("core"),
-                                mcVersion = o.optString("mc_version"),
-                                running = false,
-                            )
-                        }
+                        // 复用 MultiplayerRepo 的解析（原来这里抄了一份内联版）
+                        installServers = MultiplayerRepo.parseServers(arr)
                         installServerId = installServers.firstOrNull()?.id
                     }
                 }

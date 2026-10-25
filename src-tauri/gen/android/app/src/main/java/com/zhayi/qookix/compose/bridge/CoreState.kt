@@ -45,9 +45,32 @@ object CoreState {
     var revision: Long = 0L
         private set
 
+    /**
+     * 服务器域变更次数（`scope=servers`）。
+     *
+     * 服务器列表页现在按它重拉，而不是「进页面拉一次、建完要退出重进」。
+     * 没有做 [instances] 那样的全局镜像：服务器列表只有一个消费页，
+     * 页面持有的是短生命周期的缓存，硬拉一个全局副本反而多一处要同步。
+     */
+    private val _serversRevision = MutableStateFlow(0L)
+    val serversRevision: StateFlow<Long> = _serversRevision.asStateFlow()
+
+    /**
+     * 正在飞行的写操作 key（见 [beginWrite]）。
+     *
+     * UI 用它来做两件事：**防重复提交**（同一个 key 在飞时按钮置灰）
+     * 与「操作中」指示。这替代了以前「先改列表、失败再回滚」的乐观更新 ——
+     * 列表只由 [refresh] 的结果决定。
+     */
+    private val _pending = MutableStateFlow<Set<String>>(emptySet())
+    val pending: StateFlow<Set<String>> = _pending.asStateFlow()
+
     private var bridge: RustBridge? = null
     private var context: Context? = null
     private var subscribed = false
+
+    /** 实例维度的写操作 key（删除 / 改名 / 换图标共用）。 */
+    fun instanceKey(id: String): String = "instance:$id"
 
     /**
      * 绑定 bridge 并拉一次快照。
@@ -61,30 +84,69 @@ object CoreState {
         if (!subscribed) {
             subscribed = true
             bridge.listen(EVENT_DIRTY) { payload ->
-                runCatching {
+                val scope = runCatching {
                     val o = org.json.JSONObject(payload)
                     revision = o.optLong("revision", revision)
                     o.optString("scope")
-                }.getOrNull().let { scope ->
-                    // scope 为空 = 老版本/格式异常：宁可多拉一次
-                    if (scope.isNullOrBlank() || scope == "instances" || scope == "all") refresh()
+                }.getOrNull()
+                when (scope) {
+                    // scope 为空 = 老版本/格式异常：宁可两边都刷
+                    null, "", "all" -> {
+                        refresh()
+                        _serversRevision.value += 1
+                    }
+                    "instances" -> refresh()
+                    "servers" -> _serversRevision.value += 1
+                    else -> Unit
                 }
             }
         }
         refresh()
     }
 
-    /** 重新拉实例列表。等同于旧的 `instancesReloadKey++`。 */
+    /**
+     * 重新拉实例列表。等同于旧的 `instancesReloadKey++`。
+     *
+     * ## 为什么要串行化
+     *
+     * 批量操作（导入整合包后连着几条 dirty、连续删几个实例）会让
+     * `list_instances` 并发在飞。多个响应**到达顺序不确定**，
+     * 后到的旧数据会把新数据盖掉 —— 表现就是「列表偶尔回退到操作前」。
+     * 这里保证同一时刻只有一个请求，期间的触发合并成一次补跑。
+     */
     fun refresh() {
         val b = bridge ?: return
+        if (refreshing) {
+            refreshQueued = true
+            return
+        }
+        refreshing = true
         InstancesRepo.load(context, b) { r ->
+            refreshing = false
             r.onSuccess { _instances.value = it }
             // 失败保持上一次的快照（不把列表清空 —— 清空会让用户以为实例没了）
+            if (refreshQueued) {
+                refreshQueued = false
+                refresh()
+            }
         }
     }
 
-    /** 实例被删除后立刻从本地快照里摘掉，避免等到下一次重拉才消失。 */
-    fun removeLocally(id: String) {
-        _instances.value = _instances.value.filterNot { it.id == id }
+    private var refreshing = false
+    private var refreshQueued = false
+
+    /**
+     * 登记一次写操作。返回 false 表示同一个 key 已有请求在飞
+     *（调用方应当直接 return，不要重复发请求）。
+     */
+    fun beginWrite(key: String): Boolean {
+        if (_pending.value.contains(key)) return false
+        _pending.value = _pending.value + key
+        return true
+    }
+
+    /** 解除登记。**无论成功失败都要调**，否则按钮会永远置灰。 */
+    fun endWrite(key: String) {
+        _pending.value = _pending.value - key
     }
 }
