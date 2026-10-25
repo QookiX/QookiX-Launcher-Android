@@ -43,6 +43,15 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-25 · Q2 转向 Rust：`commands.rs` 实例域拆出
+- `commands.rs` **3131 → 2987**：`native_invoke` 里 13 个实例相关 arm 迁到 `commands/instance.rs`（200 行）
+- 拆法（后续每域复用）：每域一个文件，导出 `HANDLED`（命令名清单）+ `dispatch(cmd, p) -> Option<String>`；`dispatch` 只路由，命中后进 `run(cmd, p) -> String`
+  - **两段式的理由**：arm 里有大量 `return err(...)` 早退，`run` 返回 `String` 时语义不变；若直接写在返回 `Option<String>` 的函数里，每个早退都得包 `Some(...)`
+- `ok` / `err` 从 `native_invoke` 内部提升为模块级 `pub(crate)`，供子模块复用
+- 机械改写只有两处：去掉一级缩进、`&p` → `p`（子模块参数已是 `&Value`）
+- 验证：`cargo test --lib` 63 ✅、`cargo check --target aarch64-linux-android` ✅、闸门 ✅
+- commit `待补`
+
 ### 2026-10-25 · Q2 收尾：删白名单分叉（**发现并修了 A2 的真 bug**）
 - `QookixApi.kt` **755 → 507**（累计 2337 → 507，**-78%**），进入 600 行健康线
 - 删 `NATIVE_COMMANDS`（214 行白名单）+ `call()` 里的双路径分叉

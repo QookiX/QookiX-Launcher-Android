@@ -1,3 +1,5 @@
+mod instance;
+
 use crate::models::*;
 use crate::settings;
 use crate::instances;
@@ -154,17 +156,20 @@ fn svec(v: &serde_json::Value, keys: &[&str]) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// 成功信封：`{ ok: true, data }`。
+pub(crate) fn ok<T: serde::Serialize>(v: T) -> String {
+    match serde_json::to_value(v) {
+        Ok(v) => serde_json::json!({ "ok": true, "data": v }).to_string(),
+        Err(e) => err(format!("序列化失败：{e}")),
+    }
+}
+
+/// 失败信封：`{ ok: false, error, code, retryable }`（分类逻辑见 `error_code`）。
+pub(crate) fn err(e: impl std::fmt::Display) -> String {
+    crate::error_code::error_envelope(&e.to_string())
+}
+
 pub fn native_invoke(cmd: &str, payload: &str) -> String {
-    fn ok<T: serde::Serialize>(v: T) -> String {
-        match serde_json::to_value(v) {
-            Ok(v) => serde_json::json!({ "ok": true, "data": v }).to_string(),
-            Err(e) => err(format!("序列化失败：{e}")),
-        }
-    }
-    /// 失败信封：`{ ok:false, error, code, retryable }`（分类逻辑见 `error_code`）。
-    fn err(e: impl std::fmt::Display) -> String {
-        crate::error_code::error_envelope(&e.to_string())
-    }
 
     // ⚠️ 2026-10-25 诊断：导入卡死时用来判断命令到底有没有进 Rust。
     crate::util::log_line(&format!("[native] 进入 {cmd}（{}B）", payload.len()));
@@ -178,11 +183,11 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
         Err(e) => return err(format!("创建运行时失败：{e}")),
     };
     rt.block_on(async move {
+        // 按域分发：返回 None 表示「不是这个域的命令」，继续往下匹配。
+        if let Some(r) = instance::dispatch(cmd, &p).await {
+            return r;
+        }
         match cmd {
-            "list_instances" => match list_instances().await {
-                Ok(v) => ok(v),
-                Err(e) => err(e),
-            },
             "get_settings" => match get_settings().await {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
@@ -208,15 +213,6 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
             // ── 只读命令（阶段 3 第一批）──────────────────────────────
             // 这些命令都是纯查询，迁过来以后「切换页面看到空列表」这类问题
             // 就彻底不依赖 WebView 了。
-            "get_instance" => {
-                let Some(id) = sarg(&p, &["id", "instanceId", "instance_id"]) else {
-                    return err("缺少 id");
-                };
-                match get_instance(id).await {
-                    Ok(v) => ok(v),
-                    Err(e) => err(e),
-                }
-            }
             "list_accounts" => match list_accounts().await {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
@@ -244,10 +240,6 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                 }
             }
             "get_pins" => ok(get_pins().await),
-            "list_instance_groups" => match list_instance_groups().await {
-                Ok(v) => ok(v),
-                Err(e) => err(e),
-            },
             "get_storage_stats" => match get_storage_stats().await {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
@@ -340,19 +332,6 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
             // 注意返回值：`Result<(), String>` 成功时 data 是 `null`，
             // Kotlin 侧 `o.get("data").toString()` 得到 "null"，
             // 与 Tauri 对 unit 的序列化一致 ✓。
-            "delete_instance" => {
-                let Some(id) = sarg(&p, &["id", "instanceId", "instance_id"]) else {
-                    return err("缺少 id");
-                };
-                match delete_instance(id).await {
-                    Ok(()) => {
-                        // A2：实例集合变了 → 推 state://dirty，UI 重拉（见 app_state.rs）
-                        crate::app_state::mark_instances_dirty();
-                        ok(())
-                    }
-                    Err(e) => err(e),
-                }
-            }
             "kill_game" => match kill_game().await {
                 Ok(()) => ok(()),
                 Err(e) => err(e),
@@ -416,19 +395,6 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                 };
                 match launch_game(id, sarg(&p, &["world"]), sarg(&p, &["server"])).await {
                     Ok(v) => ok(v),
-                    Err(e) => err(e),
-                }
-            }
-            "import_modpack" => {
-                let Some(path) = sarg(&p, &["filePath", "file_path"]) else {
-                    return err("缺少 filePath");
-                };
-                match import_modpack(path).await {
-                    Ok(v) => {
-                        // 导入整合包 = 新建（可能还带改名）实例
-                        crate::app_state::mark_instances_dirty();
-                        ok(v)
-                    }
                     Err(e) => err(e),
                 }
             }
@@ -1041,31 +1007,6 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
-            "plan_modpack_export" => {
-                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
-                    return err("缺少 instanceId");
-                };
-                match plan_modpack_export(id).await {
-                    Ok(v) => ok(v),
-                    Err(e) => err(e),
-                }
-            }
-            "export_modpack" => {
-                let Some(id) = sarg(&p, &["instanceId", "instance_id", "id"]) else {
-                    return err("缺少 instanceId");
-                };
-                let options = p
-                    .get("options")
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({}));
-                match serde_json::from_value::<crate::modpack::ExportOptions>(options) {
-                    Ok(opts) => match export_modpack(id, opts).await {
-                        Ok(v) => ok(v),
-                        Err(e) => err(e),
-                    },
-                    Err(e) => err(format!("options 解析失败：{e}")),
-                }
-            }
             "translate_mod_descriptions" => {
                 let Some(provider) = sarg(&p, &["provider"]) else {
                     return err("缺少 provider");
@@ -1253,17 +1194,6 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
-            "update_instance" => {
-                let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
-                match update_instance(patch).await {
-                    Ok(v) => {
-                        // A2：改名 / 换图标 / 改配置都会影响列表卡片
-                        crate::app_state::mark_instances_dirty();
-                        ok(v)
-                    }
-                    Err(e) => err(e),
-                }
-            }
             "get_game_status" => match get_game_status().await {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
@@ -1419,39 +1349,6 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     Err(e) => err(e),
                 }
             }
-            "create_instance_group" => {
-                let Some(name) = sarg(&p, &["name"]) else {
-                    return err("缺少 name");
-                };
-                match create_instance_group(name, sarg(&p, &["color"])).await {
-                    Ok(v) => ok(v),
-                    Err(e) => err(e),
-                }
-            }
-            "rename_instance_group" => {
-                let (Some(id), Some(name)) = (sarg(&p, &["id"]), sarg(&p, &["name"])) else {
-                    return err("缺少 id / name");
-                };
-                match rename_instance_group(id, name, sarg(&p, &["color"])).await {
-                    Ok(v) => ok(v),
-                    Err(e) => err(e),
-                }
-            }
-            "delete_instance_group" => {
-                let Some(id) = sarg(&p, &["id"]) else {
-                    return err("缺少 id");
-                };
-                match delete_instance_group(id).await {
-                    Ok(()) => ok(()),
-                    Err(e) => err(e),
-                }
-            }
-            "reorder_instance_groups" => {
-                match reorder_instance_groups(svec(&p, &["ids"])).await {
-                    Ok(v) => ok(v),
-                    Err(e) => err(e),
-                }
-            }
             "test_mirror" => {
                 let base = sarg(&p, &["base"]).unwrap_or_default();
                 match test_mirror(base).await {
@@ -1525,46 +1422,6 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
             // ⚠️ 参数必须**全部**透传：Tauri 按签名反序列化，漏掉 `renderer`
             // 会让新实例 renderer=null → 自动判给 GL4ES → 1.21.x 一启动就崩
             //（`Can't map buffer, opengl error 0`，见上面那个函数的注释）。
-            "create_instance" => {
-                let Some(name) = sarg(&p, &["name"]) else {
-                    return err("缺少 name");
-                };
-                let Some(mc) = sarg(&p, &["mcVersion", "mc_version"]) else {
-                    return err("缺少 mcVersion");
-                };
-                let loader = sarg(&p, &["loader"]).unwrap_or_default();
-                let resolution: Option<Vec<i64>> = p
-                    .get("resolution")
-                    .and_then(|x| x.as_array())
-                    .map(|a| a.iter().filter_map(|v| v.as_i64()).collect());
-                match create_instance(
-                    name,
-                    mc,
-                    loader,
-                    sarg(&p, &["loaderVersion", "loader_version"]),
-                    sarg(&p, &["javaDir", "java_dir"]),
-                    sarg(&p, &["javaArgs", "java_args"]),
-                    sarg(&p, &["gameArgs", "game_args"]),
-                    resolution,
-                    iarg(&p, &["maxMemoryMb", "max_memory_mb"]),
-                    sarg(&p, &["memoryMode", "memory_mode"]),
-                    sarg(&p, &["accountId", "account_id"]),
-                    sarg(&p, &["icon"]),
-                    sarg(&p, &["group"]),
-                    sarg(&p, &["renderer"]),
-                )
-                .await
-                {
-                    Ok(v) => {
-                        crate::app_state::mark_instances_dirty();
-                        ok(v)
-                    }
-                    Err(e) => err(e),
-                }
-            }
-            // ── 开服（hosted server）+ rcon（阶段 3 第九批）──────────────
-            // 注意：这些命令定义在 `servers` 模块（lib.rs 里注册为 `servers::xxx`），
-            // 不在本文件里，所以要写全路径 `crate::servers::`。
             "list_hosted_servers" => ok(crate::servers::list_hosted_servers()),
             "get_hosted_server" => {
                 let Some(id) = sarg(&p, &["id"]) else {
