@@ -123,7 +123,10 @@ fun ProxySection(
                         )
                     }
                 }
-                TextButton(onClick = onTest, enabled = !testing && !detecting) {
+                // 自定义模式但没填地址：测试必然失败，直接禁用。
+                //（注释里早就写着要拦，实现里其实没有 —— 点了只会得到一句网络错误）
+                val addressMissing = mode == "custom" && address.isBlank()
+                TextButton(onClick = onTest, enabled = !testing && !detecting && !addressMissing) {
                     Text(
                         if (testing) stringResource(R.string.settings_proxy_testing)
                         else stringResource(R.string.settings_proxy_test)
