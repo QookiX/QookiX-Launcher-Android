@@ -34,6 +34,15 @@ const BASELINE = join(__dirname, "file-size-baseline.json");
 /** 新文件的硬上限（评审的健康线是 800，这里留出余量，只拦「一出生就是巨物」）。 */
 const NEW_FILE_LIMIT = 1500;
 
+/**
+ * 健康线：低于这个行数的文件**不设棘轮**，正常长就行。
+ *
+ * 为什么：棘轮的初衷是拦住「PageHost 从 5000 长到 6000」这类，
+ * 而不是让 `CoreState` 从 90 长到 152 也失败（那会逼着人为凑行数去拆文件，
+ * 反而更糟）。超过这条线的文件才逐行记账、只许变小。
+ */
+const HEALTHY_LIMIT = 600;
+
 /** 要检查的源码根目录（相对仓库根）。 */
 const SOURCE_DIRS = [
   "src-tauri/src",
@@ -90,6 +99,15 @@ const violations = [];
 
 for (const [file, lines] of Object.entries(current)) {
   const budget = baseline[file];
+
+  // 健康线以下：不设棘轮（新文件也只拦明显过大的）
+  if (lines <= HEALTHY_LIMIT) {
+    if (budget == null && lines > NEW_FILE_LIMIT) {
+      violations.push(`${file}: 新文件 ${lines} 行，超过新文件上限 ${NEW_FILE_LIMIT}`);
+    }
+    continue;
+  }
+
   if (budget == null) {
     if (lines > NEW_FILE_LIMIT) {
       violations.push(`${file}: 新文件 ${lines} 行，超过新文件上限 ${NEW_FILE_LIMIT}`);
