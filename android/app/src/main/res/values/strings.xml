@@ -586,7 +586,7 @@
     <!-- ── 设置：内容服务（AboutAndContentPanes.kt）── -->
     <string name="content_services_title">内容服务</string>
     <string name="content_services_curseforge_group">CurseForge</string>
-<string name="content_services_builtin_key">可选不填使用默认key 可能会导致 CurseForge 内容中心不可用，Modrinth 不受影响</string>
+    <string name="content_services_builtin_key">未配置。CurseForge 内容中心要用你自己的 Key（在 console.curseforge.com 免费申请后粘到这里）；不填则只有 Modrinth 可用</string>
     <string name="content_services_set">设置</string>
     <string name="content_services_modify">修改</string>
 <string name="content_services_translate_group">内容翻译</string>
