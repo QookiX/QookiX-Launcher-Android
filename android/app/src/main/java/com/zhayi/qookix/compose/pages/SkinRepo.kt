@@ -2,6 +2,14 @@ package com.zhayi.qookix.compose.pages
 
 import android.util.Log
 import com.zhayi.qookix.compose.bridge.QookixApi
+// 皮肤/披风域已拆到 QookixApiSkin.kt（extension），跨包调用要显式 import
+import com.zhayi.qookix.compose.bridge.applySkinOffline
+import com.zhayi.qookix.compose.bridge.applySkinToAccount
+import com.zhayi.qookix.compose.bridge.fetchPlayerSkin
+import com.zhayi.qookix.compose.bridge.getOfflineSkin
+import com.zhayi.qookix.compose.bridge.listSkins
+import com.zhayi.qookix.compose.bridge.readSkinDataUrl
+import com.zhayi.qookix.compose.bridge.saveSkinFromData
 import org.json.JSONArray
 import org.json.JSONObject
 

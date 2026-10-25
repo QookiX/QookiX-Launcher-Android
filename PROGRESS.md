@@ -22,7 +22,7 @@
 | **A2** | 状态单一真相源 | P0 | ✅ | 三切片：脏事件 + `CoreState`（`a02425f`）、错误契约（`c87a559`）、写状态机 + 服务器/任务域（`a5e4476`）；边界写进 ADR-0002 |
 | **A3** | 核心代码在 `gen/android` + 双 app 模块 | P1 | ✅ | 迁到根 `android/`，删掉根目录死工程；`9a9e902` |
 | **S3** | 16KB 页对齐 | P1 | 🟡 | 自建 4 个库已 0x4000 + CI 校验 PT_LOAD（`b28d9ec`）；**上游 10 个预编译 .so 仍 4KB**（要重建上游） |
-| **Q2** | 巨文件 / lint 闸门 | P1 | 🟡 | 体量棘轮 ✅（`7e9cbad`，>600 行只许变小）；**拆巨文件未做**；detekt/clippy 未接 |
+| **Q2** | 巨文件 / lint 闸门 | P1 | 🟡 | 体量棘轮 ✅（`7e9cbad`，>600 行只许变小）；**拆分进行中**：`QookixApi` 2337→2192（皮肤域已拆出）；detekt/clippy 未接 |
 | **Q3** | 吞异常 / 错误契约 | P1 | 🟡 | 统一 `code`/`retryable` + `ApiError` ✅（`c87a559`）；**`let _ =` 类吞错点未清** |
 | **A4** | Rust 跨端复用 | P2 | ✅ | 随 A1 完成（tauri 依赖已删）；本仓库不再有桌面壳 |
 | **Q4** | 发布节奏 | P2 | ⬜ | 需流程约定（RC 分支 / soak / 双通道），不是代码 |
@@ -43,11 +43,18 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-25 · Q2 第一刀：拆 `QookixApi` 的皮肤域
+- 皮肤/披风 10 个方法迁到 `QookixApiSkin.kt`（extension 函数，调用点不用改）
+- `QookixApi.kt` **2337 → 2192 行**（-145）；新文件 168 行（健康线内，不受棘轮约束）
+- 代价：`call`/`callObj`/`callArr` 从 private 放宽到 internal；跨包调用点要补 import（`SkinRepo.kt` +7、`PageHost.kt` +4）
+- 验证：`compileArm64ReleaseKotlin` ✅、体量闸门 ✅（PageHost +4 已显式记账，QookixApi 收紧到 2192）
+- commit `待补`
+
 ### 2026-10-25 · 出包链路验证（真机验证的前置）
 - `node scripts/build-android.mjs arm64` 端到端跑通：cargo 编出 160MB debug `.so` → 拷进 jniLibs → gradle 出 APK（114MB），三个产物时间戳链一致（20:36:16 → 20:36:16 → 20:37:16）
 - 顺手清掉两处误导：`BuildTask` 那句 `use 'cargo tauri android dev'`（该命令已不存在）改成说明 Rust 由脚本/CI 负责；删掉没人读的 `org.gradle.project.tauriSkipRustBuild` 属性
 - **产出**：`android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk` 已含 A2/S1/S2 全部新代码，可直接装真机
-- commit `待补`
+- commit `8d271d8`
 
 ### 2026-10-25 · A3 工程转正
 - 删掉根目录那套独立且已死的 Gradle 工程（`app/` 8 个 .kt 是旧 stub，无人引用）
