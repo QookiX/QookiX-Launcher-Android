@@ -1365,12 +1365,30 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             var bridgeReady by remember { mutableStateOf(false) }
             val backStack = remember { androidx.compose.runtime.mutableStateListOf<NavDestination>() }
 
+            // 二级页的「上一层」。顶栏返回键与系统返回键**共用这张表** ——
+            // 原来是两套逻辑（顶栏回「更多」、系统返回却直接回首页），同一个页面
+            // 两种返回结果，用户会以为界面错乱。
+            fun goUp(): Boolean {
+                val parent = when (current) {
+                    NavDestination.CreateInstance, NavDestination.InstanceDetail -> NavDestination.Instances
+                    NavDestination.ServerDetail, NavDestination.ServerCreate,
+                    NavDestination.Frp, NavDestination.FrpRooms -> NavDestination.Multiplayer
+                    NavDestination.Skins, NavDestination.News,
+                    NavDestination.Playtime, NavDestination.Settings -> NavDestination.More
+                    NavDestination.Account -> NavDestination.Home
+                    else -> null
+                } ?: return false
+                current = parent
+                backStack.clear()
+                return true
+            }
+
             androidx.compose.runtime.DisposableEffect(Unit) {
                 activity.setComposeBackHandler {
                     when {
                         backStack.isNotEmpty() -> { current = backStack.removeAt(backStack.lastIndex); true }
-                        current != NavDestination.Home -> { current = NavDestination.Home; true }
-                        else -> false
+                        // 与顶栏返回键同一张表（以前这里一律回首页，跳过了「更多」）
+                        else -> goUp()
                     }
                 }
                 onDispose { activity.setComposeBackHandler(null) }
@@ -1442,31 +1460,9 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 //   服务器详情 → 多人
                 //   其余二级页 → 各自的上层
                 onBack = ({
-                    // 先问 PageHost 的「内部返回处理器」（文件浏览这类栈外下钻层）。
-                    // 它返回 true 表示已消费，外层就不再动 nav 状态。
-                    if (innerBack?.invoke() != true) {
-                        when {
-                            current == NavDestination.CreateInstance ||
-                                current == NavDestination.InstanceDetail ->
-                                navigate(NavDestination.Instances)
-                            current == NavDestination.ServerDetail ->
-                                navigate(NavDestination.Multiplayer)
-                            // ⚠️ 2026-10-18 补：漏了这个分支时点返回毫无反应
-                            //（用户反馈「新建服务器页左上角返回回不去」）
-                            current == NavDestination.ServerCreate ->
-                                navigate(NavDestination.Multiplayer)
-                            current == NavDestination.Skins ||
-                                current == NavDestination.News ||
-                                current == NavDestination.Playtime ||
-                                current == NavDestination.Settings ->
-                                navigate(NavDestination.More)
-                            current == NavDestination.Frp ||
-                                current == NavDestination.FrpRooms ->
-                                navigate(NavDestination.Multiplayer)
-                            current == NavDestination.Account ->
-                                navigate(NavDestination.Home)
-                        }
-                    }
+                    // 先问 PageHost 的「内部返回处理器」（文件浏览这类栈外下钻层），
+                    // 它返回 true 表示已消费；否则按统一的上层表回退。
+                    if (innerBack?.invoke() != true) goUp()
                 }).takeIf {
                     current !in NavDestination.bottomBar
                 },
