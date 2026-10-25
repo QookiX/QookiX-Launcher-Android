@@ -43,6 +43,14 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-25 · Q2 第三刀：服务器域 + 联机域
+- 迁 6 个分节、415 行：`QookixApiServer.kt`（服务器详情 100 + 本地服务器 58 + 服务器插件 102）、`QookixApiMultiplayer.kt`（陶瓦 11 + FRP 房间 99 + FRP 隧道 38）
+- `QookixApi.kt` **1724 → 1311**（累计 2337 → 1311，**-1026 / -44%**）
+- 方法改进：不再手算行号，改成**按分节注释自动切分**（解析 `// ── xxx ───` 边界 + 关键词选块），以后每刀只改关键词
+- 踩坑：「服务器插件」分节标题没有括号说明，用带括号的关键词匹配不到 → 静默漏了 101 行；补迁后新文件缺 `JSONArray` import（编译器指出）
+- 验证：`assembleArm64Release` ✅、单测 10 ✅、闸门 ✅
+- commit `待补`
+
 ### 2026-10-25 · Q2 第二刀：实例详情 tab + 设置页第二组
 - 再迁两个域：`QookixApiInstanceTabs.kt`（303 行）、`QookixApiSettings.kt`（194 行）
 - **关键决策：调用方改用包级 star import**（`import ...bridge.*`）—— 跨包 extension 必须逐个 import，而 `PageHost` 里上百处 `api.xxx()`；一次性换成 star 后，后续每拆一个域都不用再碰调用方
