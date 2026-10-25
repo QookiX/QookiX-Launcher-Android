@@ -43,6 +43,14 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-25 · `commands.rs` 全量按域拆分（199 个命令 → 12 个文件）
+- `commands.rs` **3130 → 1365**（-56%）；`native_invoke` 的 199 个 arm 全部迁出
+- 12 个域文件（全部 < 400 行）：instance 200、account 192、content 372、controls 138、files 281、frp 172、plugin 118、server 275、settings 203、task 180、terracotta 51、world 159
+- 文件统一命名 `dispatch_<域>.rs`（**踩坑**：一开始叫 `settings.rs`/`frp.rs`，与 `crate::settings`/`crate::frp` 撞名，E0255）
+- 三个迁移后遗症（都靠编译器发现）：`payload` 变量在子模块里不存在（改用 `p.to_string()`）、原 `other => err(未实现)` 兜底被搬进 task 域、主 match 因此缺 `_` 分支
+- 验证：`cargo test --lib` 63 ✅、`cargo check --target aarch64-linux-android` ✅、闸门 ✅（预算收到 1365）
+- commit `待补`
+
 ### 2026-10-25 · Q2 转向 Rust：`commands.rs` 实例域拆出
 - `commands.rs` **3131 → 2987**：`native_invoke` 里 13 个实例相关 arm 迁到 `commands/instance.rs`（200 行）
 - 拆法（后续每域复用）：每域一个文件，导出 `HANDLED`（命令名清单）+ `dispatch(cmd, p) -> Option<String>`；`dispatch` 只路由，命中后进 `run(cmd, p) -> String`
