@@ -501,108 +501,6 @@ class QookixApi(private val bridge: RustBridge) {
     fun isGameRunning(onResult: (Result<Boolean>) -> Unit) =
         call("is_game_running", null) { r -> onResult(r.mapCatching { it.trim() == "true" }) }
 
-    // ── 内容中心（Modrinth / CurseForge）─────────────────────────────────
-
-    /**
-     * 搜索项目（内容中心）。
-     *
-     * ⚠️ 两条已核实的约定：
-     *   1. 命令名是 `browse`（不是 `search_projects`）—— 核对自 `lib.rs` 的 invoke_handler
-     *   2. 参数用 **camelCase**（Tauri 2 默认）—— 对照 `src/api.ts` 的实际调用：
-     *      `{ provider, query, projectType, category, page, gameVersion, loader, sort, pageSize }`
-     *      Rust 侧签名是 snake_case（`project_type`），转换由 Tauri 自动完成。
-     *
-     * @param provider "modrinth" 或 "curseforge"
-     * @param projectType mod / modpack / resourcepack / shader
-     * @param sort downloads / relevance / updated / newest
-     */
-    fun browse(
-        provider: String,
-        query: String,
-        projectType: String,
-        category: String = "",
-        page: Int = 0,
-        gameVersion: String = "",
-        loader: String = "",
-        sort: String = "downloads",
-        pageSize: Int = 20,
-        onResult: (Result<JSONObject>) -> Unit,
-    ) {
-        val p = JSONObject()
-            .put("provider", provider)
-            .put("query", query)
-            .put("projectType", projectType)
-            .put("category", category)
-            .put("page", page)
-            .put("gameVersion", gameVersion)
-            .put("loader", loader)
-            .put("sort", sort)
-            .put("pageSize", pageSize)
-        callObj("browse", p, onResult)
-    }
-
-    /** 某个项目的可用版本（安装时要选）。 */
-    fun projectVersions(
-        provider: String,
-        projectId: String,
-        mcVersion: String = "",
-        loader: String = "",
-        onResult: (Result<JSONObject>) -> Unit,
-    ) {
-        val p = JSONObject()
-            .put("provider", provider)
-            .put("projectId", projectId)
-            .put("mcVersion", mcVersion)
-            .put("loader", loader)
-        callObj("project_versions", p, onResult)
-    }
-
-    /** 取项目完整信息（描述/正文/作者/下载量等）。 */
-    fun projectInfo(provider: String, projectId: String, onResult: (Result<JSONObject>) -> Unit) =
-        callObj("project_info", JSONObject().put("provider", provider).put("projectId", projectId), onResult)
-
-    /** CurseForge 分类列表（筛选用）。 */
-    fun curseforgeCategories(onResult: (Result<JSONArray>) -> Unit) =
-        callArr("curseforge_categories", null, onResult)
-
-    /** 预估某 MC 版本原版下载体积（返回 {totalSize, fileCount}）。 */
-    fun estimateDownload(mcVersion: String, onResult: (Result<JSONObject>) -> Unit) =
-        callObj("estimate_download", JSONObject().put("mcVersion", mcVersion), onResult)
-
-    /** 预估导入模组包体积。 */
-    fun estimateImport(source: String, rawIds: List<String>, onResult: (Result<JSONObject>) -> Unit) =
-        callObj("estimate_import", JSONObject().put("source", source).put("rawIds", JSONArray().also { rawIds.forEach { id -> it.put(id) } }), onResult)
-
-    /**
-     * 版本清单（Minecraft 各版本列表）。
-     *
-     * ⚠️ 返回的是**对象**不是数组：`{ versions: [...], latest: {...} }`
-     * —— 见 `commands.rs::get_version_manifest`。
-     */
-    fun getVersionManifest(onResult: (Result<JSONObject>) -> Unit) =
-        callObj("get_version_manifest", null, onResult)
-
-
-    /**
-     * Paper 支持的所有 MC 版本（已按版本号降序，已剔除 rc/pre）。
-     *
-     * ⚠️ 为什么要这个而不是复用 [getVersionManifest]：
-     * Paper **不支持所有 MC 版本**。比如 1.8 那条线只有 `1.8.8`（`1.8.9` 不存在，
-     * 但两者客户端协议相同，1.8.9 客户端能进 1.8.8 服务器）。
-     * 拿 1.8.9 去问 builds 接口只会 404，所以创建服务器时必须用这份清单限制选择。
-     *
-     * 见 Rust `servers.rs::list_paper_versions`（已注册在 `lib.rs:94`）。
-     */
-    fun listPaperVersions(onResult: (Result<List<String>>) -> Unit) =
-        callArr("list_paper_versions", null) { r ->
-            onResult(
-                r.map { arr ->
-                    (0 until arr.length()).mapNotNull { i ->
-                        arr.optString(i).takeIf { it.isNotBlank() }
-                    }
-                },
-            )
-        }
     // ── 新闻 ──────────────────────────────────────────────────────────────
 
     /** 官方新闻。 */
@@ -639,90 +537,6 @@ class QookixApi(private val bridge: RustBridge) {
     fun listHostedServers(onResult: (Result<JSONArray>) -> Unit) =
         callArr("list_hosted_servers", null, onResult)
 
-    // ── 文件管理（实例 + 服务器，命令名核对自 src/api.ts）────────────────────
-
-    /**
-     * 列实例目录。
-     *
-     * ⚠️ 返回的是对象 `{"rel":..., "entries":[...]}`（commands.rs:1229），
-     * 不是数组 —— 用 callArr 会抛 JSONException。这里统一解出 `entries`。
-     */
-    fun listInstanceDir(instanceId: String, rel: String, onResult: (Result<JSONArray>) -> Unit) =
-        callObj("list_instance_dir", JSONObject().put("instanceId", instanceId).put("rel", rel)) { r ->
-            onResult(r.mapCatching { it.optJSONArray("entries") ?: it.optJSONArray("items") ?: JSONArray() })
-        }
-
-    /** 读实例文件。 */
-    fun readInstanceFile(instanceId: String, rel: String, onResult: (Result<String>) -> Unit) =
-        call("read_instance_file", JSONObject().put("instanceId", instanceId).put("rel", rel), onResult)
-
-    /** 写实例文件。 */
-    fun writeInstanceFile(
-        instanceId: String,
-        rel: String,
-        content: String,
-        onResult: (Result<String>) -> Unit = {},
-    ) = call(
-        "write_instance_file",
-        JSONObject().put("instanceId", instanceId).put("rel", rel).put("content", content),
-        onResult,
-    )
-
-    /** 新建文件/目录。 */
-    fun createInstanceEntry(
-        instanceId: String,
-        rel: String,
-        isDir: Boolean,
-        onResult: (Result<String>) -> Unit = {},
-    ) = call(
-        "create_instance_entry",
-        JSONObject().put("instanceId", instanceId).put("rel", rel).put("isDir", isDir),
-        onResult,
-    )
-
-    /** 重命名。 */
-    fun renameInstancePath(
-        instanceId: String,
-        rel: String,
-        newName: String,
-        onResult: (Result<String>) -> Unit = {},
-    ) = call(
-        "rename_instance_path",
-        JSONObject().put("instanceId", instanceId).put("rel", rel).put("newName", newName),
-        onResult,
-    )
-
-    /** 删除。 */
-    fun deleteInstancePath(instanceId: String, rel: String, onResult: (Result<String>) -> Unit = {}) =
-        call("delete_instance_path", JSONObject().put("instanceId", instanceId).put("rel", rel), onResult)
-
-    /**
-     * 列服务器目录。
-     *
-     * ⚠️ 返回的是对象 `{"rel":..., "entries":[...]}`（server_files.rs:32），
-     * 不是数组 —— 用 callArr 会抛 JSONException。这里统一解出 `entries`。
-     */
-    fun listHostedServerDir(id: String, rel: String, onResult: (Result<JSONArray>) -> Unit) =
-        callObj("list_hosted_server_dir", JSONObject().put("id", id).put("rel", rel)) { r ->
-            onResult(r.mapCatching { it.optJSONArray("entries") ?: it.optJSONArray("items") ?: JSONArray() })
-        }
-
-    /** 读服务器文件。 */
-    fun readHostedServerFile(id: String, rel: String, onResult: (Result<String>) -> Unit) =
-        call("read_hosted_server_file", JSONObject().put("id", id).put("rel", rel), onResult)
-
-    /** 写服务器文件。 */
-    fun writeHostedServerFile(
-        id: String,
-        rel: String,
-        content: String,
-        onResult: (Result<String>) -> Unit = {},
-    ) = call(
-        "write_hosted_server_file",
-        JSONObject().put("id", id).put("rel", rel).put("content", content),
-        onResult,
-    )
-
     // ── 实例设置（命令名核对自 Rust 的 lib.rs 注册表）──────────────────────
     //
     // ⚠️ 命令名是 **`update_instance`**，不是 `update_instance_settings`。
@@ -749,38 +563,6 @@ class QookixApi(private val bridge: RustBridge) {
     /** 安装推荐插件。 */
     fun installRecommendedPlugins(onResult: (Result<String>) -> Unit = {}) =
         call("install_recommended_plugins", null, onResult)
-
-    // ── 应用自我更新（命令名核对自 lib.rs 的 updater::）──────────────────────
-
-    /**
-     * 检查启动器本体是否有新版本。
-     *
-     * 注意与 `check_updates` 区分：那个是检查**实例内的模组**更新，
-     * 这个是检查**启动器应用本身**。
-     */
-    fun checkForUpdate(onResult: (Result<JSONObject>) -> Unit) =
-        callObj("check_for_update", null, onResult)
-
-    /**
-     * 下载更新包。
-     *
-     * @param version 检查更新时拿到的版本号。后端会校验它和 `PENDING` 一致，
-     *                防止「检查 A → 又检查 B → 下到 B 但界面显示 A」。
-     *                传空串则跳过校验（回退到后端 PENDING）。
-     *
-     * ⚠️ Rust 侧 `updater::download_update(app, version)` 只认 `version` 参数，
-     * 不再接受 `url`（2026-10-18 修）——
-     * 之前传的 `{"url": ...}` 被 Tauri 静默忽略，等同于没传。
-     */
-    fun downloadUpdate(version: String, onResult: (Result<String>) -> Unit = {}) =
-        call(
-            "download_update",
-            JSONObject().put("version", version),
-            onResult,
-        )
-    /** 拉起系统安装器装已下载的 APK。 */
-    fun installUpdate(path: String, onResult: (Result<String>) -> Unit = {}) =
-        call("install_update", JSONObject().put("path", path), onResult)
 
     // ── 账号（命令名核对自 src/api.ts 的 accounts 段）────────────────────────
     //
@@ -816,104 +598,6 @@ class QookixApi(private val bridge: RustBridge) {
     /** 退出登录 / 删除账号。命令名是 `remove_account`，不是 `logout_account`。 */
     fun logoutAccount(uuid: String, onResult: (Result<String>) -> Unit = {}) =
         call("remove_account", JSONObject().put("uuid", uuid), onResult)
-
-    // ── Android 上的正确模型 ───────────────────────────────────────────
-    // 隧道跑在**独立进程** `:tunnel`（`libterracotta.so` 只在那里加载），
-    // 启动器进程只通过本地 HTTP 调它：
-    //   · 探活   → terracotta_ping（内部 GET /ping）
-    //   · 状态   → terracotta_request("/state")
-    //   · 开房   → terracotta_request("/host?player=<名>")
-    //   · 加入   → terracotta_request("/guest?room=<码>&player=<名>")
-    // 没有「下载组件」「启动进程」「停止进程」这三件事 —— 隧道进程的生死
-    // 由 GameService / :tunnel 自己管。
-
-    /**
-     * 隧道是否就绪（= 旧桌面版的 `terracotta_detect`，Android 上的正确替代）。
-     *
-     * 内部走 `terracotta_ping`（Rust 会 GET `/ping` 并解析 `{"ready":true}`）。
-     * 端口文件过期时 Rust 侧会顺手自愈，所以调用方可以放心地重复轮询。
-     */
-    fun terracottaTunnelReady(onResult: (Boolean) -> Unit) =
-        terracottaTunnelPing { r ->
-            onResult(r.getOrNull()?.contains("true") == true)
-        }
-
-    /**
-     * 拉一次隧道状态，解析出房间码。
-     *
-     * 隧道 `/state` 返回形如 `{"index":1,"state":"host-scanning","room":"ABC123"}`。
-     * 返回 `RoomState`：`state` 是隧道的原始状态串（`off` 表示隧道没在跑），
-     * `room` 有值代表房间已建立。
-     *
-     * ⚠️ 之前用 `callObj` 会解析失败 —— Rust 返回的是**原始 JSON 文本**，
-     * 不是对象（见 [terracottaTunnelRequest] 的注释）。
-     */
-    fun terracottaTunnelState(onResult: (TerracottaState) -> Unit) =
-        terracottaTunnelRequest("/state") { r ->
-            val raw = r.getOrNull().orEmpty()
-            onResult(
-                TerracottaState(
-                    ok = raw.contains("\"ok\":true") || raw.contains("\"state\""),
-                    state = Regex("\"state\":\"([^\"]*)\"").find(raw)
-                        ?.groupValues?.getOrNull(1).orEmpty(),
-                    room = Regex("\"room\":\"([^\"]*)\"").find(raw)
-                        ?.groupValues?.getOrNull(1).orEmpty(),
-                    error = Regex("\"error\":\"([^\"]*)\"").find(raw)
-                        ?.groupValues?.getOrNull(1).orEmpty(),
-                )
-            )
-        }
-
-    /**
-     * 开房（房主）。`player` 是显示给朋友看的名字。
-     *
-     * 返回隧道原样的 JSON 文本；`{"ok":true}` 才算成功。
-     * 隧道会回 `{"ok":false,"error":"…"}`（例如状态不对），**必须检查** ——
-     * 旧 Vue 就吃过这个亏：不看返回值为往下走，用户只看到「请先在游戏里开放
-     * 局域网世界」，永远不知道请求其实被拒了。
-     */
-    fun terracottaHost(player: String, onResult: (Result<String>) -> Unit) =
-        terracottaTunnelRequest("/host?player=" + java.net.URLEncoder.encode(player, "UTF-8"), onResult)
-
-    /** 加入房间（客人）。 */
-    fun terracottaGuest(room: String, player: String, onResult: (Result<String>) -> Unit) =
-        terracottaTunnelRequest(
-            "/guest?room=" + java.net.URLEncoder.encode(room, "UTF-8") +
-                "&player=" + java.net.URLEncoder.encode(player, "UTF-8"),
-            onResult,
-        )
-    /** 请求 VPN 授权（TUN 模式必须）。 */
-    fun terracottaRequestVpn(onResult: (Result<String>) -> Unit = {}) =
-        call("terracotta_request_vpn", null, onResult)
-
-    /** VPN 授权是否已拿到。 */
-    /**
-     * VPN 授权是否已拿到。
-     *
-     * ⚠️ Rust 返回 `bool` —— 之前用 callObj 会报类型转换失败。
-     * 用 call 收字符串后判 `"true"` 即可。
-     */
-    fun terracottaVpnGranted(onResult: (Result<String>) -> Unit) =
-        call("terracotta_vpn_granted", null, onResult)
-
-    /**
-     * 隧道是否就绪（ping）。
-     *
-     * ⚠️ Rust 返回 `bool`（不是对象）。
-     */
-    fun terracottaTunnelPing(onResult: (Result<String>) -> Unit) =
-        call("terracotta_ping", null, onResult)
-
-    /**
-     * 向隧道发请求（path 由调用方给，底层是 localhost HTTP）。
-     *
-     * ⚠️ Rust 返回 **Result<String>**（隧道响应的原始 JSON 文本），
-     * 不是对象 —— 一开始用 callObj 必然解析失败（同 detectSystemProxy 的坑）。
-     * 返回裸文本，由调用方自己 parse：错误响应形如
-     * `{"ok":false,"error":"…"}`，不能在桥层吞掉。
-     */
-    fun terracottaTunnelRequest(path: String, onResult: (Result<String>) -> Unit) =
-        call("terracotta_request", JSONObject().put("path", path), onResult)
 
     // ── 覆盖审计补齐（第三批）──────────────────────────────────────────────
     //
@@ -961,104 +645,6 @@ class QookixApi(private val bridge: RustBridge) {
     fun setPins(items: JSONArray, onResult: (Result<String>) -> Unit = {}) =
         call("set_pins", JSONObject().put("items", items), onResult)
 
-    // ── 实例内操作 ────────────────────────────────────────────────────────
-
-    /** 安装游戏文件（补齐版本/库/素材）。 */
-    fun installGame(instanceId: String, onResult: (Result<String>) -> Unit = {}) =
-        call("install_game", JSONObject().put("instanceId", instanceId), onResult)
-
-    /**
-     * 检查游戏文件完整性（启动前/修按钮用）。
-     *
-     * 返回字段（**已核对 `src/types.ts` 的 `InstanceFileReport`**）：
-     *   - `ok` / `total` —— 5 个关键项里齐了几个
-     *   - `missing[]` —— 缺的项，每项有 `kind` / `detail` / `fixable`
-     *   - `advice` —— 缺文件时给用户的一句人话建议
-     *   - `can_launch` —— 关键项全齐，可直接启动
-     *
-     * ⚠️ `fixable=false` 表示「补全也修不好」（如加载器版本号为空，
-     * 得换游戏版本）—— 这时不该让用户白等下载。
-     */
-    fun checkInstanceFiles(instanceId: String, onResult: (Result<JSONObject>) -> Unit) =
-        callObj("check_instance_files", JSONObject().put("instanceId", instanceId), onResult)
-
-    /**
-     * 补全缺失的游戏文件。
-     *
-     * Rust 侧复用 `install_game` 的逻辑：**逐文件校验、缺的才下**，
-     * 所以重复调用是安全的（不会重下已有的）。
-     * 进度同样走 `install://progress` 事件 → 下载页能看到。
-     */
-    fun repairInstanceFiles(instanceId: String, onResult: (Result<String>) -> Unit = {}) =
-        call("repair_instance_files", JSONObject().put("instanceId", instanceId), onResult)
-
-    /** 列出某个实例可加入的服务器（局域网发现）。 */
-    fun listServers(instanceId: String, onResult: (Result<JSONArray>) -> Unit) =
-        callObj("list_servers", JSONObject().put("instanceId", instanceId)) { r ->
-            onResult(r.mapCatching { it.optJSONArray("servers") ?: JSONArray() })
-        }
-
-    /** ping 一个 Minecraft 服务器拿延迟与在线人数。 */
-    fun pingMcServer(address: String, onResult: (Result<JSONObject>) -> Unit) =
-        callObj("ping_mc_server", JSONObject().put("address", address), onResult)
-
-    /** 读某个实例的游戏日志。 */
-    fun readInstanceLog(instanceId: String, onResult: (Result<String>) -> Unit) =
-        call("read_instance_log", JSONObject().put("instanceId", instanceId), onResult)
-
-    /** 导出实例日志（打包成 zip 便于分享）。 */
-    fun exportInstanceLogs(instanceId: String, onResult: (Result<String>) -> Unit = {}) =
-        call("export_instance_logs", JSONObject().put("instanceId", instanceId), onResult)
-
-    /** 导入本地文件到实例（kind = mods / resourcepacks / …）。 */
-    fun importLocalFile(
-        instanceId: String,
-        kind: String,
-        sourcePath: String,
-        onResult: (Result<String>) -> Unit = {},
-    ) = call(
-        "import_local_file",
-        JSONObject()
-            .put("instanceId", instanceId)
-            .put("kind", kind)
-            .put("sourcePath", sourcePath),
-        onResult,
-    )
-
-    /** 导入整合包（.mrpack / .zip）。 */
-    fun importModpack(filePath: String, onResult: (Result<String>) -> Unit = {}) =
-        call("import_modpack", JSONObject().put("filePath", filePath), onResult)
-
-    /** 导入实例图标。 */
-    fun importInstanceImage(sourcePath: String, onResult: (Result<String>) -> Unit = {}) =
-        call("import_instance_image", JSONObject().put("sourcePath", sourcePath), onResult)
-
-    /** 从游戏文件里抽取图标（补给没有图标的实例）。 */
-    fun extractGameIcons(instanceId: String?, onResult: (Result<JSONArray>) -> Unit = {}) =
-        callArr("extract_game_icons", JSONObject().put("instanceId", instanceId ?: JSONObject.NULL), onResult)
-
-    /** 列出某实例的崩溃日志文件名。 */
-    fun listCrashLogs(instanceId: String, onResult: (Result<JSONArray>) -> Unit) =
-        callArr("list_crash_logs", JSONObject().put("id", instanceId), onResult)
-
-    /** 分析崩溃日志（给可能的原因）。 */
-    fun analyzeCrashLog(
-        instanceId: String,
-        filename: String,
-        onResult: (Result<JSONObject>) -> Unit,
-    ) = callObj(
-        "analyze_crash_log",
-        JSONObject().put("id", instanceId).put("filename", filename),
-        onResult,
-    )
-
-    /** 读崩溃报告原文。 */
-    fun getCrashReportContent(
-        instanceId: String,
-        filename: String,
-        onResult: (Result<String>) -> Unit,
-    ) = call("get_crash_report_content", JSONObject().put("id", instanceId).put("filename", filename), onResult)
-
     // ── 加载器 / 渲染器 ───────────────────────────────────────────────────
 
     /** 某个加载器在某个 MC 版本下有哪些版本可选。 */
@@ -1084,148 +670,6 @@ class QookixApi(private val bridge: RustBridge) {
     fun checkRendererHealthLatest(onResult: (Result<JSONObject>) -> Unit) =
         callObj("check_renderer_health_latest", null, onResult)
 
-    // ── 内容 / 翻译 ───────────────────────────────────────────────────────
-
-    /** 项目依赖列表（安装前置检查用）。 */
-    fun projectDependencies(
-        provider: String,
-        projectId: String,
-        versionId: String,
-        onResult: (Result<JSONArray>) -> Unit,
-    ) = callArr(
-        "project_dependencies",
-        JSONObject()
-            .put("provider", provider)
-            .put("projectId", projectId)
-            .put("versionId", versionId),
-        onResult,
-    )
-
-    /** 翻译模组正文。 */
-    /**
-     * 批量翻译模组描述（一次最多 5 个、同一平台）。
-     *
-     * ⚠️ 必须传 **slug** 而不是 id：翻译服务（及其缓存）以 slug 为键，
-     * 传 id 会「请求成功但译文查不到」—— 表现为描述一直是英文。
-     *
-     * 返回：{ translations: { <slug>: <译文> }, rateLimited: bool, error: string }
-     */
-    fun translateModDescriptions(
-        provider: String,
-        slugs: List<String>,
-        onResult: (Result<JSONObject>) -> Unit,
-    ) = callObj(
-        "translate_mod_descriptions",
-        JSONObject().put("provider", provider).put("slugs", org.json.JSONArray(slugs)),
-        onResult,
-    )
-
-    fun translateProjectBody(
-        provider: String,
-        slug: String,
-        translate: Boolean,
-        onResult: (Result<JSONObject>) -> Unit,
-    ) = callObj(
-        "translate_project_body",
-        JSONObject().put("provider", provider).put("slug", slug).put("translate", translate),
-        onResult,
-    )
-
-    /** 上报「翻译已过期」。 */
-    fun reportTranslationStale(
-        provider: String,
-        slug: String,
-        onResult: (Result<String>) -> Unit = {},
-    ) = call("report_translation_stale", JSONObject().put("provider", provider).put("slug", slug), onResult)
-
-    /** 上报翻译质量问题。 */
-    fun reportTranslationQuality(
-        provider: String,
-        slug: String,
-        issueType: String,
-        userSuggestion: String? = null,
-        userComment: String? = null,
-        onResult: (Result<String>) -> Unit = {},
-    ) = call(
-        "report_translation_quality",
-        JSONObject()
-            .put("provider", provider)
-            .put("slug", slug)
-            .put("issueType", issueType)
-            .put("userSuggestion", userSuggestion ?: JSONObject.NULL)
-            .put("userComment", userComment ?: JSONObject.NULL),
-        onResult,
-    )
-
-    /** 查 MC 百科条目。 */
-    fun mcWikiUrl(
-        name: String,
-        slug: String? = null,
-        provider: String? = null,
-        onResult: (Result<String>) -> Unit,
-    ) = call(
-        "mc_wiki_url",
-        JSONObject()
-            .put("name", name)
-            .put("slug", slug ?: JSONObject.NULL)
-            .put("provider", provider ?: JSONObject.NULL),
-        onResult,
-    )
-
-    // ── 杂项 ──────────────────────────────────────────────────────────────
-
-    /** 写文本文件（导出配置等）。 */
-    fun saveTextFile(path: String, content: String, onResult: (Result<String>) -> Unit = {}) =
-        call("save_text_file", JSONObject().put("path", path).put("content", content), onResult)
-
-    /** 把 content:// 解析成真实路径。 */
-    fun resolvePickedPath(path: String, onResult: (Result<String>) -> Unit) =
-        call("resolve_picked_path", JSONObject().put("path", path), onResult)
-
-    /** 读剪贴板（Rust 侧走宿主回调）。 */
-    fun readClipboard(onResult: (Result<String>) -> Unit) =
-        call("read_clipboard", null, onResult)
-
-    /** 写剪贴板。 */
-    fun writeClipboard(text: String, onResult: (Result<String>) -> Unit = {}) =
-        call("write_clipboard", JSONObject().put("text", text), onResult)
-
-    /** 前端调试日志（进 Rust 侧日志，便于排查）。 */
-    fun logDebug(msg: String, onResult: (Result<String>) -> Unit = {}) =
-        call("log_debug", JSONObject().put("msg", msg), onResult)
-
-    /** 关闭插件初始化引导（用户已看过）。 */
-    fun dismissPluginSetup(onResult: (Result<String>) -> Unit = {}) =
-        call("dismiss_plugin_setup", null, onResult)
-
-    /** FRP 状态。 */
-    fun frpStatus(onResult: (Result<JSONObject>) -> Unit) =
-        callObj("frp_status", null, onResult)
-
-    /** FRP 隧道列表。 */
-    fun frpTunnels(onResult: (Result<JSONArray>) -> Unit) =
-        callArr("frp_tunnels", null, onResult)
-
-    /**
-     * FRP 面板的用户信息（邮箱、余额等）。
-     *
-     * 与 `frp_status` 的区别：那个只给「登没登录 / 用户名」，
-     * 邮箱与余额要靠这条（旧 UI 的 FrpView 就是这么分两步拉的）。
-     */
-    fun frpUserInfo(onResult: (Result<JSONObject>) -> Unit) =
-        callObj("frp_user_info", null, onResult)
-
-    // ── 屏幕方向（原生能力）──────────────────────────────────────────────
-
-    /**
-     * 设置启动器界面方向。
-     *
-     * 注意：这个命令在**纯 Compose 界面下无意义**（旧实现用它控制 WebView
-     * 的方向），保留只是为了设置页里的开关能继续工作。
-     */
-    fun setOrientation(mode: String, onResult: (Result<String>) -> Unit = {}) =
-        call("set_orientation", JSONObject().put("mode", mode), onResult)
-
 
 }
 
@@ -1237,13 +681,13 @@ class QookixApi(private val bridge: RustBridge) {
  * 开放局域网世界）、`hosting`（房间已建立）、`guesting`（已加入别人的房间）。
  */
 data class TerracottaState(
-    val ok: Boolean,
-    val state: String,
-    val room: String,
-    val error: String,
+val ok: Boolean,
+val state: String,
+val room: String,
+val error: String,
 ) {
-    /** 隧道进程是否在跑。 */
-    val running: Boolean get() = state.isNotEmpty() && state != "off"
+/** 隧道进程是否在跑。 */
+val running: Boolean get() = state.isNotEmpty() && state != "off"
 }
 
 
@@ -1273,39 +717,39 @@ data class TerracottaState(
  * 能拿到 Context 的地方改成调这个重载。
  */
 fun friendlyError(context: android.content.Context, raw: String?): String {
-    val s = raw?.trim().orEmpty()
-    if (s.isEmpty()) return context.getString(R.string.error_unknown)
-    val low = s.lowercase()
-    return when {
-        "failed to search modrinth" in low ||
-            "failed to search curseforge" in low ||
-            "error sending request" in low ||
-            "dns error" in low ||
-            "connection refused" in low ||
-            "connection reset" in low ||
-            "timed out" in low || "timeout" in low ||
-            "network is unreachable" in low ||
-            "no address associated" in low ->
-            context.getString(R.string.error_network)
+val s = raw?.trim().orEmpty()
+if (s.isEmpty()) return context.getString(R.string.error_unknown)
+val low = s.lowercase()
+return when {
+    "failed to search modrinth" in low ||
+        "failed to search curseforge" in low ||
+        "error sending request" in low ||
+        "dns error" in low ||
+        "connection refused" in low ||
+        "connection reset" in low ||
+        "timed out" in low || "timeout" in low ||
+        "network is unreachable" in low ||
+        "no address associated" in low ->
+        context.getString(R.string.error_network)
 
-        "failed to fetch" in low || "status 5" in low ->
-            context.getString(R.string.error_server_unavailable)
-        "status 404" in low ->
-            context.getString(R.string.error_not_found)
-        "status 429" in low || "rate limit" in low ->
-            context.getString(R.string.error_rate_limited)
+    "failed to fetch" in low || "status 5" in low ->
+        context.getString(R.string.error_server_unavailable)
+    "status 404" in low ->
+        context.getString(R.string.error_not_found)
+    "status 429" in low || "rate limit" in low ->
+        context.getString(R.string.error_rate_limited)
 
-        "permission denied" in low || "eacces" in low ->
-            context.getString(R.string.error_permission_denied)
-        "no space left" in low || "enospc" in low ->
-            context.getString(R.string.error_no_space)
-        "no such file" in low || "not found" in low ->
-            context.getString(R.string.error_file_missing)
+    "permission denied" in low || "eacces" in low ->
+        context.getString(R.string.error_permission_denied)
+    "no space left" in low || "enospc" in low ->
+        context.getString(R.string.error_no_space)
+    "no such file" in low || "not found" in low ->
+        context.getString(R.string.error_file_missing)
 
-        "missing required key" in low || "invalid args" in low ->
-            context.getString(R.string.error_invalid_call)
+    "missing required key" in low || "invalid args" in low ->
+        context.getString(R.string.error_invalid_call)
 
-        else -> s
-    }
+    else -> s
+}
 }
 

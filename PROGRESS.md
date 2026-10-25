@@ -43,6 +43,16 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-25 · Q2 第四、五刀：内容 / 实例操作 / 系统能力
+- `QookixApiContent.kt`（202）：内容中心 + 内容/翻译
+- `QookixApiInstanceOps.kt`（194）：文件管理 + 实例内操作
+- `QookixApiSystem.kt`（98）：屏幕方向 + 杂项 + 应用自更新
+- 陶瓦那节（含「Android 上的正确模型」97 行）并入 `QookixApiMultiplayer.kt`
+- `QookixApi.kt` **1311 → 755**（累计 2337 → 755，**-1582 / -68%**）
+- 踩坑：分节的「最后一节」区间按 `L.length-1` 算，把类结束 `}` 和尾部 `TerracottaState`/`friendlyError` 一起切走了（编译报 `Missing '}'` + `Unresolved reference 'R'`）。修法：以第一个顶层 `}` 为界，把尾部声明迁回。**这类脚本必须先断言「切走的块里没有类结束符」**
+- 验证：`assembleArm64Release` ✅、单测 10 ✅、闸门 ✅
+- commit `待补`
+
 ### 2026-10-25 · Q2 第三刀：服务器域 + 联机域
 - 迁 6 个分节、415 行：`QookixApiServer.kt`（服务器详情 100 + 本地服务器 58 + 服务器插件 102）、`QookixApiMultiplayer.kt`（陶瓦 11 + FRP 房间 99 + FRP 隧道 38）
 - `QookixApi.kt` **1724 → 1311**（累计 2337 → 1311，**-1026 / -44%**）

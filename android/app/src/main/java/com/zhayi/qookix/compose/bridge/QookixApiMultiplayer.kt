@@ -160,4 +160,103 @@ fun QookixApi.frpStopTunnel(tunnelId: Int, onResult: (Result<JSONObject>) -> Uni
 
 fun QookixApi.frpTunnelLog(tunnelId: Int, onResult: (Result<String>) -> Unit) =
     call("frp_tunnel_log", JSONObject().put("tunnelId", tunnelId), onResult)
-
+
+
+// ── Android 上的正确模型 ───────────────────────────────────────────
+// 隧道跑在**独立进程** `:tunnel`（`libterracotta.so` 只在那里加载），
+// 启动器进程只通过本地 HTTP 调它：
+//   · 探活   → terracotta_ping（内部 GET /ping）
+//   · 状态   → terracotta_request("/state")
+//   · 开房   → terracotta_request("/host?player=<名>")
+//   · 加入   → terracotta_request("/guest?room=<码>&player=<名>")
+// 没有「下载组件」「启动进程」「停止进程」这三件事 —— 隧道进程的生死
+// 由 GameService / :tunnel 自己管。
+
+/**
+ * 隧道是否就绪（= 旧桌面版的 `terracotta_detect`，Android 上的正确替代）。
+ *
+ * 内部走 `terracotta_ping`（Rust 会 GET `/ping` 并解析 `{"ready":true}`）。
+ * 端口文件过期时 Rust 侧会顺手自愈，所以调用方可以放心地重复轮询。
+ */
+fun QookixApi.terracottaTunnelReady(onResult: (Boolean) -> Unit) =
+    terracottaTunnelPing { r ->
+        onResult(r.getOrNull()?.contains("true") == true)
+    }
+
+/**
+ * 拉一次隧道状态，解析出房间码。
+ *
+ * 隧道 `/state` 返回形如 `{"index":1,"state":"host-scanning","room":"ABC123"}`。
+ * 返回 `RoomState`：`state` 是隧道的原始状态串（`off` 表示隧道没在跑），
+ * `room` 有值代表房间已建立。
+ *
+ * ⚠️ 之前用 `callObj` 会解析失败 —— Rust 返回的是**原始 JSON 文本**，
+ * 不是对象（见 [terracottaTunnelRequest] 的注释）。
+ */
+fun QookixApi.terracottaTunnelState(onResult: (TerracottaState) -> Unit) =
+    terracottaTunnelRequest("/state") { r ->
+        val raw = r.getOrNull().orEmpty()
+        onResult(
+            TerracottaState(
+                ok = raw.contains("\"ok\":true") || raw.contains("\"state\""),
+                state = Regex("\"state\":\"([^\"]*)\"").find(raw)
+                    ?.groupValues?.getOrNull(1).orEmpty(),
+                room = Regex("\"room\":\"([^\"]*)\"").find(raw)
+                    ?.groupValues?.getOrNull(1).orEmpty(),
+                error = Regex("\"error\":\"([^\"]*)\"").find(raw)
+                    ?.groupValues?.getOrNull(1).orEmpty(),
+            )
+        )
+    }
+
+/**
+ * 开房（房主）。`player` 是显示给朋友看的名字。
+ *
+ * 返回隧道原样的 JSON 文本；`{"ok":true}` 才算成功。
+ * 隧道会回 `{"ok":false,"error":"…"}`（例如状态不对），**必须检查** ——
+ * 旧 Vue 就吃过这个亏：不看返回值为往下走，用户只看到「请先在游戏里开放
+ * 局域网世界」，永远不知道请求其实被拒了。
+ */
+fun QookixApi.terracottaHost(player: String, onResult: (Result<String>) -> Unit) =
+    terracottaTunnelRequest("/host?player=" + java.net.URLEncoder.encode(player, "UTF-8"), onResult)
+
+/** 加入房间（客人）。 */
+fun QookixApi.terracottaGuest(room: String, player: String, onResult: (Result<String>) -> Unit) =
+    terracottaTunnelRequest(
+        "/guest?room=" + java.net.URLEncoder.encode(room, "UTF-8") +
+            "&player=" + java.net.URLEncoder.encode(player, "UTF-8"),
+        onResult,
+    )
+/** 请求 VPN 授权（TUN 模式必须）。 */
+fun QookixApi.terracottaRequestVpn(onResult: (Result<String>) -> Unit = {}) =
+    call("terracotta_request_vpn", null, onResult)
+
+/** VPN 授权是否已拿到。 */
+/**
+ * VPN 授权是否已拿到。
+ *
+ * ⚠️ Rust 返回 `bool` —— 之前用 callObj 会报类型转换失败。
+ * 用 call 收字符串后判 `"true"` 即可。
+ */
+fun QookixApi.terracottaVpnGranted(onResult: (Result<String>) -> Unit) =
+    call("terracotta_vpn_granted", null, onResult)
+
+/**
+ * 隧道是否就绪（ping）。
+ *
+ * ⚠️ Rust 返回 `bool`（不是对象）。
+ */
+fun QookixApi.terracottaTunnelPing(onResult: (Result<String>) -> Unit) =
+    call("terracotta_ping", null, onResult)
+
+/**
+ * 向隧道发请求（path 由调用方给，底层是 localhost HTTP）。
+ *
+ * ⚠️ Rust 返回 **Result<String>**（隧道响应的原始 JSON 文本），
+ * 不是对象 —— 一开始用 callObj 必然解析失败（同 detectSystemProxy 的坑）。
+ * 返回裸文本，由调用方自己 parse：错误响应形如
+ * `{"ok":false,"error":"…"}`，不能在桥层吞掉。
+ */
+fun QookixApi.terracottaTunnelRequest(path: String, onResult: (Result<String>) -> Unit) =
+    call("terracotta_request", JSONObject().put("path", path), onResult)
+
