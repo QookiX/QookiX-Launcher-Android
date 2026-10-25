@@ -36,12 +36,18 @@
 |---|---|---|
 | 文件体量棘轮（可执行的 Q2 替代） | ✅ | `scripts/check-file-size.mjs` + baseline，245 文件 |
 | CI 16KB 对齐校验（不能只靠本地 config） | ✅ | `release.yml`「校验 16KB 页对齐」 |
-| 打包脚本重写（去掉 Tauri 时代步骤与写死路径） | ✅ | `scripts/build-android.mjs` + `npm run android` |
+| 打包脚本重写（去掉 Tauri 时代步骤与写死路径） | ✅ | `scripts/build-android.mjs` + `npm run android`；**端到端验证**：cargo 20:36:16 → jniLibs 20:36:16 → APK 20:37:16 |
 | `.gitignore` 放行新增公共文档 | ✅ | `/docs/*` + 放行 `adr/`、`pojav-ingame-port.md` |
 
 ---
 
 ## 分步记录（最新在上）
+
+### 2026-10-25 · 出包链路验证（真机验证的前置）
+- `node scripts/build-android.mjs arm64` 端到端跑通：cargo 编出 160MB debug `.so` → 拷进 jniLibs → gradle 出 APK（114MB），三个产物时间戳链一致（20:36:16 → 20:36:16 → 20:37:16）
+- 顺手清掉两处误导：`BuildTask` 那句 `use 'cargo tauri android dev'`（该命令已不存在）改成说明 Rust 由脚本/CI 负责；删掉没人读的 `org.gradle.project.tauriSkipRustBuild` 属性
+- **产出**：`android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk` 已含 A2/S1/S2 全部新代码，可直接装真机
+- commit `待补`
 
 ### 2026-10-25 · A3 工程转正
 - 删掉根目录那套独立且已死的 Gradle 工程（`app/` 8 个 .kt 是旧 stub，无人引用）
