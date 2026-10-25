@@ -147,6 +147,9 @@ fun ServerDetailPage(
     /** 关掉顶部的失败提示（2026-10-22 加：用户想立刻把位置让给日志区）。 */
     onDismissError: () -> Unit = {},
 ) {
+    // 删除服务器的二次确认放在页面级：文件 tab 与设置 tab 两个入口共用同一个
+    var confirmDeleteServer by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize()) {
         // ── 顶栏已上移（2026-10-17）────────────────────────────────────
         //
@@ -296,7 +299,7 @@ fun ServerDetailPage(
                 onOpenFiles = onOpenFiles,
                 onRefreshLogs = onRefreshLogs,
                 onSetMemory = onSetMemory,
-                onDeleteServer = onDeleteServer,
+                onDeleteServer = { confirmDeleteServer = true },
             )
             ServerTab.Plugins -> PluginsTab(
                 state = state,
@@ -310,6 +313,7 @@ fun ServerDetailPage(
                 onToggleShare = onToggleShare,
                 onCopyRoom = onCopyRoom,
                 onSetEula = onSetEula,
+                onDeleteServer = { confirmDeleteServer = true },
             )
         }
     }
@@ -337,6 +341,22 @@ fun ServerDetailPage(
             dismissButton = {
                 TextButton(onClick = { onAskDeletePlugin(null) }) { Text(stringResource(R.string.server_detail_cancel)) }
             },
+        )
+    }
+
+    // ── 删除服务器的确认框（两个入口共用）───────────────────────────────
+    //
+    // 以前这个框写在「文件」tab 里，入口也只在那一页最底部 —— 用户凭直觉去
+    // 「服务器设置」找删除会找不到（审查 B-17）。现在设置 tab 也有入口，
+    // 确认框提到页面级，两份 UI 不会再各写一遍。
+    if (confirmDeleteServer) {
+        DeleteServerConfirmDialog(
+            serverName = state.name,
+            onConfirm = {
+                confirmDeleteServer = false
+                onDeleteServer()
+            },
+            onDismiss = { confirmDeleteServer = false },
         )
     }
 }
@@ -582,6 +602,7 @@ private fun SettingsTab(
     onToggleShare: (Boolean) -> Unit,
     onCopyRoom: (String) -> Unit,
     onSetEula: (Boolean) -> Unit,
+    onDeleteServer: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -653,6 +674,9 @@ private fun SettingsTab(
         // ── 对外开放（陶瓦联机）──────────────────────────────────────
         // 从「控制台」移过来的，逻辑完全不变。
         ShareCard(state, onToggleShare, onCopyRoom)
+
+        // ── 危险操作：删除服务器（设置页也放一个入口，见 ServerDangerActions.kt）
+        DeleteServerCard(running = state.running, onDelete = onDeleteServer)
     }
 }
 
@@ -737,9 +761,6 @@ private fun FilesTab(
     onSetMemory: (Int, Int) -> Unit,
     onDeleteServer: () -> Unit,
 ) {
-    // 删除服务器的二次确认（不可撤销，绝不能一点就删）
-    var confirmDelete by remember { mutableStateOf(false) }
-
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -872,7 +893,8 @@ private fun FilesTab(
                     )
                     Spacer(Modifier.height(QkSpacing.sm))
                     Button(
-                        onClick = { confirmDelete = true },
+                        // 确认框在页面级统一渲染（设置 tab 也有同一个入口）
+                        onClick = onDeleteServer,
                         // 服务器还在跑就别删：文件被 JVM 占着，
                         // 删到一半会留下半截目录（后端也会拒绝）
                         enabled = !state.running,
@@ -903,26 +925,6 @@ private fun FilesTab(
         }
     }
 
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text(stringResource(R.string.server_detail_delete_server_title)) },
-            text = {
-                Text(stringResource(R.string.server_detail_delete_server_message, state.name))
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    onDeleteServer()
-                }) {
-                    Text(stringResource(R.string.server_detail_delete), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.server_detail_cancel)) }
-            },
-        )
-    }
 }
 
 /**
