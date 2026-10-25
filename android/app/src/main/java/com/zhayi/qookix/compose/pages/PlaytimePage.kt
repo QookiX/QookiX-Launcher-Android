@@ -209,6 +209,13 @@ fun PlaytimePage(
                                 )
                                 Spacer(Modifier.height(QkSpacing.sm))
                                 DailyBars(state.byDay.map { it.seconds })
+                                // 柱状图没有刻度：标一句单位，否则柱顶那个数是秒还是分钟只能猜
+                                Spacer(Modifier.height(QkSpacing.xxs))
+                                Text(
+                                    text = stringResource(R.string.playtime_bars_unit),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
                             }
                         }
                     }

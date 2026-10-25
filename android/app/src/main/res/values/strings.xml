@@ -129,6 +129,7 @@
     <string name="playtime_empty_hint">启动一次游戏后，这里会统计时长</string>
     <string name="playtime_total_label">累计游玩时长</string>
     <string name="playtime_recent_days">近 %1$d 天</string>
+    <string name="playtime_bars_unit">柱高 = 当天游玩时长（每根柱子是一天）</string>
     <string name="playtime_by_instance">按实例</string>
     <string name="playtime_last_played">上次游玩 %1$s</string>
     <string name="playtime_duration_zero">0 分钟</string>
