@@ -194,26 +194,36 @@ data class NewsUiState(
  * 不带 Context 的旧签名仍保留以兼容现有调用点，失败文案回退为不带前缀的原始错误。
  * **建议调用点（`PageHost.kt:4371/4376`）改传 `LocalContext.current`。**
  */
-fun loadNews(bridge: RustBridge, onState: (NewsUiState) -> Unit) =
-    loadNews(null, bridge, onState)
+fun loadNews(
+    bridge: RustBridge,
+    previous: NewsUiState = NewsUiState(),
+    onState: (NewsUiState) -> Unit,
+) = loadNews(null, bridge, previous, onState)
 
-/** 带 [context] 的重载：失败文案走 string 资源。 */
-fun loadNews(context: Context?, bridge: RustBridge, onState: (NewsUiState) -> Unit) {
-    onState(NewsUiState(loading = true))
+/**
+ * 带 [context] 的重载：失败文案走 string 资源。
+ *
+ * [previous] 是当前已显示的内容：刷新时**保留**它，只在结果到达时整体替换。
+ * 以前每次都从 `NewsUiState(loading = true)` 重建 —— 点一下刷新，已有新闻先被
+ * 清空闪成骨架屏，失败时更是直接清空、只剩一行错误（审查里的「新闻刷新失败
+ * 清空已有列表」）。
+ */
+fun loadNews(
+    context: Context?,
+    bridge: RustBridge,
+    previous: NewsUiState = NewsUiState(),
+    onState: (NewsUiState) -> Unit,
+) {
+    onState(previous.copy(loading = true, error = null))
     bridge.invoke("fetch_news") { result ->
         result.fold(
             onSuccess = { json ->
-                onState(
-                    NewsUiState(
-                        items = parseNews(json),
-                        loading = false,
-                    )
-                )
+                onState(NewsUiState(items = parseNews(json), loading = false))
             },
             onFailure = { e ->
                 val msg = e.message.orEmpty()
                 onState(
-                    NewsUiState(
+                    previous.copy(
                         loading = false,
                         error = context?.getString(R.string.news_load_failed, msg) ?: msg,
                     )

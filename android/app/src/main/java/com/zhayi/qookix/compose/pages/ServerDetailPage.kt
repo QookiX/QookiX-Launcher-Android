@@ -362,9 +362,17 @@ private fun ConsoleTab(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var copied by remember { mutableStateOf(false) }
 
-    // 新日志到达时自动滚到底（控制台的基本要求）
-    LaunchedEffect(state.logs.size) {
-        if (state.logs.isNotEmpty()) {
+    // 新日志到达时自动滚到底（控制台的基本要求）。
+    //
+    // ⚠️ key 用「最后一行」而不是行数：日志封顶 2000 行后 size 不再变化，
+    // 按 size 触发的话自动滚动会在跑满 2000 行后永久失效。
+    // 同时只在用户本来就在底部时跟：他翻上去看历史时不该被拽回来。
+    LaunchedEffect(state.logs.lastOrNull()) {
+        if (state.logs.isEmpty()) return@LaunchedEffect
+        val info = listState.layoutInfo
+        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+        // 还没布局（首次进来）或距底部 3 行以内 → 跟日志
+        if (info.visibleItemsInfo.isEmpty() || lastVisible >= state.logs.size - 3) {
             listState.animateScrollToItem(state.logs.size - 1)
         }
     }

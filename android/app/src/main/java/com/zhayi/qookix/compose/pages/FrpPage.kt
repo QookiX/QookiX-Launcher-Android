@@ -424,7 +424,8 @@ private fun FrpTunnelCard(
                 }
             }
 
-            if (tunnel.alive && !tunnel.exitNote.isBlank()) {
+            // 隧道退出后（alive=false）才有退出原因；条件写反会永远不显示
+            if (!tunnel.alive && tunnel.exitNote.isNotBlank()) {
                 Spacer(Modifier.height(QkSpacing.xs))
                 Text(
                     text = stringResource(R.string.frp_tunnel_exited, tunnel.exitNote),

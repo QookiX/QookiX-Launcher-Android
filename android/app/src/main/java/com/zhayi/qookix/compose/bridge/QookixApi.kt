@@ -54,6 +54,27 @@ class QookixApi(private val bridge: RustBridge) {
             "export_instance_logs", "export_control_layout",
         )
 
+        /**
+         * 有副作用、不能并发重入的命令（防双击 / 连点）。
+         *
+         * 只收「重复执行会真的出问题」的那些：重复查列表只是浪费一次 IPC，
+         * 而重复 launch_game 会起两个 JVM、重复 delete 会二次删同一个目录。
+         */
+        private val SIDE_EFFECT_COMMANDS = setOf(
+            "launch_game",
+            "start_hosted_server",
+            "stop_hosted_server",
+            "create_instance",
+            "delete_instance",
+            "install_game",
+            "install_content",
+            "install_modpack",
+            "import_modpack",
+        )
+
+        /** 正在飞的重命令（`命令|payload`）。必须放在 companion：api 会被 new 很多次。 */
+        private val inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
         /** 该命令允许等多久（0 = 不限时）。 */
         internal fun timeoutFor(cmd: String): Long =
             if (cmd in LONG_TASK_EXACT || LONG_TASK_HINTS.any { cmd.contains(it) }) {
@@ -85,7 +106,17 @@ class QookixApi(private val bridge: RustBridge) {
         // 两条路现在完全等价（bridge 也是纯 JNI），但白名单那条**没有解析 ApiError**，
         // 于是大多数命令的错误仍退化成 IllegalStateException —— A2 的错误契约
         // 在这种路径下形同虚设。删掉分叉后，所有命令共用同一套解析。
-        bridge.invoke(cmd, payload?.toString() ?: "{}", timeoutFor(cmd)) { r ->
+        val body = payload?.toString() ?: "{}"
+        // 有副作用的命令：同一条还在飞时忽略重复点击。
+        // 双击「启动游戏」会发两次 launch_game —— 第二次要么报错、要么起两个 JVM；
+        // 键里带 payload，不同实例/参数互不影响。
+        val key = if (cmd in SIDE_EFFECT_COMMANDS) "$cmd|$body" else null
+        if (key != null && !inFlight.add(key)) {
+            Log.w(TAG, "忽略重复调用：$cmd（上一次还没返回）")
+            return
+        }
+        bridge.invoke(cmd, body, timeoutFor(cmd)) { r ->
+            if (key != null) inFlight.remove(key)
             onResult(r.mapCatching { unwrapJsonString(it) })
         }
     }

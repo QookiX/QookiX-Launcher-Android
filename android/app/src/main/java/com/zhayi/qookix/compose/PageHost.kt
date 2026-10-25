@@ -4139,9 +4139,10 @@ private fun InstanceDetailRoute(
             if (identifying) return@InstanceDetailPage
             identifying = true
             api.identifyContent(instanceId, state.contentKind) { r ->
-                // 任务已受理（不是识别完成）—— 保持转圈，等事件到达
+                // ⚠️ 这条命令是**跑完才返回**的（不是「已受理」）。以前只在失败分支
+                // 复位 identifying，成功一次之后按钮就永远转圈 / 永久禁用。
+                identifying = false
                 r.onFailure { e ->
-                    identifying = false
                     state = state.copy(error = context.getString(R.string.content_identify_failed, e.message))
                 }
             }
@@ -5522,12 +5523,13 @@ private fun NewsRoute(
 
     // 首次进入自动加载（与旧实现 onMounted 的行为一致）
     LaunchedEffect(ready) {
-        if (ready) loadNews(bridge) { state = it }
+        if (ready) loadNews(bridge, state) { state = it }
     }
 
     NewsPage(
         state = state,
-        onRefresh = { if (ready) loadNews(bridge) { state = it } },
+        // 带上已有内容：刷新失败不该把已经读到的新闻清空
+        onRefresh = { if (ready) loadNews(bridge, state) { state = it } },
         onOpen = { url ->
             // 用系统浏览器打开原文。不用内嵌 WebView 看新闻 —— 那又要留一个
             // WebView，而且系统浏览器有阅读模式、翻译、稍后读。
