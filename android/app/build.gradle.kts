@@ -20,6 +20,13 @@ android {
         targetSdk = 36
         versionCode = 10800
         versionName = "1.8.0"
+
+        // ⚠️ 2026-10-25 真机验证时发现漏配：不写这一行，AGP 会用默认的
+        // `android.test.InstrumentationTestRunner`，而我们写的 `LauncherSmokeTest`
+        // 是 JUnit4 的 —— 真机上 `am instrument` 直接报
+        // INSTRUMENTATION_FAILED，测试一条都跑不起来。
+        // CI 只编译不执行，所以这个洞在本地一直是隐形的。
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // 签名：密钥经环境变量注入（QOOKIX_KEYSTORE 等 4 个；CI 由 GitHub Secrets 提供）。
     // **debug 也复用同一把钥匙是有意的**：这样 debug 包能直接 `adb install -r`
@@ -137,6 +144,9 @@ dependencies {
     implementation(files("libs/exp4j-0.4.9-SNAPSHOT.jar"))
 
     testImplementation("junit:junit:4.13.2")
+    // runner 是 AndroidJUnitRunner 的宿主包：ext:junit 会传递依赖，但显式声明
+    // 才不会被某个版本的依赖裁剪掉（真机上少这个类就是 INSTRUMENTATION_FAILED）
+    androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 
