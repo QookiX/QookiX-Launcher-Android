@@ -289,6 +289,8 @@ fun PageHost(
     val pendingWrites by CoreState.pending.collectAsState()
     // 实例页的写操作错误（不弹窗、不打断，但必须说出来）
     var instancesError by remember { mutableStateOf<String?>(null) }
+    // 读列表失败的原因由 CoreState 统一记录（以前彻底静默 → 显示「还没有实例」）
+    val instancesReadError by CoreState.instancesError.collectAsState()
     var instancesReloadKey by remember { mutableStateOf(0) }
     // 置顶实例 id 列表（2026-10-21 补：getPins/setPins 一直没 UI）
     var pinnedIds by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -859,7 +861,8 @@ fun PageHost(
                 .filter { it.startsWith("instance:") }
                 .map { it.removePrefix("instance:") }
                 .toSet(),
-            error = instancesError,
+            error = instancesError ?: instancesReadError,
+            onRetry = { CoreState.refresh() },
             // 分组管理（2026-10-21 补：后端命令一直没 UI）
             onCreateGroup = { name ->
                 QookixApi(bridge).createInstanceGroup(name, null) { r ->

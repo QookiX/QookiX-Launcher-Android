@@ -40,6 +40,13 @@ object CoreState {
     /** 实例列表（UI 只读）。 */
     val instances: StateFlow<List<InstanceUi>> = _instances.asStateFlow()
 
+    /**
+     * 最近一次拉列表失败的原因（null = 正常）。
+     * 以前失败是静默的，界面会显示「还没有任何实例」—— 和「数据被删了」长得一样。
+     */
+    private val _instancesError = MutableStateFlow<String?>(null)
+    val instancesError: StateFlow<String?> = _instancesError.asStateFlow()
+
     /** Rust 侧最近一次修订号（0 = 还没收到过任何 dirty 事件），仅供诊断。 */
     @Volatile
     var revision: Long = 0L
@@ -123,8 +130,18 @@ object CoreState {
         refreshing = true
         InstancesRepo.load(context, b) { r ->
             refreshing = false
-            r.onSuccess { _instances.value = it }
-            // 失败保持上一次的快照（不把列表清空 —— 清空会让用户以为实例没了）
+            r.onSuccess {
+                _instances.value = it
+                _instancesError.value = null
+            }
+            // 失败保留旧快照，但必须记下原因（空列表 + 零提示 = 用户以为数据没了）
+            r.onFailure { e ->
+                val ctx = context
+                _instancesError.value = ctx?.getString(
+                    com.zhayi.qookix.R.string.instances_read_failed,
+                    friendlyError(ctx, e),
+                ) ?: e.message
+            }
             if (refreshQueued) {
                 refreshQueued = false
                 refresh()

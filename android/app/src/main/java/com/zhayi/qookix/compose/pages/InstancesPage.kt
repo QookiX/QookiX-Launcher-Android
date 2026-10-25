@@ -124,6 +124,8 @@ fun InstancesPage(
     pendingIds: Set<String> = emptySet(),
     /** 写操作失败的文案（页面顶部红字，可自动消失）。 */
     error: String? = null,
+    /** 列表读取失败时的重试出口（有 error 才有意义）。 */
+    onRetry: (() -> Unit)? = null,
 ) {
     // 长按选中的实例（非空 = 弹出操作菜单）
     var menuTarget by remember { mutableStateOf<InstanceUi?>(null) }
@@ -142,24 +144,8 @@ fun InstancesPage(
         // 按钮的渲染在 ComposeMainActivity 的 LauncherShell(actions = ...)。
 
         if (state.sections.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.instances_empty),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(QkSpacing.xs))
-                    Text(
-                        text = stringResource(R.string.instances_empty_hint),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            // 读不到 ≠ 没有：错误与重试的区分逻辑在 InstancesEmptyState 里
+            InstancesEmptyState(error = error, onRetry = onRetry)
             return@Column
         }
 
@@ -177,12 +163,21 @@ fun InstancesPage(
                         shape = MaterialTheme.shapes.small,
                         color = MaterialTheme.colorScheme.errorContainer,
                     ) {
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            )
+                            if (onRetry != null) {
+                                TextButton(onClick = onRetry) {
+                                    Text(stringResource(R.string.first_run_retry))
+                                }
+                            }
+                        }
                     }
                 }
             }
