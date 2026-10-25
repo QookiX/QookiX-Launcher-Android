@@ -238,10 +238,14 @@ jobs:
           echo "--- 发布说明预览 ---"; cat /tmp/release-body.md
 
       # ⑥ 发布：APK + 校验文件挂到该 tag 的 GitHub Release
+      #
+      # tag 带 `-`（v0.2.1-beta1 / -rc1 …）一律标记成 **Pre-release**：
+      # 预览版不能被当成正式版推给用户，GitHub 上也要一眼能看出来。
       - name: 发布 Release
         uses: softprops/action-gh-release@v2
         with:
           body_path: /tmp/release-body.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/*.apk
             dist/SHA256SUMS.txt
