@@ -534,9 +534,12 @@ fn dir_bytes(path: &std::path::Path) -> u64 {
 }
 
 /// 所有实例的 `(实例 id, MC 版本)`，用于判断"这套文件还有没有别人在用"。
-fn instances_versions(data_dir: &std::path::Path) -> Vec<(String, String)> {
+/// 枚举 `实例名 → MC 版本`（入参是**已解析好的实例根目录**）。
+/// ⚠️ 不能自己从 data_dir 拼：游戏目录改到外部存储后内部目录里一个实例都没有，
+/// 界面就会显示「Java 8 · 0 B」「共 0 个实例在用这些共享文件」（真机走查 B-14）。
+fn instances_versions(instances_root: &std::path::Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir(crate::settings::resolve_instances_root(data_dir)) else {
+    let Ok(rd) = std::fs::read_dir(instances_root) else {
         return out;
     };
     for entry in rd.flatten() {
@@ -562,7 +565,9 @@ fn instances_versions(data_dir: &std::path::Path) -> Vec<(String, String)> {
 pub async fn shared_game_usage(instance_id: String) -> Result<Value, String> {
     crate::fsutil::validate_id(&instance_id, "实例")?;
     let dir = data_dir().await?;
-    let all = instances_versions(&dir);
+    // 实例可能落在用户自定义的游戏目录（外部存储），必须走 instances_root()
+    let inst_root = crate::settings::instances_root().await.map_err(|e| e.to_string())?;
+    let all = instances_versions(&inst_root);
     let mc_version = all
         .iter()
         .find(|(id, _)| id == &instance_id)
@@ -585,7 +590,8 @@ pub async fn shared_game_usage(instance_id: String) -> Result<Value, String> {
 pub async fn plan_instance_cleanup(instance_id: String) -> Result<Value, String> {
     crate::fsutil::validate_id(&instance_id, "实例")?;
     let dir = data_dir().await?;
-    let all = instances_versions(&dir);
+    let inst_root = crate::settings::instances_root().await.map_err(|e| e.to_string())?;
+    let all = instances_versions(&inst_root);
     let mc_version = all
         .iter()
         .find(|(id, _)| id == &instance_id)

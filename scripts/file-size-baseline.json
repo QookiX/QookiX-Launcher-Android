@@ -230,7 +230,7 @@
   "src-tauri/src/groups.rs": 171,
   "src-tauri/src/hangar.rs": 267,
   "src-tauri/src/input_bridge.rs": 521,
-  "src-tauri/src/instance_files.rs": 658,
+  "src-tauri/src/instance_files.rs": 664,
   "src-tauri/src/instances.rs": 396,
   "src-tauri/src/java.rs": 718,
   "src-tauri/src/jni_bridge.rs": 392,
