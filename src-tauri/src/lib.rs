@@ -16,6 +16,10 @@ mod instances;
 mod version;
 mod launch;
 /// GL_VENDOR 品牌串覆盖（F3 里那行 `Display: … (厂商串)`）。
+///
+/// 只对安卓有效：靠 `dlopen`/`dlsym` 拿渲染器里的 `glGetString`，
+/// 桌面端（以及宿主上的单测）没有这条链，整块不参与编译。
+#[cfg(target_os = "android")]
 mod gl_brand;
 mod download;
 mod java;
@@ -53,6 +57,8 @@ mod world_backup;
 mod playtime;
 mod fsutil;
 mod progress;
+/// 进程级「状态已变」信号（A2 第一步）。不是状态容器，只是失效通知。
+mod app_state;
 /// 插件系统（v1 组件插件；渲染器/驱动沿用同一套机制）。
 mod plugin;
 /// 启动器自更新（查 GitHub Release → 下 APK → 交给系统安装器）。

@@ -344,7 +344,11 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     return err("缺少 id");
                 };
                 match delete_instance(id).await {
-                    Ok(()) => ok(()),
+                    Ok(()) => {
+                        // A2：实例集合变了 → 推 state://dirty，UI 重拉（见 app_state.rs）
+                        crate::app_state::mark_instances_dirty();
+                        ok(())
+                    }
                     Err(e) => err(e),
                 }
             }
@@ -419,7 +423,11 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                     return err("缺少 filePath");
                 };
                 match import_modpack(path).await {
-                    Ok(v) => ok(v),
+                    Ok(v) => {
+                        // 导入整合包 = 新建（可能还带改名）实例
+                        crate::app_state::mark_instances_dirty();
+                        ok(v)
+                    }
                     Err(e) => err(e),
                 }
             }
@@ -1247,7 +1255,11 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
             "update_instance" => {
                 let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
                 match update_instance(patch).await {
-                    Ok(v) => ok(v),
+                    Ok(v) => {
+                        // A2：改名 / 换图标 / 改配置都会影响列表卡片
+                        crate::app_state::mark_instances_dirty();
+                        ok(v)
+                    }
                     Err(e) => err(e),
                 }
             }
@@ -1542,7 +1554,10 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
                 )
                 .await
                 {
-                    Ok(v) => ok(v),
+                    Ok(v) => {
+                        crate::app_state::mark_instances_dirty();
+                        ok(v)
+                    }
                     Err(e) => err(e),
                 }
             }

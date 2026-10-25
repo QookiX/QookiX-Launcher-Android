@@ -54,6 +54,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.zhayi.qookix.compose.bridge.QookixApi
 import com.zhayi.qookix.compose.bridge.friendlyError
+import com.zhayi.qookix.compose.bridge.CoreState
 import com.zhayi.qookix.compose.bridge.RustBridge
 import com.zhayi.qookix.compose.motion.qkFadeIn
 import com.zhayi.qookix.compose.motion.qkFadeOut
@@ -125,7 +127,6 @@ import com.zhayi.qookix.compose.pages.FrpLoginPhase
 import com.zhayi.qookix.compose.pages.FrpTunnelLogDialog
 import com.zhayi.qookix.compose.pages.FrpRoomsPage
 import com.zhayi.qookix.compose.pages.InstancesPage
-import com.zhayi.qookix.compose.pages.InstancesRepo
 import com.zhayi.qookix.compose.pages.InstancesUiState
 import com.zhayi.qookix.compose.pages.FrpRoomsUiState
 import com.zhayi.qookix.compose.pages.MorePage
@@ -281,7 +282,13 @@ fun PageHost(
     //
     // 为什么用 key 而不是直接调 load：LaunchedEffect 首次也要跑（初始加载），
     // 复用同一机制能避免「初始加载」与「手动刷新」两套代码。
-    var instances by remember { mutableStateOf<List<InstanceUi>>(emptyList()) }
+    //
+    // ⚠️ 2026-10-25（A2 第一步）：列表**不再由这里持有** ——
+    // 唯一份在 `CoreState`（StateFlow），这里只读；`instancesReloadKey`
+    // 保留为「强制刷新」的触发器（语义 = CoreState.refresh()）。
+    // 好处：Rust 侧写操作完成后推 `state://dirty`，全局自动重拉，
+    // 不会再有「某个调用点忘了 ++」导致的幽灵 bug。
+    val instances by CoreState.instances.collectAsState()
     var instancesReloadKey by remember { mutableStateOf(0) }
     // 置顶实例 id 列表（2026-10-21 补：getPins/setPins 一直没 UI）
     var pinnedIds by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -327,7 +334,8 @@ fun PageHost(
     }
     LaunchedEffect(bridgeReady, instancesReloadKey) {
         if (bridgeReady) {
-            InstancesRepo.load(bridge) { r -> r.onSuccess { instances = it } }
+            // attach 幂等：首次订阅 state://dirty，之后每次只是 refresh()
+            CoreState.attach(context, bridge)
         }
     }
 
@@ -832,7 +840,12 @@ fun PageHost(
                 // 删完必须刷新列表（与创建同理 —— 否则列表还显示已删的项）。
                 // 这里直接用 api（PageHost 作用域内没有 api 变量，现建一个）。
                 QookixApi(bridge).deleteInstance(target.id) { r ->
-                    r.onSuccess { instancesReloadKey++ }
+                    r.onSuccess {
+                        // 立刻从快照里摘掉（不等 Rust 的 dirty 事件），
+                        // 再触发一次重拉兜底 —— 事件万一丢了也不会留幽灵条目。
+                        CoreState.removeLocally(target.id)
+                        instancesReloadKey++
+                    }
                     // 失败时列表不变，用户可以重试
                 }
             },
@@ -2981,8 +2994,22 @@ private fun SettingsRoute(
                             )
                         }
                     },
+                    // 安装结果必须冒泡：签名校验不过时原生侧会**删包并拒绝安装**，
+                    // 这里把空回调改成把原因写进 updateState.error ——
+                    // 否则用户点「安装」看着像没反应（正是「失败仍提示成功」那类坑）。
                     onInstallUpdate = { path ->
-                        api.installUpdate(path) { }
+                        api.installUpdate(path) { r ->
+                            r.onFailure { e ->
+                                onUpdateStateChange(
+                                    updateState.copy(
+                                        error = context.getString(
+                                            R.string.about_update_install_failed,
+                                            friendlyError(context, e.message),
+                                        ),
+                                    ),
+                                )
+                            }
+                        }
                     },
                     onToggleAutoCheck = { enabled ->
                         onUpdateStateChange(updateState.copy(autoCheck = enabled))
