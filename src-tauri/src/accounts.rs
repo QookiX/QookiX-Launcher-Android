@@ -302,7 +302,8 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
 pub async fn select_account(account_id: &str) -> Result<()> {
     // 键名必须是 snake_case：settings::get_settings 按该键名回读，
     // 否则重启后「当前账号」会丢失。
-    let mut settings = crate::settings::load_raw_settings().await;
+    // ⚠️ 严格读：拿空表合并写回会抹掉用户全部设置（2026-10-25 修）。
+    let mut settings = crate::settings::load_raw_settings_strict().await?;
     settings.insert("selected_account".to_string(), Value::String(account_id.to_string()));
     crate::settings::save_raw_settings(&settings).await
 }

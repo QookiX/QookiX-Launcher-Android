@@ -228,18 +228,59 @@ pub async fn load_raw_settings() -> HashMap<String, Value> {
     }
 }
 
+/// ⚠️ 给**合并写手**用的严格读取（2026-10-25 修「设置被重置」）。
+///
+/// 长期以来 `update_settings_patch` / `set_game_root` / `select_account` 的模式是
+/// 「读旧 map → 合并 → 写回」，而读用的是 [`load_raw_settings`] —— **文件损坏时
+/// 它静默返回空表**，于是写回的文件只剩本次 patch 的那几个键：
+/// 用户看到的正是「某些设置每次开启就被重置」（丢 `game_root` 时实例全部消失，
+/// 最严重）。损坏来源：fs::write 不是原子的（进程被杀/并发写交错都会留下半截 JSON）。
+///
+/// 这里**绝不吞解析错误**：损坏时返回 Err，调用方把错误抛给用户，
+/// 损坏文件原样保留（可手工修复），绝不能被一个空合并覆盖掉。
+pub(crate) async fn load_raw_settings_strict() -> Result<HashMap<String, Value>> {
+    let data_dir = get_data_dir().await?;
+    let settings_path = Path::new(&data_dir).join("settings.json");
+    if !settings_path.exists() {
+        return Ok(HashMap::new());
+    }
+    let content = fs::read_to_string(&settings_path).await
+        .with_context(|| format!("设置文件读取失败：{}", settings_path.display()))?;
+    serde_json::from_str(&content)
+        .with_context(|| format!("设置文件 JSON 解析失败（{}），拒绝覆盖写入", settings_path.display()))
+}
+
+/// 原子写盘：先写 `settings.json.tmp` 再 rename。
+///
+/// ⚠️ 2026-10-25：原来所有写路径都直接 `fs::write`（open+O_TRUNC+write）——
+/// 进程在写入中途被杀（安卓后台杀进程很常见）就留下半截/0 字节 JSON；
+/// 两个写路径并发时还可能交错出撕裂文件。这些残废文件一出现，下一轮
+/// 「读空表→合并→写回」就把用户全部设置抹掉（真机实锤）。
+/// rename 在同一文件系统内是原子的，写坏最多坏掉 tmp，正主永远完整。
+async fn write_settings_file(settings_path: &Path, content: &str) -> Result<()> {
+    let tmp_path = settings_path.with_extension("json.tmp");
+    {
+        let mut f = fs::File::create(&tmp_path).await
+            .with_context(|| format!("无法创建临时设置文件：{}", tmp_path.display()))?;
+        use tokio::io::AsyncWriteExt;
+        f.write_all(content.as_bytes()).await
+            .with_context(|| format!("写入临时设置文件失败：{}", tmp_path.display()))?;
+        f.sync_all().await.ok();
+    }
+    fs::rename(&tmp_path, settings_path).await
+        .with_context(|| format!("设置文件落盘失败：{} → {}", tmp_path.display(), settings_path.display()))?;
+    Ok(())
+}
+
 /// 写入设置文件原始 JSON。
 pub async fn save_raw_settings(map: &HashMap<String, Value>) -> Result<()> {
     let data_dir = get_data_dir().await?;
     let settings_path = Path::new(&data_dir).join("settings.json");
     let content = serde_json::to_string_pretty(map)?;
-    fs::write(&settings_path, content)
-        .await
-        .with_context(|| format!("Failed to write settings file: {}", settings_path.display()))?;
+    write_settings_file(&settings_path, &content).await?;
     // 写盘必须是**唯一**的失效入口：缓存与文件不一致的话，用户改完设置不生效才是最难查的 bug
     invalidate_settings_cache();
     // 代理/镜像等设置改变后让缓存的 HTTP 客户端立即重建
-    invalidate_settings_cache();
     crate::util::reset_http_client();
     Ok(())
 }
@@ -399,7 +440,11 @@ pub async fn update_settings(settings: Settings) -> Result<()> {
     let data_dir = get_data_dir().await?;
     let settings_path = Path::new(&data_dir).join("settings.json");
 
-    let mut map = HashMap::new();
+    // ⚠️ 2026-10-25：从**现有文件**出发，而不是新建空表。
+    // 这份「全量写」的键名单当年定下后就再没同步过（ui_scale / game_root 都不在），
+    // 直接覆盖会把不在名单里的键抹掉 —— game_root 丢了实例就全部消失。
+    // 虽然目前安卓链路走的是 update_settings_patch，但这是 pub 接口，必须防患。
+    let mut map = load_raw_settings_strict().await?;
     map.insert("java_path".to_string(), Value::String(settings.java_path.unwrap_or_default()));
     map.insert("max_memory_mb".to_string(), Value::Number(settings.max_memory_mb.into()));
     map.insert("min_memory_mb".to_string(), Value::Number(settings.min_memory_mb.into()));
@@ -440,8 +485,7 @@ pub async fn update_settings(settings: Settings) -> Result<()> {
     map.insert("orientation".to_string(), Value::String(settings.orientation));
 
     let content = serde_json::to_string_pretty(&map)?;
-    fs::write(&settings_path, content).await
-        .with_context(|| format!("Failed to write settings file: {}", settings_path.display()))?;
+    write_settings_file(&settings_path, &content).await?;
     // ⚠️ 缓存失效必须挂到**每一个**写盘路径：设置有三条写入口
     // （`save_raw_settings` / `update_settings` / `update_settings_patch`），
     // 只挂其中一条的后果不是"稍微晚一点生效"，而是「文件写进去了、界面读回旧值」——
@@ -457,14 +501,9 @@ pub async fn update_settings_patch(patch: Value) -> Result<()> {
     let data_dir = get_data_dir().await?;
     let settings_path = Path::new(&data_dir).join("settings.json");
 
-    // 读取现有设置（JSON map）
-    let mut map: HashMap<String, Value> = if settings_path.exists() {
-        let content = fs::read_to_string(&settings_path).await
-            .context("Failed to read settings file")?;
-        serde_json::from_str(&content).unwrap_or_default()
-    } else {
-        HashMap::new()
-    };
+    // 读取现有设置（JSON map）—— ⚠️ 必须严格读：文件损坏时宁可报错也不能
+    // 拿着空表去合并写回（那就成了「把用户其它设置全抹掉」，真机实锤的 bug）。
+    let mut map = load_raw_settings_strict().await?;
 
     // 合并 patch
     if let Some(obj) = patch.as_object() {
@@ -474,8 +513,7 @@ pub async fn update_settings_patch(patch: Value) -> Result<()> {
     }
 
     let content = serde_json::to_string_pretty(&map)?;
-    fs::write(&settings_path, content).await
-        .with_context(|| format!("Failed to write settings file: {}", settings_path.display()))?;
+    write_settings_file(&settings_path, &content).await?;
     // ⚠️ 缓存失效必须挂到**每一个**写盘路径：设置有三条写入口
     // （`save_raw_settings` / `update_settings` / `update_settings_patch`），
     // 只挂其中一条的后果不是"稍微晚一点生效"，而是「文件写进去了、界面读回旧值」——
@@ -548,7 +586,9 @@ pub async fn custom_game_root() -> Option<String> {
 
 /// 写入 / 清除 `game_root`（`None` 或空串 = 用内部目录）。
 pub async fn set_game_root(root: Option<&str>) -> Result<()> {
-    let mut map = load_raw_settings().await;
+    // ⚠️ 严格读：game_root 是最不能丢的键（丢了实例全「消失」），
+    // 文件损坏时宁可报错也不能拿空表写回。
+    let mut map = load_raw_settings_strict().await?;
     match root {
         Some(p) if !p.trim().is_empty() => {
             map.insert("game_root".to_string(), Value::String(p.trim().to_string()));

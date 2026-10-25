@@ -28,6 +28,41 @@
 
 ### 实验遗留的独立问题（与 LWJGL/Sodium 无关）—— 排查记录（2026-10-24/25）
 
+### 【2026-10-25 追加】NeoForge 21.1.251 安装链路已全线打通，卡点前移到 RenderSystem
+
+安装链（本次已修，commit `198d9d2`，别再重复排查）：
+1. installer jar 本地跳过下载 ✓（maven.neoforged.net 被拦 → adb 推 jar 到 `<game_root>/libraries/`）
+2. 依赖校验目录错位已修（原来查 game_root/libraries，下载落 data_dir/libraries）
+3. JRE-21 现在会在 install_loader 里自动补装（不用再手动下）
+4. **earlydisplay strip 时序 bug 已修**：原来 strip 在参数构造时才执行，但 profile 的
+   libraries 早已并入 classpath —— earlydisplay 照样混进去，gl4es 上
+   `ElementShader.init: VertexShader linkage failure`（"An error occurred initializing
+   shaders"）循环 y/n 卡死。现在 strip 在 classpath 合并前执行。
+5. 设备镜像设置已切 `official` → `bmclapi`（31 个 neoforged 依赖靠它下齐）
+
+修完后的新卡点（**当前唯一卡点**）——FML 全部跑完、165 个模组全加载
+（`Vanilla bootstrap took 8314 milliseconds`），死在 RenderSystem 初始化：
+
+```
+java.lang.UnsatisfiedLinkError: Native Library /data/.../natives/liblwjgl.so
+  already loaded in another classloader [in thread "Render thread"]
+  at org.lwjgl.system.Library.<clinit>(Library.java:55)      ← MC-BOOTSTRAP/lwjgl.glfw.classes
+  at org.lwjgl.system.MemoryUtil.<clinit>(MemoryUtil.java:100)
+  at com.mojang.blaze3d.vertex.ByteBufferBuilder.<clinit>
+  at com.mojang.blaze3d.systems.RenderSystem.<clinit>
+```
+
+时序（launch-a39e8632….log）：`准备调用 JLI_Launch argc=71 → 失败 exit code 1 →
+（分隔符）→ JLI_Launch argc=72 → 游戏跑到 RenderSystem 崩`。这就是本文件上面
+Z1 记录的「第一次失败 → 同进程重试(+1 arg)」模式：第一次失败前已经 dlopen 过
+liblwjgl.so（早期 GL4ES 都初始化完了），重试的 JVM 撞进程级缓存。
+**两个未解之谜都记在这**：(a) exit code 1 的第一根因还没抓到（stderr 当时已
+重定向但什么都没留下）；(b) 重试代码在 Rust/Kotlin/C 三层都没找到，但 argc
+71→72 的 +1 模式在历史日志稳定复现 —— 找到重试触发点、改成「失败换进程重启
+启动器」即可能直接翻过这一页。
+
+
+
 进主菜单前的红色 Mojang 加载屏**长时间不消失**（>50 分钟），Render 线程与
 "KubeJS 2101.7.2" 线程持续 100% CPU。已查明：
 - KubeJS 脚本本身 2.3s 就加载完了（`logs/kubejs/*.log`），不是脚本慢；
