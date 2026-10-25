@@ -802,6 +802,7 @@
 
     <!-- ── ComposeMainActivity（用户可见的对话框 / 分享 / 导入提示）── -->
     <string name="app_switch_instance_title">需要先结束当前游戏</string>
+    <string name="app_game_auto_restart">游戏异常退出，正在自动重启…</string>
     <string name="app_switch_instance_message">一个进程里只能跑一个游戏。要结束它并启动你刚点的这个版本吗？</string>
     <string name="app_switch_instance_confirm">结束并启动</string>
     <string name="app_clipboard_unavailable">系统剪贴板不可用</string>

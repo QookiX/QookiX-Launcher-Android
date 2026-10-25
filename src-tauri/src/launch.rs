@@ -23,6 +23,9 @@ fn init_statics() {
 }
 
 pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result<GameStatus> {
+    // ⚠️ 排查「-6 双启动」：launch_game 每次进入都在日志留痕。
+    // 正常情况一次点击只有一条；出现两条 = 上层有两个触发源。
+    crate::util::log_line(&format!("[launcher] === launch_game 被调用 instance={instance_id} pid={}", std::process::id()));
     crate::fsutil::validate_id(instance_id, "实例").map_err(|e| anyhow::anyhow!(e))?;
     init_statics();
 

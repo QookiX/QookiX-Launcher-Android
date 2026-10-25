@@ -327,11 +327,16 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
 
     private var isInEditor = false
     private var gameStarted = false
+    /** -6（游戏 JVM SIGABRT）后的自动重启只补一次，避免无限循环。 */
+    private var retriedAfterAbort = false
 
     // ------------------------------------------------------------------ 生命周期
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // ⚠️ 排查「-6 双启动」：每次 onCreate 必须在 logcat 留痕（带 identityHashCode），
+        // 若一次点击出现两条 onCreate，说明 Activity 被创建了两次（documentLaunchMode 坑）。
+        android.util.Log.i("QookixLaunch", "GameActivity onCreate this=${System.identityHashCode(this)} intent=$intent")
 
         instanceId = intent.getStringExtra(EXTRA_INSTANCE_ID) ?: ""
         accountUuid = intent.getStringExtra(EXTRA_ACCOUNT_UUID) ?: ""
@@ -690,6 +695,23 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
             val exitCode = withContext(Dispatchers.IO) {
                 TauriBridge.launchGame(instanceId, accountUuid)
             }
+            // ⚠️ -6 = 游戏 JVM SIGABRT。已知场景：LWJGL 双类加载器竞态
+            // （两份 org.lwjgl.system.Library 抢同一个 liblwjgl.so，见
+            // docs/handoff-lwjgl-port.md）。实测紧跟着的重试几乎总能成功 ——
+            // 自动重启一次，用户无感；再失败才弹崩溃对话框。
+            // gameStarted/重试标志要复位，否则重试会被 startGameOnce 拦掉。
+            if (exitCode == -6 && !retriedAfterAbort) {
+                retriedAfterAbort = true
+                gameStarted = false
+                android.widget.Toast.makeText(
+                    this@GameActivity,
+                    getString(R.string.app_game_auto_restart),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+                kotlinx.coroutines.delay(1500) // 给已死的 JVM 留出清理时间
+                startGameOnce()
+                return@launch
+            }
             // 游戏正常结束 → **连任务一起收掉**。只 finish() 的话那张卡片还留在多任务里，
             // 用户点一下就又开一局（实测 bug：退出后点旧卡片，游戏自己重开）。
             if (exitCode != 0) showCrashDialog(exitCode) else finishAndRemoveTask()
@@ -1035,6 +1057,8 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
     }
 
     override fun onDestroy() {
+        android.util.Log.i("QookixLaunch", "GameActivity onDestroy this=${System.identityHashCode(this)}")
+
         super.onDestroy()
         // 浮层里的 Handler 必须停掉，否则泄漏 Activity
         try {
