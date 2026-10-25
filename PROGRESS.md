@@ -60,6 +60,15 @@
 - 验证：`cargo test --lib` 63 ✅、`cargo check --target aarch64-linux-android` ✅、闸门 ✅
 - commit `待补`
 
+### 2026-10-25 · 版本号重置 0.0.1（重开序列）
+- `versionCode` 10800 → **199**，`versionName` → `0.0.1`，三处文件同步
+- 编码规则（`scripts/update-version.mjs`）：`AA BB CC DD` = major|minor|patch|通道号段
+  - 01–19 alpha / 20–49 beta / **50–98 rc** / **99 正式版**
+  - 正式版占 99 是必需的：否则 rc 的 code 比正式版大，用户装完 rc 就升不上正式版
+- 两条护栏：默认禁止 versionCode 变小（确实要重开序列用 `--reset`）；`--dry` 只预览
+- ⚠️ 老用户（1.8.0）**无法覆盖安装**，必须先卸载（当前只有 2 个用户，已确认接受）
+- commit `2edd723`（号段细节随后一次提交）
+
 ### 2026-10-25 · Q2 收尾：删白名单分叉（**发现并修了 A2 的真 bug**）
 - `QookixApi.kt` **755 → 507**（累计 2337 → 507，**-78%**），进入 600 行健康线
 - 删 `NATIVE_COMMANDS`（214 行白名单）+ `call()` 里的双路径分叉

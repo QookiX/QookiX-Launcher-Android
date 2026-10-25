@@ -15,7 +15,7 @@
  * ## versionCode 编码（2026-10-25 改）
  *
  *   AA BB CC DD
- *   │  │  │  └── 预发布序号：01–98；**99 = 正式版**
+ *   │  │  │  └── 通道号段：01–19 alpha / 20–49 beta / 50–98 rc / **99 正式版**
  *   │  │  └───── patch
  *   │  └──────── minor
  *   └─────────── major
@@ -43,7 +43,20 @@ import { dirname, join } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 
-/** 正式版占用的预发布序号（rc/beta 必须小于它）。 */
+/**
+ * 末两位（`DD`）的号段划分。
+ *
+ *   01–19  alpha（19 个）
+ *   20–49  beta （30 个）
+ *   50–98  rc   （49 个）
+ *     99   正式版
+ *
+ * 按通道分号段而不是都从 01 起：这样 `alpha < beta < rc < 正式` 的先后关系
+ * 天然成立，同时发 alpha 和 rc 也不会撞号。次数用完（比如 rc 超过 49 个）
+ * 就该提升 patch 了 —— 那说明这个版本本身该重新规划。
+ */
+const CHANNEL_BASE = { alpha: 1, beta: 20, rc: 50 };
+const CHANNEL_MAX = { alpha: 19, beta: 30, rc: 49 };
 const RELEASE_PRE = 99;
 
 const args = process.argv.slice(2);
@@ -78,12 +91,16 @@ const minor = Number(minorS);
 const patchNo = Number(patchS);
 const pre = channel ? Number(preS) : 0;
 
-if (channel && (pre < 1 || pre >= RELEASE_PRE)) {
-  console.error(`预发布序号必须在 1–${RELEASE_PRE - 1} 之间（收到 ${pre}）`);
+if (channel && (pre < 1 || pre > CHANNEL_MAX[channel])) {
+  console.error(
+    `${channel} 的序号必须在 1–${CHANNEL_MAX[channel]} 之间（收到 ${pre}）。` +
+      `该通道号段用完了，提升 patch 重新开始。`,
+  );
   process.exit(1);
 }
 
-const versionCode = major * 1_000_000 + minor * 10_000 + patchNo * 100 + (channel ? pre : RELEASE_PRE);
+const preCode = channel ? CHANNEL_BASE[channel] + (pre - 1) : RELEASE_PRE;
+const versionCode = major * 1_000_000 + minor * 10_000 + patchNo * 100 + preCode;
 
 // ---- 单调性断言：读当前 versionCode ----
 const gradlePath = join(root, "android/app/build.gradle.kts");
