@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::sync::{Arc, Mutex as StdMutex};
 lazy_static::lazy_static! {
     /// 安装任务的取消标志，key 与前端 `TaskEntry.id` / `TaskCtx.task_id` 同值。
     ///
@@ -118,7 +118,8 @@ pub fn push(event: &str, payload: serde_json::Value) {
         if crate::android_bridge::push_event_to_kotlin(event, &json).is_some() {
             return;
         }
-    }
+    }
+
 }
 
 /// 安装阶段进度（步骤型）。

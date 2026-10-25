@@ -10,7 +10,8 @@ use crate::models::*;
 /// （update_instance / add_content 系列 / 分组清理 / 模组包导入）没有互斥时，
 /// 并发的「后写者」会把「先写者」的整份实例元数据（含 renderer、内存、
 /// java_args）覆盖掉 —— 表现就是实例设置莫名被重置。锁罩住**整个**读改写周期。
-static INSTANCE_WRITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// 跨文件的读改写入口（如 groups.rs 清 group 引用）也必须持这把锁。
+pub(crate) static INSTANCE_WRITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub async fn list_instances() -> Result<Vec<MinecraftProfile>> {
     let instances_dir = crate::settings::instances_root().await?;

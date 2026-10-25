@@ -196,7 +196,7 @@ async fn add_account_to_disk(account: &Account) -> Result<()> {
     fs::create_dir_all(&accounts_dir).await.context("创建账号目录失败")?;
     let file_path = accounts_dir.join(format!("{}.json", account.uuid));
     let content = serde_json::to_string_pretty(account)?;
-    fs::write(&file_path, content).await.context("写入账号文件失败")
+    crate::fsutil::write_text_atomic(&file_path, &content).context("写入账号文件失败")
 }
 
 pub async fn list_accounts() -> Result<Vec<Account>> {
@@ -279,7 +279,7 @@ pub async fn add_account(username: &str, account_type: &str, refresh_token: Opti
 
     let file_path = accounts_dir.join(format!("{}.json", account.uuid));
     let content = serde_json::to_string_pretty(&account)?;
-    fs::write(&file_path, content).await
+    crate::fsutil::write_text_atomic(&file_path, &content)
         .context("Failed to write account file")?;
 
     Ok(account)

@@ -23,5 +23,5 @@ pub async fn save_pins(items: &[PinItem]) -> Result<(), String> {
     let data_dir = get_data_dir().await.map_err(|e| e.to_string())?;
     let path = Path::new(&data_dir).join("pins.json");
     let json = serde_json::to_string_pretty(items).map_err(|e| e.to_string())?;
-    fs::write(&path, json).await.map_err(|e| e.to_string())
+    crate::fsutil::write_text_atomic(&path, &json).map_err(|e| e.to_string())
 }

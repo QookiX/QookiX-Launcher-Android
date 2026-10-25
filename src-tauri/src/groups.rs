@@ -118,18 +118,28 @@ pub async fn delete_group(id: String) -> Result<(), String> {
     }
     save_all(&map).await?;
 
-    // 清空实例上的分组引用
-    let mut instances = crate::instances::list_instances().await.map_err(|e| e.to_string())?;
-    let mut changed = false;
-    for inst in instances.iter_mut() {
-        if inst.group.as_deref() == Some(&id) {
-            inst.group = None;
-            changed = true;
-        }
-    }
-    if changed {
-        for inst in &instances {
-            crate::instances::write_instance(inst).await.map_err(|e| e.to_string())?;
+    // 清空实例上的分组引用。
+    // ⚠️ 与实例设置编辑（update_instance）并发时，读改写必须持实例写锁，
+    // 否则后写者会把先写者的整份实例元数据覆盖掉（丢 renderer / 内存等）。
+    let instances = crate::instances::list_instances().await.map_err(|e| e.to_string())?;
+    let affected: Vec<String> = instances
+        .iter()
+        .filter(|i| i.group.as_deref() == Some(&id))
+        .map(|i| i.id.clone())
+        .collect();
+    if !affected.is_empty() {
+        let _guard = crate::instances::INSTANCE_WRITE_LOCK.lock().await;
+        // 锁内逐个重读最新值再改，避免用列表快照盖掉加锁前别人落的改动。
+        for iid in &affected {
+            let mut cur = match crate::instances::get_instance(iid).await {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            if cur.group.as_deref() != Some(&id) {
+                continue;
+            }
+            cur.group = None;
+            crate::instances::write_instance(&cur).await.map_err(|e| e.to_string())?;
         }
     }
     Ok(())

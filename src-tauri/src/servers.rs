@@ -203,7 +203,8 @@ pub fn save_server(s: &ServerConfig) -> Result<(), String> {
         std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())
+    // 原子写：server.json 撕裂会让该服务器从列表里静默消失。
+    crate::fsutil::write_text_atomic(&path, &json).map_err(|e| e.to_string())
 }
 
 /**
@@ -405,7 +406,7 @@ pub fn ensure_server_files(id: &str, s: &ServerConfig) -> Result<(), String> {
             "# Minecraft EULA（运行服务端即表示你同意）\n# 由 QookiX 生成；请在「服务器设置」里勾选同意后改成 true\neula={}\n",
             s.eula
         );
-        let _ = std::fs::write(&eula, body);
+        let _ = crate::fsutil::write_text_atomic(&eula, &body);
     } else if let Ok(cur) = std::fs::read_to_string(&eula) {
         // 同步用户在界面上的同意状态
         let want = if s.eula { "true" } else { "false" };
@@ -421,7 +422,7 @@ pub fn ensure_server_files(id: &str, s: &ServerConfig) -> Result<(), String> {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            let _ = std::fs::write(&eula, fixed);
+            let _ = crate::fsutil::write_text_atomic(&eula, &fixed);
         }
     }
     let props = dir.join("server.properties");
@@ -433,7 +434,7 @@ pub fn ensure_server_files(id: &str, s: &ServerConfig) -> Result<(), String> {
   "# 由 QookiX 生成\nmotd={}\nserver-port={}\nmax-players=10\nonline-mode=true\ndifficulty=normal\ngamemode=survival\nlevel-name=world\nsync-chunk-writes=false\nview-distance=6\nsimulation-distance=4\n\n# RCON：QookiX 用它执行 stop（优雅停服，世界会存盘）与控制台命令。\n# 密码在同目录 rcon.json 里；请勿泄露（等同服务器后台权限）。\nenable-rcon=true\nrcon.password={}\nrcon.port={}\nbroadcast-rcon-to-ops=false\n",
   s.motd, s.port, rcon.password, rcon.port
   );
-  let _ = std::fs::write(&props, body);
+  let _ = crate::fsutil::write_text_atomic(&props, &body);
     } else {
   // 已存在的 properties：把 RCON 三项补上（用户可能是手动删过或老版本生成的）
   if let Ok(cur) = std::fs::read_to_string(&props) {
@@ -461,7 +462,7 @@ pub fn ensure_server_files(id: &str, s: &ServerConfig) -> Result<(), String> {
       lines.push(format!("rcon.password={}", rcon.password));
       lines.push(format!("rcon.port={}", rcon.port));
       lines.push("broadcast-rcon-to-ops=false".into());
-      let _ = std::fs::write(&props, lines.join("\n") + "\n");
+      let _ = crate::fsutil::write_text_atomic(&props, &(lines.join("\n") + "\n"));
     }
   }
     }
@@ -1822,7 +1823,7 @@ pub fn ensure_rcon_props(dir: &Path, game_port: u16) -> Result<crate::rcon::Rcon
     lines.push(format!("rcon.password={}", creds.password));
     lines.push(format!("rcon.port={}", creds.port));
     lines.push("broadcast-rcon-to-ops=false".into());
-    std::fs::write(&props, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
+    crate::fsutil::write_text_atomic(&props, &(lines.join("\n") + "\n")).map_err(|e| e.to_string())?;
     Ok(creds)
 }
 
@@ -2107,8 +2108,8 @@ pub async fn start_hosted_server(id: String) -> Result<serde_json::Value, String
     crate::sleep::clear_state(&id);
     let dir = server_dir(&id)?;
     if s.eula {
-        let _ = std::fs::write(
-            dir.join("eula.txt"),
+        let _ = crate::fsutil::write_text_atomic(
+            &dir.join("eula.txt"),
             "# Minecraft EULA（运行服务端即表示你同意）\n# 由 QookiX 生成；请在「服务器设置」里勾选同意后改成 true\neula=true\n",
         );
     }
@@ -2337,9 +2338,9 @@ fn write_launch_spec(
         args: vec!["nogui".to_string()],
         token: crate::server_process::new_token(),
     };
-    std::fs::write(
-        dir.join("launch.json"),
-        serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?,
+    crate::fsutil::write_text_atomic(
+        &dir.join("launch.json"),
+        &serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
     // 旧的 runtime.json 属于上一次进程：留着会让「这一轮 JVM 是否已退出 / 是否还活着」

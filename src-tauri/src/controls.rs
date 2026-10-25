@@ -83,7 +83,8 @@ pub async fn set_control_button_passthru(
     );
 
     let text = serde_json::to_string(&value).map_err(|e| format!("写回失败：{e}"))?;
-    std::fs::write(&path, text).map_err(|e| format!("保存布局失败：{e}"))?;
+    // 原子写：布局是用户手工调出来的，撕裂=布局丢（同 settings.json 的教训）。
+    crate::fsutil::write_text_atomic(&path, &text).map_err(|e| format!("保存布局失败：{e}"))?;
     Ok(collect_buttons(&value))
 }
 
