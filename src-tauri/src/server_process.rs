@@ -790,33 +790,38 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
             // 在这个独立进程里没人收集，JVM 的任何输出（包括 hs_err 崩溃报告）
             // 都随进程一起消失 —— 表现就是「进程起来几秒后 died，什么都查不到」。
             // dup2 到普通文件后，至少能看到 JVM 自己写的错误。
-            let log_path = Path::new(&spec2.work_dir).join("jvm-stdout.log");
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_path)
+            // 只有安卓的 `:server` 独立进程需要（也才能）做 fd 重定向；
+            // 宿主目标（跑单测）连 `nix` / `AsRawFd` 都不在依赖里，整块跳过。
+            #[cfg(target_os = "android")]
             {
-                use std::os::fd::AsRawFd;
-                let fd = f.as_raw_fd();
-                unsafe {
-                    nix::libc::dup2(fd, 1);
-                    nix::libc::dup2(fd, 2);
+                let log_path = Path::new(&spec2.work_dir).join("jvm-stdout.log");
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path)
+                {
+                    use std::os::fd::AsRawFd;
+                    let fd = f.as_raw_fd();
+                    unsafe {
+                        nix::libc::dup2(fd, 1);
+                        nix::libc::dup2(fd, 2);
+                    }
+                    // 借 println! 写一行标记，确认重定向生效
+                    println!(
+                        "=== QookiX 服务端 JVM 启动 {} | {} | 主类 {} ===",
+                        spec2.jar, spec2.jre_home, main_class
+                    );
+                    use std::io::Write as _;
+                    let _ = writeln!(
+                        f,
+                        "=== 启动 {} | cwd={} | jvm_args={:?} | args={:?} ===",
+                        main_class,
+                        spec2.work_dir,
+                        all_jvm,
+                        spec2.args
+                    );
+                    let _ = f.flush();
                 }
-                // 借 println! 写一行标记，确认重定向生效
-                println!(
-                    "=== QookiX 服务端 JVM 启动 {} | {} | 主类 {} ===",
-                    spec2.jar, spec2.jre_home, main_class
-                );
-                use std::io::Write as _;
-                let _ = writeln!(
-                    f,
-                    "=== 启动 {} | cwd={} | jvm_args={:?} | args={:?} ===",
-                    main_class,
-                    spec2.work_dir,
-                    all_jvm,
-                    spec2.args
-                );
-                let _ = f.flush();
             }
 
             // **必须先预加载 JRE 内部库**，否则 JVM 走到 libnio.so 时必然报
@@ -827,6 +832,7 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
             // 服务端复用同一个函数即可 —— 这也是「JVM 在 Android 上能跑起来」
             // 的真正前提，缺了它 JVM 会立刻 abort，且只在 stderr 里留一行
             // UnsatisfiedLinkError（不重定向 stdout 就完全看不见）。
+            #[cfg(target_os = "android")]
             crate::android_env::preload_jre_libraries(Path::new(&spec2.jre_home));
 
             // 注意：**不要**给 paperclip 加 `-javaagent:<paperclip.jar>`。

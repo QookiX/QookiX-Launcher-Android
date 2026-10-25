@@ -912,13 +912,17 @@ mod tests {
         let args = profile_arguments(&profile, &libs, "1.21.8", ":");
         let libs_str = libs.to_string_lossy().to_string();
 
-        // 占位符必须全部替换掉，一个不剩
+        // 占位符必须全部替换掉 —— **唯一例外是 `${primary_jar_name}`**：
+        // 它是 FML 自己的占位符，按设计要原样传给 JVM（见 profile_arguments 的注释）。
+        // 这条断言 2026-10-23 之后失效过一次（当时追加了 primary_jar_name），
+        // 所以这里只把那个例外剔掉再检查。
         for a in args.jvm.iter().chain(args.game.iter()) {
-            assert!(!a.contains("${"), "残留占位符: {a}");
+            let leftover = a.replace("${primary_jar_name}", "");
+            assert!(!leftover.contains("${"), "残留占位符: {a}");
         }
         assert_eq!(
-            args.jvm[0], "-DignoreList=client-extra,1.21.8.jar",
-            "version_name 应替换为游戏版本"
+            args.jvm[0], "-DignoreList=client-extra,1.21.8.jar,${primary_jar_name}",
+            "version_name 应替换为游戏版本，并按设计追加 primary_jar_name"
         );
         assert_eq!(
             args.jvm[1],

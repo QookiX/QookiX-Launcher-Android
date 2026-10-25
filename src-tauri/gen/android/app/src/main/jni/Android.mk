@@ -2,6 +2,16 @@ LOCAL_PATH := $(call my-dir)
 HERE_PATH := $(LOCAL_PATH)
 
 # ============================================================================
+# 16 KB 页对齐（Android 15+ 的 16 KB 页设备）
+#
+# NDK 默认按 4 KB 页对齐（PT_LOAD.p_align = 0x1000）。在 16 KB 页设备上
+# dlopen 这样的 .so 会直接失败（`has invalid ELF alignment`）。
+# 这个项目里**我们自己编译**的三个库都必须带下面这个链接参数；
+# 随包分发的上游预编译库（GL4ES / Mesa / LWJGL…）仍是 4 KB，见 KNOWN_ISSUES.md。
+# ============================================================================
+PAGE_ALIGN_LDFLAGS := -Wl,-z,max-page-size=16384
+
+# ============================================================================
 # Pojav 版 JNI 核心（libpojavexec.so）
 #
 # 来自 PojavLauncher（app_pojavlauncher/src/main/jni），原样保留：
@@ -48,6 +58,7 @@ LOCAL_SRC_FILES := \
 ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
 LOCAL_CFLAGS += -DADRENO_POSSIBLE
 endif
+LOCAL_LDFLAGS += $(PAGE_ALIGN_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 # ============================================================================
@@ -63,5 +74,21 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := linkerhook
 LOCAL_SRC_FILES := driver_helper/hook.c
-LOCAL_LDFLAGS := -z global
+LOCAL_LDFLAGS := -z global $(PAGE_ALIGN_LDFLAGS)
+include $(BUILD_SHARED_LIBRARY)
+
+# ============================================================================
+# libthreaddump.so — JVM TI 线程栈抓取 agent（诊断用）。
+#
+# 内嵌 HotSpot 的 Java 线程栈在安卓上用常规手段抓不到（SIGQUIT 被 ART 拦、
+# jdwp 挂死，详见文件头注释），所以用 -agentpath 让游戏 JVM 加载它：
+# 它在 127.0.0.1:12857 起服务，连上就吐 GetAllStackTraces。
+# 排查「加载屏不退场」这类需要看 Render thread / KubeJS 线程栈的问题用的。
+# launch.rs 里在 files/natives 发现这份 .so 时自动加 -agentpath。
+# ============================================================================
+include $(CLEAR_VARS)
+LOCAL_MODULE := threaddump
+LOCAL_SRC_FILES := thread_dump_agent.c
+LOCAL_LDLIBS := -ldl -llog
+LOCAL_LDFLAGS += $(PAGE_ALIGN_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)

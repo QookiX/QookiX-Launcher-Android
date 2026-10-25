@@ -521,7 +521,11 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             });
         let native_dir_str = match plugin_libs {
             Some(dir) if Path::new(&dir).join(&gl_file).exists() => dir,
+            // 桌面端没有「APK 内的原生库目录」这个概念，留空即可
+            #[cfg(target_os = "android")]
             _ => apk_native_dir.trim_end_matches('/').to_string(),
+            #[cfg(not(target_os = "android"))]
+            _ => String::new(),
         };
         env_map.insert(
             "SDL_OPENGL_LIBRARY".to_string(),
@@ -855,6 +859,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         // 把 F3 里那行 `Display: … (厂商串)` 换成我们自己的（详见 gl_brand.rs）。
         // 传 game_dir 是为了让它等 MC 日志里的「原生库已装好」标记再动手 ——
         // 抢在库加载窗口里注册 native 会把 GLFW / MemoryUtil 的初始化撞坏（26.3 实测崩）。
+        #[cfg(target_os = "android")]
         crate::gl_brand::spawn_installer(&game_dir);
 
         // ⚠️ 2026-10-19 真机诊断：这两行是判断「JLI_Launch 到底有没有跑起来」
@@ -1345,7 +1350,11 @@ pub async fn export_instance_logs(instance_id: &str) -> anyhow::Result<()> {
         .and_then(|v| v.get("version_name").and_then(|x| x.as_str()).map(String::from))
         .unwrap_or_else(|| "minecraft".to_string());
     let archive = format!("qookix-logs-{}-{}.zip", sanitize(&tag), instance_id);
+    // 系统分享面板只有安卓有；桌面端（以及跑单测的宿主目标）没有这一步
+    #[cfg(target_os = "android")]
     crate::android_bridge::share_logs_zip(&archive, &dir.to_string_lossy());
+    #[cfg(not(target_os = "android"))]
+    let _ = &archive;
     Ok(())
 }
 

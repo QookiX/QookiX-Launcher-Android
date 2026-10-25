@@ -1,6 +1,7 @@
 name: Release
 
-# 只在推送 v* 标签时触发：构建 arm64 / x86_64 release APK 并发布 GitHub Release。
+# 只在推送 v* 标签时触发：先跑闸门（单测 + 文件体量），再构建 arm64 / x86_64
+# release APK 并发布 GitHub Release。
 # 签名密钥经仓库 Secrets 注入（不出现任何密钥明文）：
 #   QOOKIX_KEYSTORE_BASE64    keystore 文件的 Base64
 #   QOOKIX_KEYSTORE_PASSWORD  keystore 密码
@@ -12,16 +13,53 @@ on:
   push:
     tags:
       - "v*"
+  # 允许手动跑一次闸门（只是想验证 main 没坏时用，不会发版）
+  workflow_dispatch:
 
 permissions:
   contents: write # 发布 Release 需要
 
 jobs:
+  # ── 闸门：不通过就不打包 ────────────────────────────────────────────────
+  #
+  # 以前这个仓库是「CI 只打包、从不测试」，所以「依赖库显示已就绪、实际一个
+  # 都没装」这类 bug 能活到发版。这里只做两件低成本的：
+  #   1. `cargo test`：57 个单测（加载器解析、JVM 参数、路径拼装等纯函数）
+  #   2. 文件体量棘轮：巨文件只许变小（见 scripts/check-file-size.mjs）
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust 缓存
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # 宿主目标（Linux）跑单测：安卓专属的代码用 cfg 隔开了，见各模块注释。
+      # 这一步同时兜住「新增了安卓专属代码但漏了 cfg」这类只在宿主上暴露的错。
+      - name: Rust 单测
+        working-directory: src-tauri
+        run: cargo test --lib --no-fail-fast
+
+      - name: 文件体量闸门
+        run: node scripts/check-file-size.mjs
+
   build:
+    needs: gate
     runs-on: ubuntu-latest
     env:
-      # 前端构建输出 + Gradle 构建目录
-      PROJECT: ${{ github.workspace }}
+      # 16KB 页对齐（Android 15+ 的 16KB 设备上 dlopen 会失败）。
+      #
+      # ⚠️ 不能只靠 `src-tauri/.cargo/config.toml` —— 那个文件被 .gitignore
+      # 排除（里面是本机 NDK 绝对路径），CI / 新克隆里根本没有它。
+      # 这里用「目标级 RUSTFLAGS」，只影响这两个安卓目标，不污染宿主的构建脚本。
+      CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
+      CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
     steps:
       - uses: actions/checkout@v4
 
@@ -31,11 +69,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # Node 只用于第 ⑦ 步生成发布说明（scripts/generate-release-notes.mjs）。
+      # 前端资源构建已随 WebView 一起移除，不再需要 npm install。
       - name: 安装 Node 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
 
       # Android SDK：compileSdk 36 需要对应 platform；runner 自带 cmdline-tools
       - name: 准备 Android SDK
@@ -80,23 +119,43 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # ① 前端资源：只有 index.html + skin3d/*.js（Vue 已删除）
-      #
-      # ⚠️ 2026-10-18 修：原来是 `npm ci && npm run build`，但：
-      #   - `npm ci` 要求 package.json 与 lock 严格一致，
-      #     删掉 Vue 后 lock 里还有大量残留 → 直接失败
-      #   - `npm run build` 这个脚本已经不存在了（改成 build:web-assets）
-      # 现在用 `npm install`（会按 package.json 更新 lock）+
-      # `build:web-assets`（纯拷贝，无打包器）。
-      - name: 构建前端资源
-        run: |
-          npm install --no-audit --no-fund
-          npm run build:web-assets
-
-      # ② Rust：release 交叉编译（assets 会被 generate_context! 编进 .so，必须在 cargo 之前）
+      # ① Rust：release 交叉编译
       - name: 构建 Rust 库
         working-directory: src-tauri
         run: cargo build --release --target aarch64-linux-android --target x86_64-linux-android
+
+      # ①b 校验 16KB 页对齐：只设了 RUSTFLAGS 不等于链接器真的照做了
+      #（换 NDK / 换 linker / 上游 .so 混入都可能悄悄退回 4KB）。
+      # PT_LOAD 的 Align 必须是 0x4000，否则安装到 16KB 设备上会 dlopen 失败。
+      - name: 校验 16KB 页对齐
+        run: |
+          READELF=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
+          fail=0
+          for f in src-tauri/target/aarch64-linux-android/release/libqookix_lib.so \
+                   src-tauri/target/x86_64-linux-android/release/libqookix_lib.so; do
+            echo "--- $f"
+            $READELF -l "$f" | grep -E "^  LOAD" || true
+            bad=$($READELF -l "$f" | awk '$1=="LOAD" && $NF!="0x4000" {print}')
+            if [ -n "$bad" ]; then
+              echo "::error file=$f::存在非 16KB 对齐的 LOAD 段（p_align != 0x4000）：$bad"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      # ①c Kotlin 侧闸门：JVM 单测真跑；仪器化冒烟测试只编译（runner 没设备）
+      #
+      # 仪器化测试要真机才能执行，这里只保证**它能编译** ——
+      # 否则测试代码烂掉了没人知道；真机执行靠本地 connectedArm64DebugAndroidTest。
+      - name: Kotlin 单测
+        working-directory: src-tauri/gen/android
+        timeout-minutes: 20
+        run: ./gradlew :app:testArm64DebugUnitTest --no-daemon --max-workers=2 --console=plain
+
+      - name: 编译仪器化冒烟测试（不执行）
+        working-directory: src-tauri/gen/android
+        timeout-minutes: 20
+        run: ./gradlew :app:assembleArm64DebugAndroidTest --no-daemon --max-workers=2 --console=plain
 
       - name: 复制 .so 到 jniLibs
         working-directory: src-tauri
@@ -106,40 +165,7 @@ jobs:
           cp target/x86_64-linux-android/release/libqookix_lib.so \
              gen/android/app/src/main/jniLibs/x86_64/libqookix_lib.so
 
-      # ③ tauri 的两个自动生成文件（内容含本机绝对路径，故被 .gitignore 排除、不入库）：
-      #    tauri.settings.gradle（include :tauri-android 与插件的 projectDir）
-      #    app/tauri.build.gradle.kts（依赖 project(:tauri-android) 等）
-      #    全新克隆里没有它们，必须按 cargo registry 里的真实路径现生成。
-      - name: 生成 tauri gradle 桥接文件
-        working-directory: src-tauri/gen/android
-        run: |
-          REG=$(ls -d $CARGO_HOME/registry/src/*/ | head -1)
-          TAURI_DIR=$(ls -d ${REG}tauri-*/mobile/android | sort -V | tail -1)
-          DIALOG_DIR=$(ls -d ${REG}tauri-plugin-dialog-*/android | sort -V | tail -1)
-          OPENER_DIR=$(ls -d ${REG}tauri-plugin-opener-*/android | sort -V | tail -1)
-          cat > tauri.settings.gradle <<EOF
-          // THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.
-          include ':tauri-android'
-          project(':tauri-android').projectDir = new File("$TAURI_DIR")
-          include ':tauri-plugin-dialog'
-          project(':tauri-plugin-dialog').projectDir = new File("$DIALOG_DIR")
-          include ':tauri-plugin-opener'
-          project(':tauri-plugin-opener').projectDir = new File("$OPENER_DIR")
-          EOF
-          cat > app/tauri.build.gradle.kts <<EOF
-          // THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.
-          val implementation by configurations
-          dependencies {
-            implementation("androidx.lifecycle:lifecycle-process:2.10.0")
-            implementation(project(":tauri-android"))
-            implementation(project(":tauri-plugin-dialog"))
-            implementation(project(":tauri-plugin-opener"))
-          }
-          EOF
-          echo "--- tauri.settings.gradle ---"; cat tauri.settings.gradle
-          echo "--- app/tauri.build.gradle.kts ---"; cat app/tauri.build.gradle.kts
-
-      # ④ 签名密钥：Secrets 有则解出临时文件，无则 gradle 退回 debug 签名
+      # ② 签名密钥：Secrets 有则解出临时文件，无则 gradle 退回 debug 签名
       - name: 解出签名密钥
         env:
           QOOKIX_KEYSTORE_BASE64: ${{ secrets.QOOKIX_KEYSTORE_BASE64 }}
@@ -158,7 +184,7 @@ jobs:
             echo "未配置 QOOKIX_KEYSTORE_BASE64，退回 debug 签名"
           fi
 
-      # ⑤ Gradle 打包（arm64 / x86_64 两个 flavor；universal 缺 armeabi-v7a、x86 的 Rust 库，不出）
+      # ③ Gradle 打包（arm64 / x86_64 两个 flavor；universal 缺 armeabi-v7a、x86 的 Rust 库，不出）
       #
       # ⚠️ 2026-10-22 加 timeout-minutes ——
       # 上一版（v1.7.4 的 run 39639594331）在这里挂了 5 小时 49 分：
@@ -181,7 +207,7 @@ jobs:
         timeout-minutes: 45
         run: ./gradlew :app:assembleArm64Release :app:assembleX86_64Release --no-daemon --max-workers=2 --console=plain
 
-      # ⑥ 产物改名：带版本号（多版本下载时不会认错）
+      # ④ 产物改名：带版本号（多版本下载时不会认错）
       - name: 整理产物
         run: |
           mkdir -p dist
@@ -194,7 +220,7 @@ jobs:
           (cd dist && sha256sum *.apk > SHA256SUMS.txt)
           ls -lh dist
 
-      # ⑦ 发布说明：优先用 .github/release-notes/<tag>.md 完全自定义；
+      # ⑤ 发布说明：优先用 .github/release-notes/<tag>.md 完全自定义；
       #    没有则用 DEFAULT.md 模板（自动替换 {{VERSION}} / {{DATE}} / {{CHANGELOG}}）。
       #    想给某个版本写说明，就新增一个同名 md，无需改 workflow。
       - name: 准备发布说明
@@ -211,7 +237,7 @@ jobs:
           fi
           echo "--- 发布说明预览 ---"; cat /tmp/release-body.md
 
-      # ⑧ 发布：APK + 校验文件挂到该 tag 的 GitHub Release
+      # ⑥ 发布：APK + 校验文件挂到该 tag 的 GitHub Release
       - name: 发布 Release
         uses: softprops/action-gh-release@v2
         with:
@@ -219,4 +245,3 @@ jobs:
           files: |
             dist/*.apk
             dist/SHA256SUMS.txt
-

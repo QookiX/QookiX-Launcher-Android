@@ -687,6 +687,9 @@ mod tests {
         assert!(resolve_download_url(99, "armeabi-v7a").is_err());
     }
 
+    // 只对安卓成立：桌面版 JRE 有 x86_64 构建，宿主上直接调会正常返回 URL。
+    // （这段测试跑在 CI 的 Linux runner 上，所以必须 gate 掉。）
+    #[cfg(target_os = "android")]
     #[test]
     fn test_resolve_download_url_unsupported_arch() {
         assert!(resolve_download_url(8, "x86").is_err());
@@ -705,6 +708,8 @@ mod tests {
         assert!(mirror.url.contains("android-arm.tar.xz"));
     }
 
+    // 同上：`get_device_arch` 在安卓上返回 ABI 名，宿主上返回宿主架构（x86_64）。
+    #[cfg(target_os = "android")]
     #[test]
     fn test_get_device_arch_returns_known_value() {
         let arch = get_device_arch();
