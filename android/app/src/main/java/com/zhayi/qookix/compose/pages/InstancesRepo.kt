@@ -120,6 +120,10 @@ object InstancesRepo {
             loaderVer == null || loader?.lowercase() == "vanilla" -> loaderLabel
             else -> "$loaderLabel $loaderVer"
         }
-        return listOfNotNull(loaderFull, version).joinToString(" ")
+        // 实例名里已经带版本号时（整合包常被自动命名成「xxx 1.21.1」）不再重复一遍，
+        // 否则卡片上会出现「月落花野（1.21.1）3.1.2 / NeoForge 21.1.251 1.21.1」。
+        val name = o.optString("name")
+        val versionPart = version?.takeUnless { name.contains(it) }
+        return listOfNotNull(loaderFull, versionPart).joinToString(" ")
     }
 }

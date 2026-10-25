@@ -565,6 +565,8 @@ private fun MemorySlider(valueMb: Int, onChange: (Int) -> Unit) {
 enum class Loader(val id: String, @StringRes val labelRes: Int) {
     Vanilla("vanilla", R.string.create_instance_loader_vanilla),
     Fabric("fabric", R.string.create_instance_loader_fabric),
+    // Rust 的 Loader 枚举一直有 Quilt，筛选面板里也有，只有创建页漏了这一项
+    Quilt("quilt", R.string.create_instance_loader_quilt),
     Forge("forge", R.string.create_instance_loader_forge),
     NeoForge("neoforge", R.string.create_instance_loader_neoforge),
 }

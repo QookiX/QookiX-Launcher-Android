@@ -1037,6 +1037,7 @@
     <string name="create_instance_group_title">%1$s（%2$d）</string>
     <string name="create_instance_loader_vanilla">原版</string>
     <string name="create_instance_loader_fabric">Fabric</string>
+    <string name="create_instance_loader_quilt">Quilt</string>
     <string name="create_instance_loader_forge">Forge</string>
     <string name="create_instance_loader_neoforge">NeoForge</string>
 <string name="create_instance_type_release">正式</string>
