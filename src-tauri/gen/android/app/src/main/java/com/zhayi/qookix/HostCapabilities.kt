@@ -599,16 +599,34 @@ class HostCapabilities(private val activity: Activity) {
     /**
      * 安装 APK（应用内更新）。
      *
+     * ## 为什么必须先校验签名
+     *
+     * 自更新走的是「下载到私有目录 → 拉起系统安装器」。签名校验是**最后一道闸**：
+     * 没有它，任何能替换下载包的人（被劫持的网络、被投毒的中转、用户误点的
+     * 第三方渠道包）都能把包塞进来，而系统安装器只会检查包本身合法、不会
+     * 检查它是不是「同一个应用」——签名不同时系统会直接报安装失败，
+     * 但如果攻击者做了包名替换，用户看到的就是另一个应用。
+     *
+     * 校验的是**签名证书摘要**，与「当前安装的这个包」逐字节比对：
+     * 不一致就删包 + 返回错误，绝不进入安装流程。
+     *
      * @param path APK 的绝对路径
+     * @return 空串 = 已拉起安装器；非空 = 拒绝安装的原因（会冒泡到界面）
      */
-    fun installApk(path: String) {
+    fun installApk(path: String): String {
+        val file = File(path)
+        if (!file.isFile) {
+            Log.w(TAG, "installApk: 文件不存在 $path")
+            return "安装包不存在，请重新下载"
+        }
+        signatureMismatch(file)?.let { reason ->
+            // 篡改包留着没有意义，直接删掉，避免用户手动去装
+            runCatching { file.delete() }
+            Log.w(TAG, "installApk: $reason（已删除 $path）")
+            return reason
+        }
         mainHandler.post {
             try {
-                val file = File(path)
-                if (!file.isFile) {
-                    Log.w(TAG, "installApk: 文件不存在 $path")
-                    return@post
-                }
                 val uri = androidx.core.content.FileProvider.getUriForFile(
                     activity,
                     "${activity.packageName}.fileprovider",
@@ -624,6 +642,46 @@ class HostCapabilities(private val activity: Activity) {
                 Toast.makeText(activity, "无法启动安装器", Toast.LENGTH_SHORT).show()
             }
         }
+        return ""
+    }
+
+    /**
+     * 比对下载包与已装包的签名证书摘要。
+     *
+     * @return null = 一致（可以安装）；非 null = 不能安装的原因
+     */
+    private fun signatureMismatch(apk: File): String? = try {
+        val pm = activity.packageManager
+        val flags = if (android.os.Build.VERSION.SDK_INT >= 28) {
+            android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            android.content.pm.PackageManager.GET_SIGNATURES
+        }
+        val incoming = signerDigest(pm.getPackageArchiveInfo(apk.absolutePath, flags))
+        val current = signerDigest(pm.getPackageInfo(activity.packageName, flags))
+        when {
+            incoming == null -> "无法读取下载包的签名，已拒绝安装"
+            current == null -> "无法读取当前应用的签名，已拒绝安装"
+            !java.security.MessageDigest.isEqual(incoming, current) ->
+                "安装包签名与本应用不一致，已拒绝安装（可能是被篡改的包）"
+            else -> null
+        }
+    } catch (t: Throwable) {
+        Log.w(TAG, "校验 APK 签名失败", t)
+        "校验安装包签名失败：${t.message ?: t.javaClass.simpleName}"
+    }
+
+    /** 取第一个签名证书的 SHA-256 摘要（API 28+ 走 signingInfo，旧版本走 signatures）。 */
+    private fun signerDigest(info: android.content.pm.PackageInfo?): ByteArray? {
+        if (info == null) return null
+        val cert = if (android.os.Build.VERSION.SDK_INT >= 28) {
+            info.signingInfo?.apkContentsSigners?.firstOrNull()?.toByteArray()
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures?.firstOrNull()?.toByteArray()
+        } ?: return null
+        return java.security.MessageDigest.getInstance("SHA-256").digest(cert)
     }
 
     // ── 11. setLogZoomCapture ─────────────────────────────────────────────

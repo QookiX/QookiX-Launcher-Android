@@ -833,7 +833,7 @@ class ComposeMainActivity : ComponentActivity() {
     fun vpnConsentGranted(): String = caps.vpnConsentGranted()
     fun ensureVpnConsent() = caps.ensureVpnConsent()
     fun ensureTunnelService() = caps.ensureTunnelService()
-    fun installApk(path: String) = caps.installApk(path)
+    fun installApk(path: String): String = caps.installApk(path)
     fun setLogZoomCapture(enabled: Boolean) = caps.setLogZoomCapture(enabled)
     fun preloadJreLibs(dir: String): Int = caps.preloadJreLibs(dir)
     fun enableSdlIntegration() = caps.enableSdlIntegration()

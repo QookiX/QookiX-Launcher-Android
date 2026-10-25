@@ -7,22 +7,30 @@ use std::collections::HashMap;
 const MODRINTH_API: &str = "https://api.modrinth.com/v2";
 const FORGE_API: &str = "https://files.minecraftforge.net/maven";
 
-/// 内置的公共 CurseForge API Key（Eternal 官方示例 Key）。
-/// 用户可在设置里填写自己的 Key，配置后所有 CurseForge 请求都会优先使用用户的 Key。
-const CURSEFORGE_FALLBACK_KEY: &str =
-    "$2a$10$Y1weArmW71Nn0Hb5Ckqk4.KfKGQfFqj1lYaVmKdH5l5Z3qQGZqYyC";
-
-/// 生效的 CurseForge API Key：优先设置里的 `curseforge_api_key`，为空时回退内置 Key。
-async fn curseforge_key() -> String {
+/// 生效的 CurseForge API Key：只认用户在设置里填的那一个。
+///
+/// ## 为什么没有内置兜底 Key
+///
+/// 原来这里有一个硬编码的公共 Key（bcrypt 明文入库）。三个问题：
+///   1. 反编译即得 —— 等于把别人的配额公开；
+///   2. 借用第三方 Key 不符合 CurseForge 的 API 条款；
+///   3. 对方轮换 Key 后，内容中心**静默失败**，用户分不清是网络问题还是服务挂了。
+///
+/// 现在未配置时直接返回可读的错误，让 UI 把「去哪里配 / 可以先换 Modrinth」
+/// 说清楚 —— 这比一个说不清原因的 401 有用得多。
+async fn curseforge_key() -> Result<String> {
     if let Ok(s) = crate::settings::get_settings().await {
         if let Some(k) = s.curseforge_api_key {
             let k = k.trim().to_string();
             if !k.is_empty() {
-                return k;
+                return Ok(k);
             }
         }
     }
-    CURSEFORGE_FALLBACK_KEY.to_string()
+    Err(anyhow!(
+        "未配置 CurseForge API Key。请到「设置 → 内容服务」填写自己的 Key，\
+         或到「内容中心」把数据源切换成 Modrinth（免 Key）"
+    ))
 }
 
 /// Minecraft 官方新闻搜索接口（minecraft.net 官网自用），按时间倒序取最新中文条目。
@@ -312,7 +320,7 @@ async fn browse_curseforge(
     }
 
     let response = client.post("https://api.curseforge.com/v1/mods/search")
-        .header("x-api-key", curseforge_key().await)
+        .header("x-api-key", curseforge_key().await?)
         .json(&body)
         .send()
         .await;
@@ -383,7 +391,7 @@ async fn browse_curseforge(
 pub async fn curseforge_categories() -> Result<Vec<Value>> {
     let client = crate::util::http_client().await;
     let response = client.get("https://api.curseforge.com/v1/categories?gameId=432")
-        .header("x-api-key", curseforge_key().await)
+        .header("x-api-key", curseforge_key().await?)
         .send().await.context("Failed to fetch CurseForge categories")?;
     let result: Value = response.json().await.context("Failed to parse categories")?;
     Ok(result["data"].as_array().unwrap_or(&vec![]).clone())
@@ -437,7 +445,7 @@ pub async fn project_info(provider: &str, project_id: &str) -> Result<ProjectInf
 
 async fn project_info_curseforge(client: &reqwest::Client, project_id: &str) -> Result<ProjectInfoResult> {
     let response = client.get(format!("https://api.curseforge.com/v1/mods/{}", project_id))
-        .header("x-api-key", curseforge_key().await)
+        .header("x-api-key", curseforge_key().await?)
         .send().await.context("Failed to get CurseForge project")?;
     let result: Value = response.json().await.context("Failed to parse CurseForge project")?;
     let data = &result["data"];
@@ -561,7 +569,7 @@ async fn project_versions_curseforge(
     }
 
     let response = client.get(&url)
-        .header("x-api-key", curseforge_key().await)
+        .header("x-api-key", curseforge_key().await?)
         .send().await.context("Failed to get CurseForge files")?;
     let result: Value = response.json().await.context("Failed to parse CurseForge files")?;
     let files = result["data"].as_array();
@@ -1512,8 +1520,12 @@ async fn run_official_installer(
         "[loader] 交 :jvm 独立进程跑 installer：mainClass={main_class} jar={}",
         installer_jar.display()
     ));
+    #[cfg(target_os = "android")]
     crate::android_bridge::start_jvm_install_service(&payload.to_string())
         .ok_or_else(|| anyhow::anyhow!("无法调用 JVM 安装服务（原生桥未就绪）"))?;
+    // 这条安装路径整体依赖安卓的 `:jvm` 独立进程；桌面端（与宿主单测）走不到这里
+    #[cfg(not(target_os = "android"))]
+    anyhow::bail!("桌面端不支持用 :jvm 服务跑官方安装器");
 
     // ⚠️ 不能等「退出码」：`JLI_Launch` 结束时是**直接 exit()**（不是 return），
     // 所以 :jvm 服务里"跑完写结果文件"那段**永远不会执行** ✗（真机就这么静默消失的）。
@@ -2131,7 +2143,7 @@ pub async fn resolve_content_file(provider: &str, version_id: &str) -> Result<(S
     if provider == "curseforge" {
         let response = client
             .get(format!("https://api.curseforge.com/v1/mods/files/{}", version_id))
-            .header("x-api-key", curseforge_key().await)
+            .header("x-api-key", curseforge_key().await?)
             .send()
             .await
             .context("Failed to get CurseForge file")?;

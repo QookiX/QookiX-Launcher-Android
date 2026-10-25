@@ -1292,6 +1292,7 @@
     <string name="about_update_hint">当前版本 %1$s</string>
     <string name="about_update_download">下载</string>
     <string name="about_update_install">安装</string>
+    <string name="about_update_install_failed">安装失败：%1$s</string>
     <string name="about_update_auto">自动检查更新</string>
     <string name="about_update_auto_desc">启动时静默检查，有新版本才提示</string>
     <string name="about_links">官方链接</string>
@@ -1310,7 +1311,7 @@
     <string name="about_dev_name_contributor">维墨笙</string>
     <string name="about_dev_role_contributor">QookiX Launcher Android 的协助开发者</string>
     <string name="about_contributors">社区贡献</string>
-    <string name="about_contributors_empty">名单为空。维护者可编辑 bootstrap-public/contributors.json 后重新打包。</string>
+    <string name="about_contributors_empty">名单为空。维护者可编辑 gen/android/app/src/main/assets/contributors.json 后重新打包。</string>
     <string name="about_update_downloading">正在下载…%1$d / %2$d MB</string>
     <string name="about_update_downloading_unknown">正在下载…</string>
     <string name="account_code_label">登录代码</string>

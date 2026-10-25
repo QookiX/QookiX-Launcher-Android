@@ -47,11 +47,16 @@ pub fn set_orientation(mode: &str) -> Result<(), String> {
 }
 
 /// 把下载好的 APK 交给系统安装器（会弹「是否安装」，安卓不允许静默安装）。
+///
+/// 原生侧会先比对签名证书：不一致直接删包并返回原因，不会进安装器。
+/// 返回值约定同 `write_text_to_uri`：空串 = 已拉起安装器，非空 = 拒绝原因。
 #[cfg(target_os = "android")]
 pub fn install_apk(path: &str) -> Result<(), String> {
-    android::call_activity("installApk", "(Ljava/lang/String;)V", Some(path))
-        .map(|_| ())
-        .ok_or_else(|| "无法拉起安装器（原生桥未就绪）".to_string())
+    match android::call_activity("installApk", "(Ljava/lang/String;)Ljava/lang/String;", Some(path)) {
+        Some(msg) if msg.is_empty() => Ok(()),
+        Some(msg) => Err(msg),
+        None => Err("无法拉起安装器（原生桥未就绪）".to_string()),
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -500,6 +505,7 @@ pub fn enable_sdl_integration() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "android")]
 pub fn preload_jre_libs(jre_home: &str) -> Result<i32, String> {
     android::call_activity("preloadJreLibs", "(Ljava/lang/String;)I", Some(jre_home))
         .and_then(|s| s.trim().parse::<i32>().ok())
