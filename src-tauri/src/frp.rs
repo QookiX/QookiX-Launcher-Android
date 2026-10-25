@@ -96,8 +96,7 @@ async fn save_stored(s: &Stored) -> Result<()> {
     let dir = crate::settings::get_data_dir().await?;
     let path = config_path(&dir);
     let text = serde_json::to_string_pretty(s)?;
-    tokio::fs::write(&path, text)
-        .await
+    crate::fsutil::write_text_atomic(&path, &text)
         .with_context(|| format!("写入 {} 失败", path.display()))?;
     Ok(())
 }

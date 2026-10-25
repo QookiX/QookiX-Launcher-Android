@@ -457,7 +457,7 @@ pub fn strip_earlydisplay_library(profile_dir: &Path) -> bool {
     }
     let removed = before - libs.len();
     match serde_json::to_string_pretty(&v) {
-        Ok(out) => match std::fs::write(&json, out) {
+        Ok(out) => match crate::fsutil::write_text_atomic(&json, &out) {
             Ok(()) => {
                 crate::util::log_line(&format!(
                     "[loader] 已从 profile {} 的 libraries 中移除 {removed} 条 earlydisplay（安卓上会导致启动崩溃）",
