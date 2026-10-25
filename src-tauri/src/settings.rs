@@ -250,15 +250,27 @@ pub(crate) async fn load_raw_settings_strict() -> Result<HashMap<String, Value>>
         .with_context(|| format!("设置文件 JSON 解析失败（{}），拒绝覆盖写入", settings_path.display()))
 }
 
-/// 原子写盘：先写 `settings.json.tmp` 再 rename。
+/// 原子写盘：先写**唯一命名的** tmp 文件再 rename。
 ///
 /// ⚠️ 2026-10-25：原来所有写路径都直接 `fs::write`（open+O_TRUNC+write）——
 /// 进程在写入中途被杀（安卓后台杀进程很常见）就留下半截/0 字节 JSON；
-/// 两个写路径并发时还可能交错出撕裂文件。这些残废文件一出现，下一轮
-/// 「读空表→合并→写回」就把用户全部设置抹掉（真机实锤）。
+/// 这些残废文件一出现，下一轮「读空表→合并→写回」就把用户全部设置抹掉（真机实锤）。
 /// rename 在同一文件系统内是原子的，写坏最多坏掉 tmp，正主永远完整。
+///
+/// tmp 名带 pid+序号：并发写若共用一个固定 tmp 名，A/B 交错写同一个 tmp，
+/// rename 出去的仍可能是撕裂内容 —— 唯一名让每次写互不干扰。
 async fn write_settings_file(settings_path: &Path, content: &str) -> Result<()> {
-    let tmp_path = settings_path.with_extension("json.tmp");
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let file_name = settings_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "settings.json".to_string());
+    let tmp_path = settings_path.with_file_name(format!(
+        "{file_name}.tmp.{}-{seq}",
+        std::process::id()
+    ));
     {
         let mut f = fs::File::create(&tmp_path).await
             .with_context(|| format!("无法创建临时设置文件：{}", tmp_path.display()))?;
@@ -272,8 +284,40 @@ async fn write_settings_file(settings_path: &Path, content: &str) -> Result<()> 
     Ok(())
 }
 
+/// ⚠️ 所有「读-改-写设置」周期的全局串行锁（2026-10-25）。
+///
+/// 没有它，两个合并写手（改设置 patch、选账号、改游戏目录）并发时各自
+/// 读到同一份旧 map、各自写回 —— **后写的把先写的那次改动整个覆盖掉**，
+/// 表现还是「某个设置莫名被重置」。锁必须罩住**整个**读改写周期，
+/// 只锁写盘是不够的（读发生在锁外照样丢更新）。
+static SETTINGS_WRITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 合并写手的**统一入口**：持锁 → 严格读 → 调用方改 map → 原子写 → 失效缓存。
+///
+/// 新代码要改设置请走这里；直接 `load_raw_settings + save_raw_settings`
+/// 的组合自带丢更新竞态，别再用了。
+pub(crate) async fn mutate_raw_settings<F>(f: F) -> Result<()>
+where
+    F: FnOnce(&mut HashMap<String, Value>),
+{
+    let _guard = SETTINGS_WRITE_LOCK.lock().await;
+    let mut map = load_raw_settings_strict().await?;
+    f(&mut map);
+    let data_dir = get_data_dir().await?;
+    let settings_path = Path::new(&data_dir).join("settings.json");
+    let content = serde_json::to_string_pretty(&map)?;
+    write_settings_file(&settings_path, &content).await?;
+    invalidate_settings_cache();
+    crate::util::reset_http_client();
+    Ok(())
+}
+
 /// 写入设置文件原始 JSON。
+///
+/// 调用方自带 map（先读过再改的旧模式）——同样要持全局写锁，
+/// 否则与 `mutate_raw_settings` 并发时又会回到丢更新的老路。
 pub async fn save_raw_settings(map: &HashMap<String, Value>) -> Result<()> {
+    let _guard = SETTINGS_WRITE_LOCK.lock().await;
     let data_dir = get_data_dir().await?;
     let settings_path = Path::new(&data_dir).join("settings.json");
     let content = serde_json::to_string_pretty(map)?;
@@ -437,91 +481,65 @@ pub async fn get_settings() -> Result<Settings> {
 }
 
 pub async fn update_settings(settings: Settings) -> Result<()> {
-    let data_dir = get_data_dir().await?;
-    let settings_path = Path::new(&data_dir).join("settings.json");
-
     // ⚠️ 2026-10-25：从**现有文件**出发，而不是新建空表。
     // 这份「全量写」的键名单当年定下后就再没同步过（ui_scale / game_root 都不在），
     // 直接覆盖会把不在名单里的键抹掉 —— game_root 丢了实例就全部消失。
     // 虽然目前安卓链路走的是 update_settings_patch，但这是 pub 接口，必须防患。
-    let mut map = load_raw_settings_strict().await?;
-    map.insert("java_path".to_string(), Value::String(settings.java_path.unwrap_or_default()));
-    map.insert("max_memory_mb".to_string(), Value::Number(settings.max_memory_mb.into()));
-    map.insert("min_memory_mb".to_string(), Value::Number(settings.min_memory_mb.into()));
-    map.insert("memory_mode".to_string(), Value::String(settings.memory_mode));
-    map.insert("jvm_args".to_string(), Value::String(settings.jvm_args));
-    map.insert("game_args".to_string(), Value::String(settings.game_args));
-    map.insert("download_threads".to_string(), Value::Number(settings.download_threads.into()));
-    map.insert("download_chunk_threads".to_string(), Value::Number(settings.download_chunk_threads.into()));
-    map.insert("curseforge_api_key".to_string(), Value::String(settings.curseforge_api_key.unwrap_or_default()));
-    map.insert("translate_provider".to_string(), Value::String(settings.translate_provider));
-    map.insert("translate_api_base".to_string(), Value::String(settings.translate_api_base));
-    map.insert("translate_api_key".to_string(), Value::String(settings.translate_api_key.unwrap_or_default()));
-    map.insert("translate_api_model".to_string(), Value::String(settings.translate_api_model));
-    map.insert("body_translate_auto".to_string(), Value::Bool(settings.body_translate_auto));
-    map.insert("theme".to_string(), Value::String(settings.theme));
-    map.insert("theme_color".to_string(), Value::String(settings.theme_color));
-    map.insert("close_behavior".to_string(), Value::String(settings.close_behavior));
-    map.insert("auto_launch".to_string(), Value::Bool(settings.auto_launch));
-    map.insert("keep_open".to_string(), Value::Bool(settings.keep_open));
-    map.insert("ms_client_id".to_string(), Value::String(settings.ms_client_id));
-    map.insert("selected_account".to_string(), Value::String(settings.selected_account.unwrap_or_default()));
-    map.insert("proxy_mode".to_string(), Value::String(settings.proxy_mode));
-    map.insert("proxy".to_string(), Value::String(settings.proxy.unwrap_or_default()));
-    map.insert("mirror".to_string(), Value::String(settings.mirror));
-    map.insert("mirror_custom".to_string(), Value::String(settings.mirror_custom.unwrap_or_default()));
-    map.insert("background_image".to_string(), Value::String(settings.background_image.unwrap_or_default()));
-    map.insert("background_blur".to_string(), Value::Number(settings.background_blur.into()));
-    map.insert("background_dim".to_string(), Value::Number(settings.background_dim.into()));
-    map.insert("glass_blur".to_string(), Value::Number(settings.glass_blur.into()));
-    map.insert("show_sidebar_collapse_btn".to_string(), Value::Bool(settings.show_sidebar_collapse_btn));
-    map.insert("show_news".to_string(), Value::Bool(settings.show_news));
-    map.insert("show_home_downloads".to_string(), Value::Bool(settings.show_home_downloads));
-    map.insert("show_home_recent".to_string(), Value::Bool(settings.show_home_recent));
-    map.insert("show_home_stats".to_string(), Value::Bool(settings.show_home_stats));
-    map.insert("dismissed_update_version".to_string(), Value::String(settings.dismissed_update_version.unwrap_or_default()));
-    map.insert("auto_update".to_string(), Value::Bool(settings.auto_update));
-    map.insert("update_source".to_string(), Value::String(settings.update_source));
-    map.insert("orientation".to_string(), Value::String(settings.orientation));
-
-    let content = serde_json::to_string_pretty(&map)?;
-    write_settings_file(&settings_path, &content).await?;
-    // ⚠️ 缓存失效必须挂到**每一个**写盘路径：设置有三条写入口
-    // （`save_raw_settings` / `update_settings` / `update_settings_patch`），
-    // 只挂其中一条的后果不是"稍微晚一点生效"，而是「文件写进去了、界面读回旧值」——
-    // 用户看到的就是「设置里怎么调都调不动」。真机踩过（2026-10-11）。
-    invalidate_settings_cache();
-    crate::util::reset_http_client();
-
-    Ok(())
+    // 全程走 mutate_raw_settings：严格读 + 持锁（防丢更新）+ 原子写。
+    mutate_raw_settings(move |map| {
+        map.insert("java_path".to_string(), Value::String(settings.java_path.unwrap_or_default()));
+        map.insert("max_memory_mb".to_string(), Value::Number(settings.max_memory_mb.into()));
+        map.insert("min_memory_mb".to_string(), Value::Number(settings.min_memory_mb.into()));
+        map.insert("memory_mode".to_string(), Value::String(settings.memory_mode));
+        map.insert("jvm_args".to_string(), Value::String(settings.jvm_args));
+        map.insert("game_args".to_string(), Value::String(settings.game_args));
+        map.insert("download_threads".to_string(), Value::Number(settings.download_threads.into()));
+        map.insert("download_chunk_threads".to_string(), Value::Number(settings.download_chunk_threads.into()));
+        map.insert("curseforge_api_key".to_string(), Value::String(settings.curseforge_api_key.unwrap_or_default()));
+        map.insert("translate_provider".to_string(), Value::String(settings.translate_provider));
+        map.insert("translate_api_base".to_string(), Value::String(settings.translate_api_base));
+        map.insert("translate_api_key".to_string(), Value::String(settings.translate_api_key.unwrap_or_default()));
+        map.insert("translate_api_model".to_string(), Value::String(settings.translate_api_model));
+        map.insert("body_translate_auto".to_string(), Value::Bool(settings.body_translate_auto));
+        map.insert("theme".to_string(), Value::String(settings.theme));
+        map.insert("theme_color".to_string(), Value::String(settings.theme_color));
+        map.insert("close_behavior".to_string(), Value::String(settings.close_behavior));
+        map.insert("auto_launch".to_string(), Value::Bool(settings.auto_launch));
+        map.insert("keep_open".to_string(), Value::Bool(settings.keep_open));
+        map.insert("ms_client_id".to_string(), Value::String(settings.ms_client_id));
+        map.insert("selected_account".to_string(), Value::String(settings.selected_account.unwrap_or_default()));
+        map.insert("proxy_mode".to_string(), Value::String(settings.proxy_mode));
+        map.insert("proxy".to_string(), Value::String(settings.proxy.unwrap_or_default()));
+        map.insert("mirror".to_string(), Value::String(settings.mirror));
+        map.insert("mirror_custom".to_string(), Value::String(settings.mirror_custom.unwrap_or_default()));
+        map.insert("background_image".to_string(), Value::String(settings.background_image.unwrap_or_default()));
+        map.insert("background_blur".to_string(), Value::Number(settings.background_blur.into()));
+        map.insert("background_dim".to_string(), Value::Number(settings.background_dim.into()));
+        map.insert("glass_blur".to_string(), Value::Number(settings.glass_blur.into()));
+        map.insert("show_sidebar_collapse_btn".to_string(), Value::Bool(settings.show_sidebar_collapse_btn));
+        map.insert("show_news".to_string(), Value::Bool(settings.show_news));
+        map.insert("show_home_downloads".to_string(), Value::Bool(settings.show_home_downloads));
+        map.insert("show_home_recent".to_string(), Value::Bool(settings.show_home_recent));
+        map.insert("show_home_stats".to_string(), Value::Bool(settings.show_home_stats));
+        map.insert("dismissed_update_version".to_string(), Value::String(settings.dismissed_update_version.unwrap_or_default()));
+        map.insert("auto_update".to_string(), Value::Bool(settings.auto_update));
+        map.insert("update_source".to_string(), Value::String(settings.update_source));
+        map.insert("orientation".to_string(), Value::String(settings.orientation));
+    })
+    .await
 }
 
 /// 以 patch 模式更新设置：读取现有设置 → 合并 patch → 写回
 pub async fn update_settings_patch(patch: Value) -> Result<()> {
-    let data_dir = get_data_dir().await?;
-    let settings_path = Path::new(&data_dir).join("settings.json");
-
-    // 读取现有设置（JSON map）—— ⚠️ 必须严格读：文件损坏时宁可报错也不能
-    // 拿着空表去合并写回（那就成了「把用户其它设置全抹掉」，真机实锤的 bug）。
-    let mut map = load_raw_settings_strict().await?;
-
-    // 合并 patch
-    if let Some(obj) = patch.as_object() {
-        for (k, v) in obj {
-            map.insert(k.clone(), v.clone());
+    // ⚠️ 必须走 mutate_raw_settings：严格读（坏文件拒绝写）+ 全程持锁（防丢更新）。
+    mutate_raw_settings(move |map| {
+        if let Some(obj) = patch.as_object() {
+            for (k, v) in obj {
+                map.insert(k.clone(), v.clone());
+            }
         }
-    }
-
-    let content = serde_json::to_string_pretty(&map)?;
-    write_settings_file(&settings_path, &content).await?;
-    // ⚠️ 缓存失效必须挂到**每一个**写盘路径：设置有三条写入口
-    // （`save_raw_settings` / `update_settings` / `update_settings_patch`），
-    // 只挂其中一条的后果不是"稍微晚一点生效"，而是「文件写进去了、界面读回旧值」——
-    // 用户看到的就是「设置里怎么调都调不动」。真机踩过（2026-10-11）。
-    invalidate_settings_cache();
-    crate::util::reset_http_client();
-
-    Ok(())
+    })
+    .await
 }
 
 /// Android 上运行进程对应的包名（`/proc/self/cmdline` 的首段，形如 `com.zhayi.qookix`）。
@@ -586,18 +604,20 @@ pub async fn custom_game_root() -> Option<String> {
 
 /// 写入 / 清除 `game_root`（`None` 或空串 = 用内部目录）。
 pub async fn set_game_root(root: Option<&str>) -> Result<()> {
-    // ⚠️ 严格读：game_root 是最不能丢的键（丢了实例全「消失」），
-    // 文件损坏时宁可报错也不能拿空表写回。
-    let mut map = load_raw_settings_strict().await?;
-    match root {
-        Some(p) if !p.trim().is_empty() => {
-            map.insert("game_root".to_string(), Value::String(p.trim().to_string()));
+    // ⚠️ 走 mutate_raw_settings：严格读（game_root 是最不能丢的键，
+    // 丢了实例全「消失」）+ 持锁（防丢更新）+ 原子写。
+    let root = root.map(|p| p.trim().to_string());
+    mutate_raw_settings(move |map| {
+        match root {
+            Some(p) if !p.is_empty() => {
+                map.insert("game_root".to_string(), Value::String(p));
+            }
+            _ => {
+                map.remove("game_root");
+            }
         }
-        _ => {
-            map.remove("game_root");
-        }
-    }
-    save_raw_settings(&map).await
+    })
+    .await
 }
 
 /// 异步版游戏数据根目录（规则同 [`game_root_sync`]）。

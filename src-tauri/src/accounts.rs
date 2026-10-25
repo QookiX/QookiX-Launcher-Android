@@ -302,10 +302,12 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
 pub async fn select_account(account_id: &str) -> Result<()> {
     // 键名必须是 snake_case：settings::get_settings 按该键名回读，
     // 否则重启后「当前账号」会丢失。
-    // ⚠️ 严格读：拿空表合并写回会抹掉用户全部设置（2026-10-25 修）。
-    let mut settings = crate::settings::load_raw_settings_strict().await?;
-    settings.insert("selected_account".to_string(), Value::String(account_id.to_string()));
-    crate::settings::save_raw_settings(&settings).await
+    // ⚠️ 走 mutate_raw_settings：严格读 + 持锁（防并发丢更新）+ 原子写。
+    let account_id = account_id.to_string();
+    crate::settings::mutate_raw_settings(move |map| {
+        map.insert("selected_account".to_string(), Value::String(account_id));
+    })
+    .await
 }
 
 /// 用已保存的 refresh token 重新走一遍 MS 登录流程，返回带最新访问令牌的账号。
