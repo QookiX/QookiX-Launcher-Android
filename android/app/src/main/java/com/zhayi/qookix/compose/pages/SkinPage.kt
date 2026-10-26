@@ -67,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
+import com.zhayi.qookix.compose.ui.QkInlineError
 import com.zhayi.qookix.compose.ui.SkeletonList
 
 /**
@@ -177,6 +178,13 @@ fun SkinPage(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        // 皮肤库的失败（读取 / 导入 / 删除 / 应用）原来只写进 SkinUiState.error，
+        // 界面零渲染 → 用户只看到「点了没反应」（审查 P1-3）
+        state.error?.let {
+            Spacer(Modifier.height(QkSpacing.xs))
+            QkInlineError(it)
+        }
+
         // ── 预览区 ────────────────────────────────────────────────────
         //
         // ⚠️ 窄屏改**纵向堆叠**（2026-10-16 修）。
@@ -916,12 +924,3 @@ data class CapeUi(
     val dataUrl: String = "",
     val active: Boolean = false,
 )
-
-
-
-
-
-
-
-
-

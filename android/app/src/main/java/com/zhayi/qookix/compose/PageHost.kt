@@ -4660,11 +4660,8 @@ private fun CreateRoute(
         }
         onDispose { bridge.unlisten(sub) }
     }
-    var importMsg by remember { mutableStateOf<String?>(null) }
-
     fun pickAndImportModpack() {
         if (importing) return
-        importMsg = null
         // 用系统文件选择器拿路径（走 HostCapabilities 的 pickFile）
         val act = activity ?: return
         act.pickFileByMime("*/*") { path ->
@@ -4681,14 +4678,17 @@ private fun CreateRoute(
                         // 他进游戏才崩，而那时错误信息指不到真凶（旧注释原话）。
                         val bad = (o?.optInt("failed", 0) ?: 0) +
                             (o?.optInt("skippedNoUrl", 0) ?: 0)
-                        importMsg = if (bad > 0) {
-                            context.getString(R.string.import_partial, bad)
-                        } else {
-                            context.getString(R.string.import_done, name)
-                        }
+                        // 原来这里写进一个**没有任何读取点**的 importMsg（审查 P1-4），
+                        // 提示等于没弹；改走全局一行轻提示。
+                        QkFeedback.show(
+                            if (bad > 0) context.getString(R.string.import_partial, bad)
+                            else context.getString(R.string.import_done, name),
+                        )
                         onCreated()
                     },
-                    onFailure = { e -> importMsg = context.getString(R.string.import_failed, e.message) },
+                    onFailure = { e ->
+                        QkFeedback.show(context.getString(R.string.import_failed, e.message))
+                    },
                 )
             }
         }
