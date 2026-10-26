@@ -4,8 +4,9 @@
 //! 而这一整块是「怎么调 Android 侧」的实现细节，与上面的命令封装泾渭分明。
 
 use jni::objects::{JObject, JString, JValue};
-use jni::JavaVM;
+use jni::{JavaVM, JNIEnv};
     use std::sync::atomic::{AtomicPtr, Ordering};
+    use std::sync::Mutex;
 
     /// 应用进程的 JavaVM（进程内唯一，且生命周期与进程一致，无需释放）。
     static JAVA_VM: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
@@ -13,7 +14,12 @@ use jni::JavaVM;
     ///
     /// 这里存实例而不是类名：从原生线程 `FindClass` 用的是系统类加载器，看不到应用类，
     /// 在开启 `-Xcheck:jni` 的设备上会直接 abort 掉进程。实例方法调用则完全避开这个问题。
-    static ACTIVITY: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
+    ///
+    /// ⚠️ 2026-10-26 审查 B-P2-5：原来存裸指针并 `mem::forget`，而 Activity 每次
+    /// 因配置变化重建都会再 `nativeAttach` 一次 → 旧的 GlobalRef 永不释放，整棵
+    /// View 树被钉死。改成存 `GlobalRef` 本身：`*guard = Some(new)` 时旧值 drop，
+    /// GlobalRef 的 Drop 会自己 DeleteGlobalRef。
+    static ACTIVITY: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
     pub fn set_vm(vm: JavaVM) {
         JAVA_VM.store(
@@ -22,14 +28,16 @@ use jni::JavaVM;
         );
     }
 
-    pub fn set_activity(env: &mut jni::JNIEnv, activity: &JObject) {
-        if let Ok(global) = env.new_global_ref(activity) {
-            let raw = global.as_obj().as_raw() as *mut std::ffi::c_void;
-            // 进程级引用：故意不释放（释放需要 JNIEnv，且应用退出前一直有效）
-            std::mem::forget(global);
-            ACTIVITY.store(raw, Ordering::Release);
-            // 桥就绪前缓存的事件（进度 / 启动状态）现在补发（审查 B-P1-4）
-            crate::progress::flush_pending_events();
+    pub fn set_activity(env: &mut JNIEnv, activity: &JObject) {
+        match env.new_global_ref(activity) {
+            Ok(global) => {
+                // 旧引用在这里被替换并释放
+                *crate::util::lock_recover(&ACTIVITY) = Some(global);
+                // 桥就绪前缓存的事件（进度 / 启动状态）现在补发（审查 B-P1-4）
+                crate::progress::flush_pending_events();
+            }
+            // 静默吞掉会让「所有原生能力失效」变成无迹可查的谜案
+            Err(e) => tracing::error!("new_global_ref(activity) 失败：{e}"),
         }
     }
 
@@ -42,11 +50,10 @@ use jni::JavaVM;
     }
 
     fn activity() -> Option<JObject<'static>> {
-        let raw = ACTIVITY.load(Ordering::Acquire) as jni::sys::jobject;
-        if raw.is_null() {
-            return None;
-        }
-        Some(unsafe { JObject::from_raw(raw) })
+        let guard = crate::util::lock_recover(&ACTIVITY);
+        let g = guard.as_ref()?;
+        // GlobalRef 保证生命周期到进程结束，重新包一个 JObject 视图即可
+        Some(unsafe { JObject::from_raw(g.as_obj().as_raw()) })
     }
 
     /// 清掉 `env` 上**挂起的 Java 异常**。
