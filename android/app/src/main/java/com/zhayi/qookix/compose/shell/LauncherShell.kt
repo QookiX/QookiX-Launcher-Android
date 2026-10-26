@@ -28,6 +28,11 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import com.zhayi.qookix.compose.ui.QkFeedback
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -119,6 +124,16 @@ fun LauncherShell(
 ) {
     val size = rememberWindowSize()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
+    // 全局一句话反馈：删除/复制/备份这类「做完了」的操作统一在这里冒一下。
+    // 每个页面自己弹 Dialog 的话，位置和样式又会各不相同（审查 A-1 / X-3）。
+    val snackbarHost = remember { SnackbarHostState() }
+    val feedback = QkFeedback.message.collectAsState().value
+    LaunchedEffect(feedback) {
+        val text = feedback ?: return@LaunchedEffect
+        snackbarHost.showSnackbar(text)
+        QkFeedback.clear()
+    }
 
     val topBar: @Composable () -> Unit = {
         TopAppBar(
@@ -300,6 +315,7 @@ fun LauncherShell(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 containerColor = MaterialTheme.colorScheme.background,
                 topBar = topBar,
+                snackbarHost = { SnackbarHost(snackbarHost) },
             ) { inner ->
                 Box(
                     modifier = Modifier
@@ -314,6 +330,7 @@ fun LauncherShell(
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
             topBar = topBar,
+            snackbarHost = { SnackbarHost(snackbarHost) },
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     NavDestination.bottomBar.forEach { dest ->
