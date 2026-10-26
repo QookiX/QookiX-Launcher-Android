@@ -142,11 +142,20 @@ PojavLauncher 部分（含修改：包名与 R 引用调整、shim 接线、剥�
 
 ## 参考致谢
 
-- [PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher) —— 安卓平台上运行 Java 版 Minecraft 的先驱
+- [PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher) —— 安卓端的开山之作，我们参考了其架构与部分代码
+- [Zalith Launcher 2](https://github.com/ZalithLauncher/ZalithLauncher2) 
+- [Fold Craft Launcher](https://github.com/FCL-Team/FoldCraftLauncher) 
+
+- [Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2)
+- [HMCL](https://github.com/HMCL-dev/HMCL) 
+- [Axolotl Launcher](https://github.com/Mystic-Stars/Axolotl) 
+
+### 组件与项目
 - [GL4ES](https://github.com/ptitSeb/gl4es) / [MobileGlues](https://github.com/MobileGLues/MobileGlues) / [Mesa](https://gitlab.freedesktop.org/mesa/mesa) —— 图形翻译与驱动后端
 - [LWJGL](https://www.lwjgl.org/) 与 [Caciocavallo](https://github.com/OpenJDK/caciocavallo) —— Java 侧窗口与输入适配
 - [Jetpack Compose](https://developer.android.com/jetpack/compose)、[Material 3](https://m3.material.io/)、[Kotlin](https://kotlinlang.org/)、[Tauri](https://tauri.app/) —— 界面与外壳
 - [Modrinth](https://modrinth.com/) 与 [CurseForge](https://www.curseforge.com/) —— 内容平台
+- [Terracotta](https://github.com/burningtnt/Terracotta)（陶瓦联机）—— 局域网联机隧道，Android 版直接分发上游产物
 - [Feather Icons](https://feathericons.com/)（MIT）、[Lucide](https://lucide.dev/)（ISC）—— 图标
 
 ## 许可证

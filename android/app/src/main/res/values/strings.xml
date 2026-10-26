@@ -572,6 +572,14 @@
     <string name="about_dep_group_frontend">Android / Compose</string>
     <string name="about_dep_group_rust">Rust 后端</string>
     <string name="about_dep_group_bundled">随包分发的组件</string>
+    <string name="about_credits_title">致谢同行</string>
+    <string name="about_credits_pojav">安卓上运行 Java 版 Minecraft 的先驱，本项目的 JVM 引导与游戏内层基于它</string>
+    <string name="about_credits_zl2">参考了它组织 LWJGL 模块与解决游戏内 DNS 的做法</string>
+    <string name="about_credits_fcl">同类启动器的早期实践之一，趟过不少安装与渲染的坑</string>
+    <string name="about_credits_pcl2">国内用得最多的桌面启动器之一，下载与安装流程上给过我们启发</string>
+    <string name="about_credits_hmcl">跨平台开源启动器，实例、账户与下载的组织方式是很早就立住的标杆</string>
+    <string name="about_credits_axolotl">桌面端把内容生态与实例管理做到一个客户端的代表之一</string>
+    <string name="about_credits_terracotta">局域网联机用的陶瓦隧道，Android 版直接分发上游产物</string>
     <string name="about_this_project">本项目</string>
     <string name="about_third_party_notices">第三方声明全文</string>
     <string name="about_third_party_notices_desc">完整的版权与许可文本</string>

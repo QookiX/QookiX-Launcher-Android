@@ -138,12 +138,7 @@ fun AboutPane(
 
         Spacer(Modifier.height(QkSpacing.lg))
 
-        // ══════════════════════════════════════════════════════════════
-        // 以下顺序与用户给的截图一致（2026-10-18）：
-        //   品牌卡 → 检查更新 → 开发者（两个容器）→ 链接按钮 → 许可 → 依赖
-        // ══════════════════════════════════════════════════════════════
-
-        // ── 检查更新 ──────────────────────────────────────────────────
+        // 顺序与用户给的截图一致（2026-10-18）：品牌卡 → 更新 → 开发者 → 链接 → 致谢 → 许可 → 依赖
         UpdateSection(
             currentVersion = appVersion,
             state = updateState,
@@ -240,6 +235,8 @@ fun AboutPane(
             }
         }
 
+        Spacer(Modifier.height(QkSpacing.sm))
+        AboutCreditsSection(onOpenUrl = { onOpenUrl?.invoke(it) }) // 致谢同行，见 AboutCredits.kt
         Spacer(Modifier.height(QkSpacing.sm))
 
         // ── 许可证 ────────────────────────────────────────────────────
