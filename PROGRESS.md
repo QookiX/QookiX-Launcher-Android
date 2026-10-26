@@ -43,6 +43,12 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-27 · PageHost 第四刀：皮肤/多人/创建
+- SkinRoute(463) + MultiplayerRoute(227) + CreateRoute(236) → PlayRoutes.kt
+- PageHost.kt **4632 → 3706**（-926）；**累计 5726 → 3706（-2020，-35%）**
+- 验证：compile / assemble / 单测 10 / 闸门 280 文件 ✅
+- commit 待补
+
 ### 2026-10-27 · PageHost 第三刀：账号/首页/插件
 - AccountRoute(171) + HomeRoute(165) + PluginsRoute(115) → AccountHomeRoutes.kt
 - PageHost.kt **5083 → 4632**（-451）；**累计 5726 → 4632（-1094，-19%）**
