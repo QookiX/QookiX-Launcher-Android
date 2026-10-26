@@ -28,7 +28,7 @@ lazy_static::lazy_static! {
 /// 取消一个安装任务。返回是否真的找到了该任务
 /// （找不到说明已经结束或 id 不对，前端应据此提示而不是静默假装成功）。
 pub fn cancel_install(task_id: u64) -> bool {
-    match INSTALL_CANCELS.lock().unwrap().get(&task_id) {
+    match crate::util::lock_recover(&INSTALL_CANCELS).get(&task_id) {
         Some(flag) => {
             flag.store(true, Ordering::Relaxed);
             true
@@ -61,28 +61,44 @@ pub struct TaskCtx {
     pub instance_name: String,
     /// 任务来源描述，例如「游戏本体」「Modrinth：Sodium」
     pub source: String,
+    /// 取消标志条目的「所有权」。
+    ///
+    /// ⚠️ 2026-10-26 审查 B-P2-6：`TaskCtx::release()` 全仓只有一个调用点，
+    /// 其余 7 处 `TaskCtx::new` 都不收尾 → `INSTALL_CANCELS` 随任务数单调增长，
+    /// 而且已结束的任务在 `cancel_install` 里仍返回「取消成功」。
+    /// 现在靠最后一个 `TaskCtx`（含 clone）drop 时自动摘除，调用方不用记得收尾。
+    slot: Arc<TaskSlot>,
+}
+
+/// 只负责在最后一个 `TaskCtx` 消失时把取消标志从表里摘掉。
+#[derive(Debug)]
+struct TaskSlot {
+    task_id: u64,
+}
+
+impl Drop for TaskSlot {
+    fn drop(&mut self) {
+        crate::util::lock_recover(&INSTALL_CANCELS).remove(&self.task_id);
+    }
 }
 
 impl TaskCtx {
     pub fn new(instance_id: &str, instance_name: &str, source: &str) -> Self {
         let task_id = next_task_id();
-        INSTALL_CANCELS
-            .lock()
-            .unwrap()
+        crate::util::lock_recover(&INSTALL_CANCELS)
             .insert(task_id, Arc::new(AtomicBool::new(false)));
         Self {
             task_id,
             instance_id: instance_id.to_string(),
             instance_name: instance_name.to_string(),
             source: source.to_string(),
+            slot: Arc::new(TaskSlot { task_id }),
         }
     }
 
     /// 本任务的取消标志。下载层逐块检查它，才能真正中途停下。
     pub fn cancel_flag(&self) -> Arc<AtomicBool> {
-        INSTALL_CANCELS
-            .lock()
-            .unwrap()
+        crate::util::lock_recover(&INSTALL_CANCELS)
             .entry(self.task_id)
             .or_insert_with(|| Arc::new(AtomicBool::new(false)))
             .clone()
@@ -96,10 +112,11 @@ impl TaskCtx {
         Ok(())
     }
 
-    /// 任务收尾：把标志摘掉，避免长会话里无限累积。
-    pub fn release(&self) {
-        INSTALL_CANCELS.lock().unwrap().remove(&self.task_id);
-    }
+    /// 任务收尾。
+    ///
+    /// 现在由 [`TaskSlot`] 的 Drop 自动完成，保留这个空方法只是为了让
+    /// 现有调用点不改（显式写一句「我收尾了」读代码时更直白）。
+    pub fn release(&self) {}
 }
 
 /// 把一个事件**同时**推给 Kotlin（JNI 直连）与 Tauri（过渡期兜底）。
@@ -143,7 +160,7 @@ lazy_static::lazy_static! {
 
 #[cfg(target_os = "android")]
 fn queue_pending(event: &str, json: String) {
-    let mut q = PENDING_EVENTS.lock().unwrap();
+    let mut q = crate::util::lock_recover(&PENDING_EVENTS);
     let mut bytes = PENDING_BYTES.load(Ordering::Relaxed);
     bytes += json.len() as u64;
     while q.len() >= MAX_PENDING_EVENTS || bytes > MAX_PENDING_BYTES as u64 {
@@ -161,7 +178,7 @@ fn queue_pending(event: &str, json: String) {
 #[cfg(target_os = "android")]
 pub fn flush_pending_events() {
     let batch: Vec<(String, String)> = {
-        let mut q = PENDING_EVENTS.lock().unwrap();
+        let mut q = crate::util::lock_recover(&PENDING_EVENTS);
         PENDING_BYTES.store(0, Ordering::Relaxed);
         q.drain(..).collect()
     };
@@ -182,7 +199,7 @@ pub fn flush_pending_events() {
         }
     }
     if !leftover.is_empty() {
-        let mut q = PENDING_EVENTS.lock().unwrap();
+        let mut q = crate::util::lock_recover(&PENDING_EVENTS);
         for (event, json) in leftover.into_iter().rev() {
             q.push_front((event, json));
         }
@@ -287,12 +304,67 @@ pub fn emit_launch_state(instance_id: &str, state: &str, pid: u32, code: Option<
 }
 
 /// 游戏日志行。
+///
+/// ⚠️ 2026-10-26 审查 B-P2-8：`android_env.rs` 的日志 tail 是**每读一行**调一次，
+/// 每次 2×`NewStringUTF` + 一次同步 `CallVoidMethod`。启动期 MC 每秒几百行，
+/// 于是 tail 线程被 JNI 卡住、局部引用表（修复前不释放）迅速膨胀。
+/// 这里给一个「每秒最多 1000 行」的预算：超出的行丢弃并补一条提示，
+/// 宁可日志少几行，也不要拖住 tail 线程。
 pub fn emit_launch_log(instance_id: &str, stream: &str, line: &str) {
+    if !log_budget_take() {
+        return;
+    }
     push("launch://log", serde_json::json!({
                 "instanceId": instance_id,
                 "stream": stream,
                 "line": line,
             }),);
+}
+
+/// 当前这一秒的日志行预算。
+fn log_budget_take() -> bool {
+    use std::sync::OnceLock;
+    use std::time::{Duration, Instant};
+    struct Budget {
+        window_start: Instant,
+        used: u32,
+        dropped: u32,
+        warned: bool,
+    }
+    static BUDGET: OnceLock<StdMutex<Budget>> = OnceLock::new();
+    const PER_SECOND: u32 = 1000;
+
+    let mut b = crate::util::lock_recover(BUDGET.get_or_init(|| {
+        StdMutex::new(Budget {
+            window_start: Instant::now(),
+            used: 0,
+            dropped: 0,
+            warned: false,
+        })
+    }));
+    if b.window_start.elapsed() >= Duration::from_secs(1) {
+        b.window_start = Instant::now();
+        b.used = 0;
+        b.dropped = 0;
+        b.warned = false;
+    }
+    if b.used < PER_SECOND {
+        b.used += 1;
+        return true;
+    }
+    b.dropped += 1;
+    // 每秒只提示一次，避免提示本身又把通道打满
+    if !b.warned {
+        b.warned = true;
+        let dropped = b.dropped;
+        drop(b);
+        push("launch://log", serde_json::json!({
+            "instanceId": "",
+            "stream": "stderr",
+            "line": format!("（日志过快，已省略 {dropped} 行）"),
+        }));
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------

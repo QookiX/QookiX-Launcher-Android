@@ -118,7 +118,7 @@ pub async fn ms_start() -> Result<Value> {
         .to_string();
     let interval = body.get("interval").and_then(|v| v.as_u64()).unwrap_or(5);
     let expires_in = body.get("expires_in").and_then(|v| v.as_u64()).unwrap_or(900);
-    *MS_FLOW.lock().unwrap() = Some(MsFlow {
+    *crate::util::lock_recover(&MS_FLOW) = Some(MsFlow {
         device_code,
         interval,
         expires_at: now_secs() + expires_in,
@@ -145,7 +145,7 @@ pub async fn ms_poll() -> Result<Account> {
         .clone()
         .ok_or_else(|| anyhow::anyhow!("没有进行中的设备码登录"))?;
     if now_secs() > flow.expires_at {
-        *MS_FLOW.lock().unwrap() = None;
+        *crate::util::lock_recover(&MS_FLOW) = None;
         return Err(anyhow::anyhow!("设备码已过期，请重新开始登录"));
     }
     let resp = crate::util::http_client()
@@ -184,7 +184,7 @@ pub async fn ms_poll() -> Result<Account> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("缺少 refresh_token"))?
         .to_string();
-    *MS_FLOW.lock().unwrap() = None;
+    *crate::util::lock_recover(&MS_FLOW) = None;
     let account = perform_microsoft_login(&refresh_token, &flow.client_id).await?;
     add_account_to_disk(&account).await?;
     Ok(account)

@@ -552,3 +552,27 @@ pub fn runtime() -> &'static tokio::runtime::Runtime {
 pub fn block_on<F: std::future::Future>(f: F) -> F::Output { runtime().block_on(f) }
 
 pub fn spawn<F>(f: F) where F: std::future::Future<Output = ()> + Send + 'static { runtime().spawn(f); }
+
+/// 取锁并在**中毒后继续用**（等价于 `lock().unwrap()` 但不会永久打死这个域）。
+///
+/// ⚠️ 为什么（2026-10-26 审查 A-P2-10）：这些静态 Mutex 保护的域（进度取消表、
+/// 账号登录流程、游戏进程句柄…）一旦有线程持锁 panic，`lock().unwrap()` 之后
+/// 每次调用都会继续 panic —— 一个偶发崩溃就变成「该功能永久不可用」。
+/// 这些结构里的数据即使经历过 panic 也仍然是可用的（都是标志位/句柄/表），
+/// 所以直接取回内部值，比整个域瘫痪更好。
+pub fn lock_recover<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match m.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("互斥锁曾中毒，继续使用内部数据");
+            poisoned.into_inner()
+        }
+    }
+}
+
+/// 同上，但锁在 `OnceLock<Mutex<T>>` 里（`get().unwrap().lock().unwrap()` 的替代）。
+pub fn cell_lock<T>(
+    cell: &'static std::sync::OnceLock<std::sync::Mutex<T>>,
+) -> Option<std::sync::MutexGuard<'static, T>> {
+    cell.get().map(lock_recover)
+}

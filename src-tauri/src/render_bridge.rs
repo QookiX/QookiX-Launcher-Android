@@ -482,14 +482,14 @@ pub fn init() {
 #[cfg(target_os = "android")]
 pub fn setup_surface(native_window: *mut std::ffi::c_void) -> Result<()> {
     init();
-    let mut bridge = RENDER_BRIDGE.get().unwrap().lock().unwrap();
+    let mut bridge = crate::util::cell_lock(&RENDER_BRIDGE).unwrap();
     bridge.setup_surface(native_window, RendererType::Gl4Es)
 }
 
 #[cfg(target_os = "android")]
 pub fn swap_buffers() -> Result<()> {
     if let Some(bridge) = RENDER_BRIDGE.get() {
-        let bridge = bridge.lock().unwrap();
+        let bridge = crate::util::lock_recover(bridge);
         bridge.swap_buffers()
     } else {
         Err(RenderError::GlContextFailed("render bridge not initialized".to_string()).into())
@@ -498,7 +498,7 @@ pub fn swap_buffers() -> Result<()> {
 
 pub fn release() {
     if let Some(bridge) = RENDER_BRIDGE.get() {
-        let mut bridge = bridge.lock().unwrap();
+        let mut bridge = crate::util::lock_recover(bridge);
         bridge.release();
     }
 }
@@ -538,19 +538,6 @@ mod tests {
         assert_ne!(RendererType::Gl4Es, RendererType::Zink);
     }
 
-    #[test]
-    fn test_render_bridge_send_ready_events() {
-        crate::input_bridge::init();
-        crate::input_bridge::set_ready(true);
-        assert_eq!(crate::input_bridge::pending_events(), 0);
-    }
-
-    #[test]
-    fn test_render_bridge_send_not_ready_drops() {
-        crate::input_bridge::init();
-        crate::input_bridge::set_ready(false);
-        assert_eq!(crate::input_bridge::pending_events(), 0);
-    }
 
     #[test]
     fn test_render_bridge_release_no_crash() {

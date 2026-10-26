@@ -30,7 +30,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
     init_statics();
 
     {
-        let mut status = GAME_STATUS.get().unwrap().lock().unwrap();
+        let mut status = crate::util::cell_lock(&GAME_STATUS).unwrap();
         if status.is_running {
             return Err(anyhow::anyhow!("GAME_ALREADY_RUNNING"));
         }
@@ -932,7 +932,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
     let exit_code = match launch_result {
         Ok(code) => code,
         Err(e) => {
-            let mut status = GAME_STATUS.get().unwrap().lock().unwrap();
+            let mut status = crate::util::cell_lock(&GAME_STATUS).unwrap();
             status.is_running = false;
             status.error = Some(e.to_string());
             drop(status);
@@ -946,7 +946,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
     };
 
     {
-        let mut status = GAME_STATUS.get().unwrap().lock().unwrap();
+        let mut status = crate::util::cell_lock(&GAME_STATUS).unwrap();
         status.is_running = false;
         status.exit_code = Some(exit_code);
     }
@@ -966,12 +966,11 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
 pub async fn kill_game() -> Result<()> {
     init_statics();
 
-    crate::input_bridge::set_ready(false);
     crate::render_bridge::release();
     JvmLauncher::shutdown()?;
 
     let instance_id = {
-        let mut status = GAME_STATUS.get().unwrap().lock().unwrap();
+        let mut status = crate::util::cell_lock(&GAME_STATUS).unwrap();
         status.is_running = false;
         status.pid = None;
         let id = status.instance_id.clone();
@@ -987,7 +986,7 @@ pub async fn kill_game() -> Result<()> {
 
 pub fn get_game_status() -> GameStatus {
     init_statics();
-    GAME_STATUS.get().unwrap().lock().unwrap().clone()
+    crate::util::cell_lock(&GAME_STATUS).unwrap().clone()
 }
 
 /// 把本进程的 stdout/stderr 重定向到文件（追加），返回「恢复」闭包。

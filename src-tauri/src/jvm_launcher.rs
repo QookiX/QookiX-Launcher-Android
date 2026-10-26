@@ -89,7 +89,7 @@ impl JvmLauncher {
         };
 
         {
-            let mut state = JVM_STATE.get().unwrap().lock().unwrap();
+            let mut state = crate::util::cell_lock(&JVM_STATE).unwrap();
             state.library = Some(library);
             state.jre_home = Some(jre_home.to_string_lossy().to_string());
             state.exit_requested.store(false, Ordering::Release);
@@ -214,7 +214,7 @@ impl JvmLauncher {
         init_jvm_state();
 
         let jre_home = {
-            let state = JVM_STATE.get().unwrap().lock().unwrap();
+            let state = crate::util::cell_lock(&JVM_STATE).unwrap();
             state.exit_requested.store(true, Ordering::Release);
             state.jre_home.clone()
         };
@@ -323,7 +323,7 @@ impl JvmLauncher {
     }
     pub fn is_exit_requested() -> bool {
         if let Some(state) = JVM_STATE.get() {
-            let state = state.lock().unwrap();
+            let state = crate::util::lock_recover(state);
             state.exit_requested.load(Ordering::Acquire)
         } else {
             false

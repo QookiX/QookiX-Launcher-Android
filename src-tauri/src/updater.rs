@@ -172,7 +172,7 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
         .is_file()
         .then(|| downloaded.to_string_lossy().to_string());
 
-    *PENDING.lock().unwrap() = Some(PendingRelease {
+    *crate::util::lock_recover(&PENDING) = Some(PendingRelease {
         version: version.clone(),
         url: apk_url,
         size,
