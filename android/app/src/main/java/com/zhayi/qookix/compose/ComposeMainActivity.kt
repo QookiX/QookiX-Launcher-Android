@@ -156,17 +156,6 @@ class ComposeMainActivity : ComponentActivity() {
         // 游戏退出后重启进程（否则第二次启动必崩，见 watchGameExitAndRestart 的注释）
         watchGameExitAndRestart()
 
-        // ── 阶段 1 自检：确认「不经 WebView 的 JNI 命令通道」可用 ──────────
-        // 只在调试期留一行日志；通道验证通过后，会把各页面逐个切到这条路上。
-        Thread {
-            runCatching {
-                val r = TauriBridge.nativeInvoke("list_instances", "{}")
-                Log.i(TAG, "[Core] nativeInvoke(list_instances) → ${r.take(200)}")
-                val s = TauriBridge.nativeInvoke("get_settings", "{}")
-                Log.i(TAG, "[Core] nativeInvoke(get_settings) → ${s.take(160)}")
-            }.onFailure { Log.w(TAG, "[Core] nativeInvoke 失败", it) }
-        }.start()
-
         // ⚠️ 2026-10-23（真机反馈「崩过一次后再点启动游戏没反应」）：
         // `game_running.marker` 是「游戏正在运行」的标记，正常退出时由
         // GameGuardService 清掉。但游戏是**同进程 JNI** 启动的 —— JVM 崩溃时
