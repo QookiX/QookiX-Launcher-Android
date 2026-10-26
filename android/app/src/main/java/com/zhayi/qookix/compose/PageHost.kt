@@ -774,10 +774,11 @@ fun PageHost(
             } else if (fileBrowserTarget != null) {
                 // 进文件浏览时把标题改掉（否则顶栏还显示「实例详情」）
                 LaunchedEffect(fileBrowserTarget) { onTitleChange(context.getString(R.string.nav_file)) }
-                // 注册「内部返回」：外层顶栏点返回时先问这里，
-                // 这样才不会直接跳实例列表（跳过详情页）。
-                LaunchedEffect(fileBrowserTarget) {
+                // 注册「内部返回」（顶栏先问这里，避免跳过详情页），并成对注销：
+                // 原来只有 set 没有 clear → 离开后顶栏返回键在别的页面静默失效（P1-7 通路③）
+                DisposableEffect(Unit) {
                     onBackHandlerChanged({ fileBrowserTarget = null; true })
+                    onDispose { onBackHandlerChanged(null) }
                 }
                 FileBrowserRoute(
                     bridge = bridge,
@@ -2501,10 +2502,10 @@ private fun SettingsRoute(
                     // 写进 settings.json 也读不回来。它存在 Android 的
                     // SharedPreferences 里，所以这里单独覆盖一次，
                     // 否则设置页的 chip 永远显示默认的「省电」。
-                    it.copy(
-                        loading = false,
-                        previewRenderMode = activity?.previewRenderModePref() ?: "compose",
-                    )
+                    // ⚠️ 固定 compose：`webview` 那条链路已经死了（`findTauriWebView`
+                    // 恒 null），选它只会得到一块空白预览且没有任何说明（审查 P1-9）。
+                    // 设置页的选项也一并撤掉了，等链路真的接通再放出来。
+                    it.copy(loading = false, previewRenderMode = "compose")
                 },
                 onFailure = { state.copy(loading = false, error = context.getString(R.string.settings_read_failed, friendlyError(context, it))) },
             )
@@ -5731,5 +5732,3 @@ private fun ServerCreateRoute(
         },
     )
 }
-
-

@@ -2,12 +2,16 @@ package com.zhayi.qookix.compose.pages
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.friendlyError
 
@@ -132,12 +136,36 @@ fun rememberFileEditor(ops: FileOps, context: Context): FileEditorController =
 @Composable
 fun FileEditorOverlay(ctl: FileEditorController): Boolean {
     val ed = ctl.state ?: return false
-    BackHandler { ctl.close() }
+    // ⚠️ 2026-10-26 审查 P1-8：原来系统返回直接 `close()`，只有顶栏那个箭头
+    // 才弹「未保存」确认 —— 而绝大多数人用侧滑返回，改完的东西就这么没了。
+    // 现在两条路都走同一个 attemptClose()。
+    var confirmDiscard by remember { mutableStateOf(false) }
+    fun attemptClose() {
+        if (ctl.state?.dirty == true) confirmDiscard = true else ctl.close()
+    }
+    BackHandler { attemptClose() }
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text(stringResource(R.string.file_editor_unsaved)) },
+            text = { Text(stringResource(R.string.file_editor_discard_msg)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDiscard = false; ctl.close() }) {
+                    Text(stringResource(R.string.file_editor_modified))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDiscard = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
     FileEditorPage(
         state = ed,
         onContentChange = ctl::edit,
         onSave = ctl::save,
-        onBack = { ctl.close() },
+        onBack = { attemptClose() },
     )
     return true
 }

@@ -680,10 +680,8 @@ class ComposeMainActivity : ComponentActivity() {
     }
 
     // ══ 回调注册 ══
-    private var backHandler: (() -> Boolean)? = null
     private var logZoomListener: ((Int) -> Unit)? = null
 
-    fun setComposeBackHandler(handler: (() -> Boolean)?) { backHandler = handler }
     fun setLogZoomListener(listener: ((Int) -> Unit)?) { logZoomListener = listener }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
@@ -754,12 +752,6 @@ class ComposeMainActivity : ComponentActivity() {
             }
             else -> caps.onPickFileResult(data?.data)
         }
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (backHandler?.invoke() == true) return
-        super.onBackPressed()
     }
 
     // ══ 能力方法 ══
@@ -1373,30 +1365,37 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             // 二级页的「上一层」。顶栏返回键与系统返回键**共用这张表** ——
             // 原来是两套逻辑（顶栏回「更多」、系统返回却直接回首页），同一个页面
             // 两种返回结果，用户会以为界面错乱。
+            fun parentOf(dest: NavDestination): NavDestination? = when (dest) {
+                NavDestination.CreateInstance, NavDestination.InstanceDetail -> NavDestination.Instances
+                NavDestination.ServerDetail, NavDestination.ServerCreate,
+                NavDestination.Frp, NavDestination.FrpRooms -> NavDestination.Multiplayer
+                NavDestination.Skins, NavDestination.News,
+                NavDestination.Playtime, NavDestination.Settings -> NavDestination.More
+                NavDestination.Account -> NavDestination.Home
+                else -> null
+            }
+
             fun goUp(): Boolean {
-                val parent = when (current) {
-                    NavDestination.CreateInstance, NavDestination.InstanceDetail -> NavDestination.Instances
-                    NavDestination.ServerDetail, NavDestination.ServerCreate,
-                    NavDestination.Frp, NavDestination.FrpRooms -> NavDestination.Multiplayer
-                    NavDestination.Skins, NavDestination.News,
-                    NavDestination.Playtime, NavDestination.Settings -> NavDestination.More
-                    NavDestination.Account -> NavDestination.Home
-                    else -> null
-                } ?: return false
+                val parent = parentOf(current) ?: return false
                 current = parent
                 backStack.clear()
                 return true
             }
 
-            androidx.compose.runtime.DisposableEffect(Unit) {
-                activity.setComposeBackHandler {
-                    when {
-                        backStack.isNotEmpty() -> { current = backStack.removeAt(backStack.lastIndex); true }
-                        // 与顶栏返回键同一张表（以前这里一律回首页，跳过了「更多」）
-                        else -> goUp()
-                    }
+            // ⚠️ 系统返回键交给 OnBackPressedDispatcher（2026-10-26 审查 P1-7）：
+            // 原来 Activity.onBackPressed 先调自建的 backHandler 并 `return`，
+            // 于是挂在 dispatcher 上的 Compose BackHandler（文件编辑器、
+            // 未保存确认等）**全部饿死** —— 那些「修好了」的代码从没生效过。
+            // 现在这里只是最外层的一环：栈内下钻优先，其次回上一层，
+            // 都没有时不消费（enabled=false）让系统退出应用。
+            androidx.activity.compose.BackHandler(
+                enabled = backStack.isNotEmpty() || parentOf(current) != null,
+            ) {
+                if (backStack.isNotEmpty()) {
+                    current = backStack.removeAt(backStack.lastIndex)
+                } else {
+                    goUp()
                 }
-                onDispose { activity.setComposeBackHandler(null) }
             }
 
             LaunchedEffect(Unit) { bridge.start { bridgeReady = true } }
@@ -1431,11 +1430,25 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 //   服务器详情 → 多人
                 //   其余二级页 → 各自的上层
                 onBack = ({
-                    // 先问 PageHost 的「内部返回处理器」（文件浏览这类栈外下钻层），
-                    // 它返回 true 表示已消费；否则按统一的上层表回退。
-                    if (innerBack?.invoke() != true) goUp()
+                    // 顶栏返回键与系统返回键走同一条路（审查 P1-7 通路②）：
+                    // 原来是「innerBack 不消费就 goUp()」，完全不看 backStack ——
+                    // 同一个页面，系统返回回上一层、顶栏返回回上一层表里的父页，
+                    // 两种结果（如服务器详情：一个回多人列表，一个回多人首页）。
+                    when {
+                        innerBack?.invoke() == true -> {}
+                        backStack.isNotEmpty() -> {
+                            current = backStack.removeAt(backStack.lastIndex)
+                        }
+                        else -> {
+                            goUp()
+                        }
+                    }
+                    Unit
                 }).takeIf {
-                    current !in NavDestination.bottomBar
+                    // 顶栏返回键只在「真的能返回」时出现：栈空且没有父页时别显示
+                    // 一个点了没反应的箭头
+                    current !in NavDestination.bottomBar &&
+                        (innerBack != null || backStack.isNotEmpty() || parentOf(current) != null)
                 },
                 // ⚠️ 2026-10-18 加：实例页的「新建实例」按钮从内容区移到顶栏，
                 // 和标题、账号图标同一行 —— 省掉原来占掉的一整行（约 56dp）。

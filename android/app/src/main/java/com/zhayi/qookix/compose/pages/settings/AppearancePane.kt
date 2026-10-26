@@ -163,41 +163,12 @@ fun AppearancePane(
                 }
             }
 
-            // ── 3D 预览渲染方式（性能开关）─────────────────────────────
+            // ── 3D 预览渲染方式：选项已撤（2026-10-26 审查 P1-9）──────────
             //
-            // ⚠️ 这一项**不是外观偏好，是性能/耗电权衡**，必须让用户自己选：
-            //   省电：画面在 WebView 里离屏渲染后搬回 Compose，22–25fps
-            //   流畅：让那个 WebView 直接显示，~60fps，但更耗电
-            //
-            // 实测依据：那个 WebView 的 rAF 本来就能跑 90fps
-            //（`WebView 渲染能力: rAF 136 帧 / 1506ms = 90.3fps`），
-            // 瓶颈全在"搬像素"那一步 —— 所以直接显示就能快。
-            SettingsRow(
-                title = stringResource(R.string.settings_appearance_preview_mode),
-                subtitle = when (state.previewRenderMode) {
-                    "webview" -> stringResource(
-                        R.string.settings_appearance_preview_smooth_desc
-                    )
-                    else -> stringResource(
-                        R.string.settings_appearance_preview_battery_desc
-                    )
-                },
-                column = true,
-            ) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                ) {
-                    PreviewRenderMode.entries.forEach { m ->
-                        FilterChip(
-                            selected = state.previewRenderMode == m.id ||
-                                (state.previewRenderMode.isBlank() && m == PreviewRenderMode.Compose),
-                            onClick = { onChange(SettingsPatch.PreviewRenderMode(m.id)) },
-                            label = { Text(stringResource(m.labelRes)) },
-                        )
-                    }
-                }
-            }
+            // 「流畅（webview）」依赖让隐藏 WebView 直接显示，而那条链路已经死了
+            // （`RustBridge.findTauriWebView` 恒返回 null）：选了之后预览框一片空白、
+            // 连「预览不可用」的提示都被 SkinPage 的分支吃掉，等于给用户一个骗人的开关。
+            // 现在固定走 compose，等链路重新接通再把这行加回来。
 
             SettingsRow(
                 title = stringResource(R.string.settings_appearance_ui_scale),
