@@ -87,18 +87,14 @@ fun HomePage(
     // 启动阶段文案（检查文件 / 补全 / 启动中）。
     // 比笼统的「启动中…」有用 —— 补全大包要几分钟，用户需要知道在等什么。
     launchStage: String? = null,
+    /** 启动进度 0f..1f（来自 `launch://progress`）。 */
+    launchProgress: Float = 0f,
     onCancelTask: (Long) -> Unit = {},
 ) {
     // ── 响应式：横屏左右分栏，竖屏改单列 ────────────────────────────────
     //
-    // ⚠️ 2026-10-15 修（真机竖屏实测）：原来左栏是**写死的 `width(360.dp)`**，
-    // 而竖屏可用宽度只有 384dp —— 左栏吃掉 360dp 后，右栏只剩 **24dp**，
-    // 「最近实例」和新闻卡片被压成竖条，文字逐字换行挤出边界。
-    //
-    // 横屏（853dp）下 360dp 是合理的，所以问题只在竖屏暴露。
-    //
-    // 判据用「可用宽度够不够并排」而不是「是不是竖屏」：
-    // 折叠屏、分屏、平板都在这个谱系里，按宽度判定更稳。
+    // ⚠️ 2026-10-15 真机竖屏实测：左栏原写死 width(360.dp)，而竖屏可用宽度只有 384dp，
+    // 右栏只剩 24dp，文字被压成竖条。判据用「宽度够不够并排」而不是「是不是竖屏」。
     val cfg = androidx.compose.ui.platform.LocalConfiguration.current
     val wideEnough = cfg.screenWidthDp >= 600
 
@@ -107,15 +103,9 @@ fun HomePage(
             // ── 左栏：当前实例主卡片（门面）─────────────────────────────
             Column(
                 modifier = Modifier
-                    // ⚠️ 2026-10-18 改（用户反馈「换一台手机可能就溢出去了」）：
-                    //
-                    // 原来写死 `width(360.dp)`。600~720dp 的窄平板/分屏下，
-                    // 左栏吃掉 360 后右栏只剩 240~360，卡片里的长文本开始
-                    // 逐字换行；更窄时右侧内容直接被挤出边界。
-                    //
-                    // 改成「按可用宽度的 42% 取，但限制在 300~420dp」：
-                    //   - 小屏（600dp）→ 300dp，右栏还有 300dp 够用
-                    //   - 大屏（1200dp+）→ 封顶 420dp，不会无限变宽
+                    // ⚠️ 2026-10-18：左栏宽度改为「可用宽度的 42%，夹在 300~420dp」。
+                    // 写死 360dp 时，600~720dp 的窄平板/分屏下右栏只剩 240~360，
+                    // 卡片长文本开始逐字换行，更窄时内容直接被挤出边界。
                     .width(
                         (cfg.screenWidthDp * 0.42f).coerceIn(300f, 420f).dp,
                     )
@@ -127,6 +117,7 @@ fun HomePage(
                     inst = state.current,
                     launching = state.launching,
                     launchStage = launchStage,
+                    launchProgress = launchProgress,
                     running = state.current?.id == state.runningInstanceId,
                     onLaunch = onLaunch,
                     onSwitch = onSwitchInstance,
@@ -209,7 +200,8 @@ fun HomePage(
             CurrentInstanceCard(
                 inst = state.current,
                 launching = state.launching,
-                launchStage = launchStage,
+                    launchStage = launchStage,
+                    launchProgress = launchProgress,
                 running = state.current?.id == state.runningInstanceId,
                 onLaunch = onLaunch,
                 onSwitch = onSwitchInstance,
@@ -357,6 +349,8 @@ private fun CurrentInstanceCard(
     // 比笼统的「启动中…」有用 —— 补全大包要几分钟，
     // 用户需要知道在等什么。
     launchStage: String? = null,
+    /** 启动进度 0f..1f（来自 `launch://progress`）。 */
+    launchProgress: Float = 0f,
     running: Boolean = false,
     onLaunch: () -> Unit,
     onSwitch: () -> Unit,
@@ -484,6 +478,13 @@ private fun CurrentInstanceCard(
                         )
                     }
                 }
+            }
+
+            // 启动进度：`launch://progress` 的百分比一直只写不读（审查 P1-2）。
+            // 补全大实例要好几分钟，光有阶段文案用户不知道还剩多少。
+            if (launching && launchProgress > 0f) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(progress = { launchProgress }, modifier = Modifier.fillMaxWidth())
             }
         }
     }

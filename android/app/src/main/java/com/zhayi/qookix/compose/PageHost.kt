@@ -668,6 +668,7 @@ fun PageHost(
                 instances = instances,
                 tasks = tasksState.active,
                 runningInstanceId = tasksRepo.runningInstanceId,
+                launchProgress = tasksRepo.launchProgress,
                 onNavigate = onNavigate,
                 onOpenInstance = { id ->
                     onSelectedInstanceIdChange(id)
@@ -1637,6 +1638,8 @@ private fun HomeRoute(
     bridgeReady: Boolean,
     instances: List<InstanceUi>,
     tasks: List<TaskUi>,
+    /** 启动进度 0f..1f（`launch://progress` 的百分比）。 */
+    launchProgress: Float = 0f,
     onNavigate: (NavDestination) -> Unit,
     // 由调用方（PageHost）注入：点首页「最近实例」卡片时先设 selectedInstanceId
     // 再导航到详情页 —— 这个状态定义在 PageHost 的作用域（L333），
@@ -1697,6 +1700,7 @@ private fun HomeRoute(
             runningInstanceId = runningInstanceId,
             playtimeSeconds = playtimeSeconds,
         ),
+        launchProgress = launchProgress,
         onLaunch = {
               android.util.Log.i("QkLaunch", "click instances=" + instances.size + " accounts=" + accounts.size)
             val inst = instances.firstOrNull()
