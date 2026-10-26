@@ -937,7 +937,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             status.error = Some(e.to_string());
             drop(status);
             crate::progress::emit_launch_progress(&format!("启动失败：{e}"), 100.0);
-            crate::progress::emit_launch_exit();
+            crate::progress::emit_launch_exit(instance_id, -1);
             crate::progress::emit_launch_state(instance_id, "exited", 0, None);
             #[cfg(target_os = "android")]
             crate::android_env::stop_log_tail();
@@ -953,7 +953,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
     #[cfg(target_os = "android")]
     crate::android_env::stop_log_tail();
     crate::progress::emit_launch_log(instance_id, "out", &format!("JVM 已退出，退出码 {exit_code}"));
-    crate::progress::emit_launch_exit();
+    crate::progress::emit_launch_exit(instance_id, exit_code);
     crate::progress::emit_launch_state(instance_id, "exited", 0, Some(exit_code));
 
     if exit_code != 0 {

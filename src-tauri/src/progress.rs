@@ -280,8 +280,16 @@ pub fn emit_launch_progress(step: &str, progress: f64) {
 }
 
 /// 启动流程结束（成功或失败）：收起悬浮启动卡片。
-pub fn emit_launch_exit() {
-    push("launch://exit", serde_json::json!({}));
+///
+/// ⚠️ 2026-10-26 审查 P1-6：这里原来发的是空对象，而 Kotlin 侧解析
+/// `instanceId` / `code` → 恒得 `("", 0)`。后果是 PageHost 的退出事件去重 key
+/// 永远是 `":0"`，**同一进程内第二次游戏退出不再触发渲染器健康检查**，
+/// 「非正常退出」的等待分支也永不可达。载荷现在带上真实字段。
+pub fn emit_launch_exit(instance_id: &str, code: i32) {
+    push(
+        "launch://exit",
+        serde_json::json!({ "instanceId": instance_id, "code": code }),
+    );
 }
 
 /// 服务端启动阶段（`server://stage`：`{ id, stage }`）。
