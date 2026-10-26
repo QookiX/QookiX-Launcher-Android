@@ -173,7 +173,7 @@
   "android/app/src/main/java/net/kdt/pojavlaunch/ImportControlActivity.java": 209,
   "android/app/src/main/java/net/kdt/pojavlaunch/Logger.java": 25,
   "android/app/src/main/java/net/kdt/pojavlaunch/LwjglGlfwKeycode.java": 202,
-  "android/app/src/main/java/net/kdt/pojavlaunch/MinecraftGLSurface.java": 689,
+  "android/app/src/main/java/net/kdt/pojavlaunch/MinecraftGLSurface.java": 694,
   "android/app/src/main/java/net/kdt/pojavlaunch/prefs/LauncherPreferences.java": 143,
   "android/app/src/main/java/net/kdt/pojavlaunch/prefs/QuickSettingSideDialog.java": 251,
   "android/app/src/main/java/net/kdt/pojavlaunch/Tools.java": 326,

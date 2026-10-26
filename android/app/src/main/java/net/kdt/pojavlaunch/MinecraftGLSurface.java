@@ -37,6 +37,7 @@ import net.kdt.pojavlaunch.customcontrols.mouse.AbstractTouchpad;
 import net.kdt.pojavlaunch.customcontrols.mouse.AndroidPointerCapture;
 import net.kdt.pojavlaunch.customcontrols.mouse.InGUIEventProcessor;
 import net.kdt.pojavlaunch.customcontrols.mouse.InGameEventProcessor;
+import net.kdt.pojavlaunch.customcontrols.keyboard.TouchCharInput;
 import net.kdt.pojavlaunch.customcontrols.mouse.TouchEventProcessor;
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
 import net.kdt.pojavlaunch.utils.JREUtils;
@@ -506,7 +507,11 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
         //Even weirder, is is unknown why a key or another is selected to trigger a keyEvent
         if((event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) == KeyEvent.FLAG_SOFT_KEYBOARD){
             if(eventKeycode == KeyEvent.KEYCODE_ENTER) return true; //We already listen to it.
-            touchCharInput.dispatchKeyEvent(event);
+            // GameActivity.onDestroy 会把静态 touchCharInput 置空（防泄漏），
+            // 而 onNewIntent → recreate() 之后、新 Activity 完成 onCreate 之前仍有窗口期，
+            // 这期间到达的软键盘事件原来是 NPE 崩溃（2026-10-26 审查 P1-21）。
+            TouchCharInput input = touchCharInput;
+            if(input != null) input.dispatchKeyEvent(event);
             return true;
         }
 
