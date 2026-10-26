@@ -197,6 +197,10 @@ fun ServerDetailRoute(
     // 首屏：拉详情 + 日志 + 配置 + 插件
     LaunchedEffect(bridgeReady, serverId) {
         if (!bridgeReady) return@LaunchedEffect
+        // 找回「分享中」：隧道在别的进程里跑，离开页面不停（审查 P1-17）
+        repo.tunnelState { st, room ->
+            if (st == "hosting" || st == "host-scanning") state = state.copy(shareOn = true, shareRoom = room)
+        }
         repo.load(serverId) { r ->
             r.onSuccess {
                 state = state.copy(
@@ -608,9 +612,3 @@ fun ServerDetailRoute(
         },
     )
 }
-
-
-
-
-
-

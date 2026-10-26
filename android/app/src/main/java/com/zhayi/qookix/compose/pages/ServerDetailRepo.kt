@@ -392,6 +392,11 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         api.terracottaTunnelState { st -> onResult(st.room) }
     }
 
+    /** 读一次隧道状态：进页面时恢复「分享中」（隧道在别的进程里，离开页面不会停）。 */
+    fun tunnelState(onResult: (state: String, room: String) -> Unit) {
+        api.terracottaTunnelState { st -> onResult(st.state, st.room) }
+    }
+
     /**
      * 确保 VPN 授权。
      *
@@ -592,10 +597,3 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         else -> ""
     }
 }
-
-
-
-
-
-
-
