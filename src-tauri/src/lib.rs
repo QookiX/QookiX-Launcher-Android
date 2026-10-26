@@ -48,7 +48,9 @@ mod jvm_launcher;
 mod loader_install;
 mod terracotta;
 mod render_bridge;
-mod input_bridge;
+// input_bridge 已删除（2026-10-26 审查 B-P1-3）：那 521 行是「Rust 版输入桥」，
+// 生产链路一处没接（init/set_ready/pump 全零调用），真实输入走 C 层
+// input_bridge_v3.c。留着只会让人以为改了它就能生效。
 mod browse;
 mod translate;
 mod pins;

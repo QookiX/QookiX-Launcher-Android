@@ -134,7 +134,7 @@ object TauriBridge {
     external fun nativeLaunchGame(instanceId: String, accountUuid: String): Int
     external fun nativeKillGame(): Int
     external fun nativeGetGameStatus(): String
-    external fun nativeSendInput(eventType: Int, data: String)
+    // nativeSendInput 已删（2026-10-26 审查 B-P1-3）：对应的 Rust input_bridge 生产链路零调用，真实输入走 C 层 input_bridge_v3.c
     external fun nativeSetupSurface(surface: Surface)
     external fun nativeReleaseSurface()
 
@@ -191,12 +191,6 @@ object TauriBridge {
 
     /** 游戏 JVM 是否还活着（决定重开界面时要不要再启动一次）。 */
     fun isGameRunning(): Boolean = gameStatus().contains("\"is_running\":true")
-
-    fun sendInput(eventType: Int, data: String) {
-        if (nativeLoaded) {
-            nativeSendInput(eventType, data)
-        }
-    }
 
     fun setupSurface(surface: Surface) {
         if (nativeLoaded) {
