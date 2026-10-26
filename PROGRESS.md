@@ -43,6 +43,13 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-27 · PageHost 第二刀：新闻/占位/重命名/文件浏览
+- 4 个自成一体的小页面搬到 SimpleRoutes.kt：NewsRoute(27)、PlaceholderPage(31)、RenameDialog(42)、FileBrowserRoute(77)
+- PageHost.kt **5260 → 5083**（-177）；累计 5726 → 5083（-643）
+- 这回脚本按**函数名 + 括号计数**定位，一次编译通过 —— 上一刀靠 grep 行号切片的教训生效了
+- 验证：compileArm64ReleaseKotlin / ssembleArm64Release / 单测 10 / 闸门 278 文件 0 超预算 ✅
+- commit 待补
+
 ### 2026-10-27 · Q2 转向 PageHost：拆出 FRP 两页
 - `PageHost.kt` **5726 → 5260 行**（-466）；新文件 `FrpRoutes.kt`（647 行）
 - 搬走 `FrpRoute`（隧道页）+ `FrpRoomsRoute`（房间页）：两者只依赖 `bridge` 与入参、各自持有 `FrpUiState` / `FrpRoomsUiState`，与主机无共享变量 → 纯搬运，`private` → `internal`
