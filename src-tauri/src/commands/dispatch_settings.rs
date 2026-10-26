@@ -70,10 +70,11 @@ async fn run(cmd: &str, p: &Value) -> String {
             }
         }
         "set_pins" => {
-            let items = p
-                .get("items")
-                .cloned()
-                .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+            // ⚠️ 缺字段不能当空数组（2026-10-26 审查 A-P1-2）：空数组会**清空全部
+            // 固定项**并写盘，等于一个参数笔误就静默删数据。
+            let Some(items) = p.get("items").cloned() else {
+                return err("缺少 items");
+            };
             match serde_json::from_value::<Vec<PinItem>>(items) {
                 Ok(items) => match set_pins(items).await {
                     Ok(()) => ok(()),

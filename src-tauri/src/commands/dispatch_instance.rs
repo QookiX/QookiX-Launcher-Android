@@ -127,7 +127,12 @@ async fn run(cmd: &str, p: &Value) -> String {
                 return err("缺少 name");
             };
             match create_instance_group(name, sarg(p, &["color"])).await {
-                Ok(v) => ok(v),
+                Ok(v) => {
+                    // 分组改动要让实例列表刷新（审查 A-P2-7：这 4 条曾一处都没发
+                    // dirty，UI 会一直显示旧分组，直到下次冷启动）
+                    crate::app_state::mark_instances_dirty();
+                    ok(v)
+                }
                 Err(e) => err(e),
             }
         }
@@ -136,7 +141,10 @@ async fn run(cmd: &str, p: &Value) -> String {
                 return err("缺少 id / name");
             };
             match rename_instance_group(id, name, sarg(p, &["color"])).await {
-                Ok(v) => ok(v),
+                Ok(v) => {
+                    crate::app_state::mark_instances_dirty();
+                    ok(v)
+                }
                 Err(e) => err(e),
             }
         }
@@ -145,13 +153,19 @@ async fn run(cmd: &str, p: &Value) -> String {
                 return err("缺少 id");
             };
             match delete_instance_group(id).await {
-                Ok(()) => ok(()),
+                Ok(()) => {
+                    crate::app_state::mark_instances_dirty();
+                    ok(())
+                }
                 Err(e) => err(e),
             }
         }
         "reorder_instance_groups" => {
             match reorder_instance_groups(svec(p, &["ids"])).await {
-                Ok(v) => ok(v),
+                Ok(v) => {
+                    crate::app_state::mark_instances_dirty();
+                    ok(v)
+                }
                 Err(e) => err(e),
             }
         }

@@ -141,7 +141,11 @@ async fn run(cmd: &str, p: &Value) -> String {
         "update_hosted_server" => {
             let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
             match crate::servers::update_hosted_server(patch) {
-                Ok(v) => ok(v),
+                Ok(v) => {
+                    // 改名 / 改端口后要让服务器列表刷新（审查 A-P2-7：原来漏发 dirty）
+                    crate::app_state::mark_servers_dirty();
+                    ok(v)
+                }
                 Err(e) => err(e),
             }
         }
@@ -264,7 +268,11 @@ async fn run(cmd: &str, p: &Value) -> String {
             };
             let patch = p.get("patch").cloned().unwrap_or_else(|| p.clone());
             match crate::servers::set_hosted_server_properties(id, patch) {
-                Ok(v) => ok(v),
+                Ok(v) => {
+                    // 改端口 / MOTD 等属性后同样要刷新列表（审查 A-P2-7）
+                    crate::app_state::mark_servers_dirty();
+                    ok(v)
+                }
                 Err(e) => err(e),
             }
         }

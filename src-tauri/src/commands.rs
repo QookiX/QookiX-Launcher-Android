@@ -189,11 +189,11 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
     let p: serde_json::Value =
         serde_json::from_str(payload).unwrap_or_else(|_| serde_json::json!({}));
 
-    let rt = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => return err(format!("创建运行时失败：{e}")),
-    };
-    rt.block_on(async move {
+    // ⚠️ 用全局共享运行时（2026-10-26 审查 E-P1-1）：原来每条命令都 `Runtime::new()`
+    // 起一套线程池再销毁 —— 一次 UI 操作 = 建/销一整套线程，抖动全落在点击响应上。
+    // 自家 `jni_bridge.rs` 头部注释早就写过「不能再 Runtime::new」，命令主路径没跟上。
+    // 换 `util::block_on` 安全的前提：命令可达路径里没有嵌套 block_on（已 grep 核实）。
+    crate::util::block_on(async move {
         // 按域分发：返回 None 表示「不是这个域的命令」，继续往下匹配。
         if let Some(r) = dispatch_instance::dispatch(cmd, &p).await {
             return r;

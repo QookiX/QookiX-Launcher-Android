@@ -26,6 +26,15 @@ pub(crate) const HANDLED: &[&str] = &[
     "frp_room_join",
     "frp_running",
     "frp_tunnel_log",
+    // ⚠️ 房间操作（2026-10-26 审查 A-P1-1）：这 5 条在 `run` 的 match 里有实现，
+    // 但曾经漏登记 → dispatch 先查 HANDLED 就返回 None → 落空成「未实现的命令」。
+    // 后果是离开房间 / 关闭房间 / 房主启动 / 访客启动 / 停止全报错。
+    // Kotlin 侧调用点：QookixApiMultiplayer.kt 的 frpRoomLeave/Close/HostStart/...
+    "frp_room_leave",
+    "frp_room_close",
+    "frp_room_host_start",
+    "frp_room_visitor_start",
+    "frp_room_stop",
 ];
 
 pub(crate) async fn dispatch(cmd: &str, p: &Value) -> Option<String> {
@@ -168,5 +177,48 @@ async fn run(cmd: &str, p: &Value) -> String {
             }
         }
         _ => unreachable!("HANDLED 与 match 不一致：{cmd}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 从本文件源码里抠出 `run` 的 match 分支用到的所有 `frp_*` 命令名。
+    ///
+    /// 为什么不靠反射：Rust 没有运行时反射，而 `unreachable!` 守卫在 `dispatch`
+    /// 里先查 HANDLED，**永远到不了**（这就是 2026-10-26 审查 A-P1-1 漏登记 5 条
+    /// 房间命令却一直没人发现的根源）。用 include_str! 扫源码虽然土，但能真正锁住
+    /// 「match 里有、HANDLED 里没有」这一跑测试就会红的契约。
+    fn match_commands() -> Vec<&'static str> {
+        const SRC: &str = include_str!("dispatch_frp.rs");
+        let start = SRC.find("async fn run").expect("找不到 run");
+        SRC[start..]
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .map(str::trim)
+            .filter(|s| s.starts_with("frp_"))
+            .collect()
+    }
+
+    #[test]
+    fn every_implemented_command_is_registered() {
+        let implemented = match_commands();
+        assert!(!implemented.is_empty(), "没抠到命令名，扫源码的逻辑要跟着改");
+        let missing: Vec<&str> = implemented
+            .iter()
+            .copied()
+            .filter(|c| !HANDLED.contains(c))
+            .collect();
+        assert!(missing.is_empty(), "match 里有但 HANDLED 漏登记：{missing:?}");
+    }
+
+    #[test]
+    fn handled_has_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for cmd in HANDLED {
+            assert!(seen.insert(*cmd), "HANDLED 重复登记：{cmd}");
+        }
     }
 }

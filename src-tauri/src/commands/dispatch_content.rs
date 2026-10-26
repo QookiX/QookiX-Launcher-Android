@@ -122,10 +122,11 @@ async fn run(cmd: &str, p: &Value) -> String {
             ) else {
                 return err("缺少 instanceId / kind / filename");
             };
-            let enabled = p
-                .get("enabled")
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false);
+            // ⚠️ 缺字段不能默认 false（审查 A-P2-5）：那等于「漏传一个参数就
+            // 把 mod 禁用掉」，而调用方想表达的是相反的意思
+            let Some(enabled) = p.get("enabled").and_then(|x| x.as_bool()) else {
+                return err("缺少 enabled");
+            };
             match toggle_content_enabled(id, kind, file, enabled).await {
                 Ok(()) => ok(()),
                 Err(e) => err(e),

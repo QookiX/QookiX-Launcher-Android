@@ -92,7 +92,10 @@ async fn run(cmd: &str, p: &Value) -> String {
             let Some(id) = sarg(p, &["id"]) else {
                 return err("缺少 id");
             };
-            let enabled = p.get("enabled").and_then(|x| x.as_bool()).unwrap_or(false);
+            // 缺字段不能默认 false（审查 A-P2-5）：会静默把插件禁用
+            let Some(enabled) = p.get("enabled").and_then(|x| x.as_bool()) else {
+                return err("缺少 enabled");
+            };
             match set_plugin_enabled(id, enabled).await {
                 Ok(v) => ok(v),
                 Err(e) => err(e),

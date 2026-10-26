@@ -194,9 +194,12 @@ async fn run(cmd: &str, p: &Value) -> String {
             ) else {
                 return err("缺少 instanceId / rel");
             };
-            let is_dir = p.get("isDir").or_else(|| p.get("is_dir"))
+            // 缺字段不能默认 false（审查 A-P2-5）：会静默建出文件而不是目录
+            let Some(is_dir) = p.get("isDir").or_else(|| p.get("is_dir"))
                 .and_then(|x| x.as_bool())
-                .unwrap_or(false);
+            else {
+                return err("缺少 isDir");
+            };
             match create_instance_entry(id, rel, is_dir).await {
                 Ok(v) => ok(v),
                 Err(e) => err(e),

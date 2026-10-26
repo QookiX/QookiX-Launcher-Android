@@ -227,13 +227,9 @@ pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeKillGame(
     _class: JClass,
 ) -> jint {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        // 这里**不能** unwrap：Runtime 创建失败时的 panic 会被 catch_unwind 吞成 0，
-        // 调用方就分不清「没杀掉」和「自己崩了」，于是游戏留在后台继续跑（P0-16）。
-        let Ok(runtime) = tokio::runtime::Runtime::new() else {
-            tracing::error!("创建 tokio runtime 失败，kill_game 中止");
-            return -1;
-        };
-        match runtime.block_on(crate::launch::kill_game()) {
+        // 用全局共享运行时（2026-10-26 审查 E-P1-1）：这里原来每次强杀都新建一套
+        // 线程池 —— 与本文件开头那条「不能 Runtime::new」的注释自相矛盾。
+        match crate::util::block_on(crate::launch::kill_game()) {
             Ok(()) => 1,
             Err(e) => {
                 tracing::warn!("kill_game 失败：{e}");
