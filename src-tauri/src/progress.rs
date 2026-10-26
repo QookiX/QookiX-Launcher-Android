@@ -360,7 +360,12 @@ impl<'a> AtomicProgress<'a> {
             .last_emit_ms
             .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
             .is_err()
+            && !finished
         {
+            // 抢不到时间戳就维持节流；但「最后一个」必须发出去：
+            // 并发 tick 时输掉 CAS 的往往正是 done==total 的那个线程，
+            // 赢家上报的 done<total，进度条会永远停在 99%（单线程的
+            // `ProgressCounter::tick` 明确保证最后一个必定上报，这里对齐它）。
             return;
         }
         emit_download(

@@ -36,7 +36,8 @@
 do {                                                                       \
     env_name = get_attached_env(vm);                                       \
     if(env_name == NULL) {                                                 \
-        printf(error_message);                                             \
+        /* %s：error_message 里带 %i 之类占位符，直接当格式串会读野 vararg */ \
+        printf("%s", error_message);                                       \
         then                                                               \
     }                                                                      \
 } while(0)
@@ -304,9 +305,15 @@ void pojavStartPumping() {
     size_t counter = atomic_load_explicit(&pojav_environ->eventCounter, memory_order_acquire);
     size_t index = pojav_environ->outEventIndex;
 
-    unsigned targetIndex = index + counter;
-    if (targetIndex >= EVENT_WINDOW_SIZE)
-        targetIndex -= EVENT_WINDOW_SIZE;
+    // ⚠️ 必须用取模，不能"减一次 8000"（2026-10-26 审查 D-P2-11）：
+    // 队列溢出时 counter >= EVENT_WINDOW_SIZE，减一次后 targetIndex 仍然 >= 8000，
+    // 而 index 只会回绕到 [0,8000) → `while (targetIndex != index)` 永不相等，
+    // 渲染线程**死循环**（卡顿帧里快速滑屏几千条事件即可触发）。
+    // 队列本身只能存 8000 条，多出来的注定要丢，这里直接夹到上限。
+    if (counter > EVENT_WINDOW_SIZE) {
+        counter = EVENT_WINDOW_SIZE;
+    }
+    size_t targetIndex = (index + counter) % EVENT_WINDOW_SIZE;
 
     // Only accessed by one unique thread, no need for atomic store
     pojav_environ->inEventCount = counter;
@@ -331,7 +338,9 @@ void pojavStopPumping() {
     pojav_environ->outEventIndex = pojav_environ->outTargetIndex;
 
     // New events may have arrived while pumping, so remove only the difference before the start and end of execution
-    atomic_fetch_sub_explicit(&pojav_environ->eventCounter, pojav_environ->inEventCount, memory_order_acquire);
+    // acq_rel：消费者这侧既读又写，需要 acquire（读到生产者发布的事件）
+    // 与 release（把"已消费"这件事发布出去）两侧语义。
+    atomic_fetch_sub_explicit(&pojav_environ->eventCounter, pojav_environ->inEventCount, memory_order_acq_rel);
     // Make sure the next frame won't send mouse or monitor updates if it's unnecessary
     pojav_environ->shouldUpdateMouse = false;
     // Only reset the update flag if the monitor size was consumed by pojavStartPumping. This
@@ -388,7 +397,10 @@ void sendData(int type, int i1, int i2, int i3, int i4) {
     if (++pojav_environ->inEventIndex >= EVENT_WINDOW_SIZE)
         pojav_environ->inEventIndex -= EVENT_WINDOW_SIZE;
 
-    atomic_fetch_add_explicit(&pojav_environ->eventCounter, 1, memory_order_acquire);
+    // release：把上面写进 events[] 的字段**发布**给消费线程。
+    // 原来这里是 acquire —— 只保证不往前重排，不发布自己的写入，
+    // 消费端可能读到半新半旧的事件（2026-10-26 审查 D-P2-10）。
+    atomic_fetch_add_explicit(&pojav_environ->eventCounter, 1, memory_order_release);
 }
 
 void critical_set_stackqueue(jboolean use_input_stack_queue) {
@@ -414,7 +426,21 @@ JNIEXPORT jstring JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeClipboard(JNI
     jstring copyDst = NULL;
     if (copySrc) {
         copySrcC = (char *)((*env)->GetByteArrayElements(env, copySrc, NULL));
-        copyDst = (*dalvikEnv)->NewStringUTF(dalvikEnv, copySrcC);
+        // ⚠️ GetByteArrayElements 返回的缓冲区**不保证 NUL 结尾**，Java 侧
+        // GLFW.java 传的是精确长度 byte[len]（不补 0）。直接喂 NewStringUTF
+        // 会一路读到内存里的下一个 0：轻则复制出垃圾字符，重则越界崩溃
+        // （2026-10-26 审查 D-P1-2，每次 MC 复制文本都走这里）。
+        // 拷到 len+1 的临时缓冲再补 0，语义与原来的 NewStringUTF 完全一致。
+        if (copySrcC) {
+            jsize len = (*env)->GetArrayLength(env, copySrc);
+            char *terminated = (char *) malloc((size_t) len + 1);
+            if (terminated) {
+                memcpy(terminated, copySrcC, (size_t) len);
+                terminated[len] = '\0';
+                copyDst = (*dalvikEnv)->NewStringUTF(dalvikEnv, terminated);
+                free(terminated);
+            }
+        }
     }
 
     LOGD("Clipboard: Calling 2nd\n");
