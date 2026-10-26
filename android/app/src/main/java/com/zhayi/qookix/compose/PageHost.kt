@@ -360,8 +360,12 @@ fun PageHost(
     // 把 `group` 丢掉了。这里用「实例 id -> 分组 id」映射表把归属补回 `instances`，
     // 既不用改 InstancesRepo 的解析结果，也不影响首页等其它消费方。
     var groups by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    /** 实例 id -> 分组 id（缺失 = 未归组）。 */
-    var instanceGroupOf by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // 实例 id -> 分组 id：直接从 instances 派生（`InstancesRepo.parse` 已经保留 `group`）。
+    // ⚠️ 2026-10-27：以前这里为了拿 `group` 字段**再发一次** `list_instances` ——
+    // 冷启动等于把实例目录整个扫两遍（实例/模组多时明显）。现在是纯内存派生。
+    val instanceGroupOf: Map<String, String> = remember(instances) {
+        instances.mapNotNull { inst -> inst.groupId?.let { inst.id to it } }.toMap()
+    }
     LaunchedEffect(bridgeReady, instancesReloadKey) {
         if (!bridgeReady) return@LaunchedEffect
         QookixApi(bridge).listInstanceGroups { r ->
@@ -373,22 +377,6 @@ fun PageHost(
                 }
             }
             // 失败静默：拿不到分组就退化成单节「全部」，不影响实例列表本身可用
-        }
-        // 实例 -> 分组 的归属（`list_instances` 的元素带 `group` 字段）
-        bridge.invoke("list_instances", "{}") { r ->
-            r.onSuccess { json ->
-                instanceGroupOf = try {
-                    val arr = org.json.JSONArray(json)
-                    (0 until arr.length()).mapNotNull { i ->
-                        val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                        val id = o.optString("id")
-                        val g = o.optString("group")
-                        if (id.isBlank() || g.isBlank()) null else id to g
-                    }.toMap()
-                } catch (_: Exception) {
-                    emptyMap()
-                }
-            }
         }
     }
 

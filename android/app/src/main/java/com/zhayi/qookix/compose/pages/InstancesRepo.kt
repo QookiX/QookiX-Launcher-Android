@@ -79,6 +79,10 @@ object InstancesRepo {
                     name = name,
                     subtitle = subtitleOf(context, o),
                     colorHex = o.optString("icon_color").ifBlank { null },
+                    // 分组归属：`list_instances` 的元素带 `group`。
+                    // ⚠️ 以前这里不解析，PageHost 只好**再发一次** list_instances
+                    // 专门取这个字段（冷启动白白多扫一遍实例目录）。
+                    groupId = o.optString("group").ifBlank { null },
                 )
             }
         } catch (e: Exception) {
