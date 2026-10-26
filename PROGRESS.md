@@ -22,7 +22,7 @@
 | **A2** | 状态单一真相源 | P0 | ✅ | 三切片：脏事件 + `CoreState`（`a02425f`）、错误契约（`c87a559`）、写状态机 + 服务器/任务域（`a5e4476`）；边界写进 ADR-0002 |
 | **A3** | 核心代码在 `gen/android` + 双 app 模块 | P1 | ✅ | 迁到根 `android/`，删掉根目录死工程；`9a9e902` |
 | **S3** | 16KB 页对齐 | P1 | 🟡 | 自建 4 个库已 0x4000 + CI 校验 PT_LOAD（`b28d9ec`）；**上游 10 个预编译 .so 仍 4KB**（要重建上游） |
-| **Q2** | 巨文件 / lint 闸门 | P1 | 🟡 | 体量棘轮 ✅（`7e9cbad`，>600 行只许变小）；**拆分进行中**：`QookixApi` 2337→2192（皮肤域已拆出）；detekt/clippy 未接 |
+| **Q2** | 巨文件 / lint 闸门 | P1 | 🟡 | 体量棘轮 ✅（`7e9cbad`，>600 行只许变小）；**拆分进行中**：`QookixApi` 2337→**574**（11 个域已拆完，已进健康线）、`PageHost` 5726→5260；detekt/clippy 未接 |
 | **Q3** | 吞异常 / 错误契约 | P1 | 🟡 | 统一 `code`/`retryable` + `ApiError` ✅（`c87a559`）；**`let _ =` 类吞错点未清** |
 | **A4** | Rust 跨端复用 | P2 | ✅ | 随 A1 完成（tauri 依赖已删）；本仓库不再有桌面壳 |
 | **Q4** | 发布节奏 | P2 | ⬜ | 需流程约定（RC 分支 / soak / 双通道），不是代码 |
@@ -42,6 +42,15 @@
 ---
 
 ## 分步记录（最新在上）
+
+### 2026-10-27 · Q2 转向 PageHost：拆出 FRP 两页
+- `PageHost.kt` **5726 → 5260 行**（-466）；新文件 `FrpRoutes.kt`（647 行）
+- 搬走 `FrpRoute`（隧道页）+ `FrpRoomsRoute`（房间页）：两者只依赖 `bridge` 与入参、各自持有 `FrpUiState` / `FrpRoomsUiState`，与主机无共享变量 → 纯搬运，`private` → `internal`
+- **两次踩同一个坑（都记下来）**：
+  1. 块边界按 grep 的旧行号切 → 把下一个函数的 KDoc 一起搬走，报错却是 `Unresolved reference 'FileTarget'`（级联误导）。改用**括号计数**定位函数结束
+  2. 替换串里的 `$1` 被 PowerShell 吃掉 → 函数名整个丢失（`internal fun (`）。这是第二次踩，**以后 node -e 里的替换串一律字符串拼接，不用 `$1`**
+- 验证：`compileArm64ReleaseKotlin` ✅、`assembleArm64Release` ✅、单测 10 ✅、闸门 277 文件 0 超预算
+- commit `待补`
 
 ### 2026-10-25 · `commands.rs` 全量按域拆分（199 个命令 → 12 个文件）
 - `commands.rs` **3130 → 1365**（-56%）；`native_invoke` 的 199 个 arm 全部迁出
