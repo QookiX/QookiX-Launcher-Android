@@ -1033,6 +1033,8 @@
     <string name="create_instance_version_count">%1$d 个</string>
     <string name="create_instance_versions_failed">版本列表加载失败</string>
     <string name="create_instance_check_network">请检查网络后重试</string>
+    <string name="create_instance_need_loader_version">请先选择加载器版本</string>
+    <string name="create_instance_failed">创建失败：%1$s</string>
     <string name="create_instance_loading_versions">正在加载版本清单…</string>
 <string name="create_instance_group_release">正式</string>
     <string name="create_instance_group_snapshot">快照版</string>

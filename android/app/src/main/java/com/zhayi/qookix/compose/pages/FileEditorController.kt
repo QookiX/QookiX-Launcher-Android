@@ -82,17 +82,23 @@ class FileEditorController(
 
     fun save() {
         val cur = state ?: return
+        // 保存的是「点下去那一刻」的内容快照
+        val snapshot = cur.content
         state = cur.copy(saving = true)
-        ops.write(cur.rel, cur.content) { r ->
+        ops.write(cur.rel, snapshot) { r ->
             val now = state ?: return@write
+            // 保存期间可能已经切到别的文件，这份结果与它无关
+            if (now.rel != cur.rel) return@write
             state = r.fold(
                 onSuccess = {
-                    // 保存成功把 originalContent 同步成当前内容，否则「已修改」不消失
+                    // ⚠️ 2026-10-26 审查 P1-16：原来无条件 `dirty = false` 且把
+                    // originalContent 设成**快照**，于是保存期间继续敲的字会被标成
+                    // 「已保存」，关页即丢。现在以真正写下去的那份为基准重新比 dirty。
                     now.copy(
                         saving = false,
-                        dirty = false,
-                        originalContent = cur.content,
-                        size = cur.content.toByteArray().size.toLong(),
+                        dirty = now.content != snapshot,
+                        originalContent = snapshot,
+                        size = snapshot.toByteArray().size.toLong(),
                     )
                 },
                 onFailure = { e ->

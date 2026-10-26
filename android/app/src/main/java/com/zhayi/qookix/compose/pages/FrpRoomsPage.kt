@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,6 +102,8 @@ fun FrpRoomsPage(
     onReadClipboard: (((String?) -> Unit) -> Unit)? = null,
 ) {
     var showCreate by remember { mutableStateOf(false) }
+    // 建房请求已提交、正在等结果（用来决定对话框何时收起）
+    var submitted by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // ── 顶部说明 + 操作 ────────────────────────────────────────────
@@ -172,6 +175,19 @@ fun FrpRoomsPage(
             }
         }
 
+        // ── 错误条 ────────────────────────────────────────────────────
+        //
+        // ⚠️ 必须放在列表**前面**（2026-10-26 审查 P1-15）：原来放在 Column 末尾，
+        // 而列表是 `fillMaxSize()`，错误条被整个挤出屏幕 —— 建房失败时什么都看不到。
+        state.error?.let { msg ->
+            Text(
+                text = msg,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 8.dp),
+            )
+        }
+
         // ── 列表 ──────────────────────────────────────────────────────
         when {
             state.busy && state.rooms.isEmpty() -> Column(modifier = Modifier.padding(QkSpacing.lg)) {
@@ -213,14 +229,6 @@ fun FrpRoomsPage(
             }
         }
 
-        state.error?.let { msg ->
-            Text(
-                text = msg,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 8.dp),
-            )
-        }
     }
 
     if (showCreate) {
@@ -229,11 +237,21 @@ fun FrpRoomsPage(
             creating = state.busy,
             error = state.error,
             onDismiss = { showCreate = false },
+            // ⚠️ 不再「点一下就关」：失败时要把对话框留着，否则原因一闪而过
+            // （2026-10-26 审查 P1-15）。成功时才由下面的副作用收起。
             onCreate = { n, node, port, pwd ->
+                submitted = true
                 onCreate(n, node, port, pwd)
-                showCreate = false
             },
         )
+    }
+
+    // 提交结束：成功（无错误）才收起对话框；失败留着，让对话框自己显示原因
+    LaunchedEffect(state.busy, state.error, submitted) {
+        if (submitted && !state.busy) {
+            submitted = false
+            if (state.error == null) showCreate = false
+        }
     }
 }
 

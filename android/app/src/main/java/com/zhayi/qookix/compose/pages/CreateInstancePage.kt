@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.annotation.StringRes
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.ui.QkFieldLabel
+import com.zhayi.qookix.compose.ui.QkInlineError
 import com.zhayi.qookix.compose.ui.QkListHeader
 import com.zhayi.qookix.compose.ui.QkVersionRow
 import com.zhayi.qookix.compose.ui.SkeletonList
@@ -322,10 +323,13 @@ fun CreateInstancePage(
                 //
                 // enabled 条件：名称可以留空（留空则用游戏版本号当名字，见下），
                 // 所以只需要「选了版本」且「不在创建中」。
+                // ⚠️ 选了加载器还必须选版本（审查 P1-14）：少了它后端会装出坏实例。
                 Spacer(Modifier.height(QkSpacing.xs))
                 Button(
                     onClick = onCreate,
-                    enabled = state.version.isNotBlank() && !state.creating,
+                    // 选了加载器就必须选版本（审查 P1-14），否则会装出坏实例
+                    enabled = state.version.isNotBlank() && !state.creating &&
+                        (state.loader == "vanilla" || state.loaderVersion.isNotBlank()),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (state.creating) {
@@ -342,6 +346,15 @@ fun CreateInstancePage(
                         if (state.creating) stringResource(R.string.create_instance_creating)
                         else stringResource(R.string.create_instance_create),
                     )
+                }
+
+                // 上次为什么没建成 / 按钮为什么点不动（审查 P1-14）
+                val hint = state.error?.let { stringResource(R.string.create_instance_failed, it) }
+                    ?: stringResource(R.string.create_instance_need_loader_version)
+                        .takeIf { state.loader != "vanilla" && state.loaderVersion.isBlank() }
+                if (hint != null) {
+                    Spacer(Modifier.height(QkSpacing.xs))
+                    QkInlineError(hint, modifier = Modifier)
                 }
             }
 
@@ -613,16 +626,3 @@ data class CreateUiState(
     /** 预估下载体积（MB，2026-10-21 补：estimateDownload 一直没 UI）。 */
     val estimatedDownloadMb: Long? = null,
 )
-
-
-
-
-
-
-
-
-
-
-
-
-

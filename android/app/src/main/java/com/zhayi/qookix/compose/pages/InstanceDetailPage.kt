@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -59,6 +60,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import com.zhayi.qookix.compose.ui.QkInlineError
 import com.zhayi.qookix.compose.ui.QkTabRow
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
@@ -210,6 +212,8 @@ fun InstanceDetailPage(
     onExport: (Boolean, Boolean, Boolean) -> Unit = { _, _, _ -> },
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
+        state.error?.let { QkInlineError(it) }
+
         // ── 顶栏已上移（2026-10-17）────────────────────────────────────
         //
         // 原来这里是一整块自绘标题栏（返回箭头 + 实例名 + 版本 + 启动/修复按钮），
@@ -1603,7 +1607,6 @@ private fun UsageLine(label: String, bytes: Long) {
 
 
 
-
 /**
  * 实例详情的**顶栏内容**（2026-10-17 新增）。
  *
@@ -1723,6 +1726,3 @@ private fun ContentActions(
         Text(stringResource(R.string.instance_detail_identify))
     }
 }
-
-
-
