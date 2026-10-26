@@ -173,6 +173,8 @@
     <string name="first_run_downloading">下载中…</string>
     <string name="first_run_later">稍后</string>
     <string name="first_run_retry">重试</string>
+    <!-- 有组件没装成功：说清几个、为什么 -->
+    <string name="first_run_partial">有 %1$d 个组件没装成功，可以点「重试」再试一次。</string>
 
     <!-- ── 实例详情 ── -->
 <string name="instance_detail_task_installing">安装中…</string>
@@ -1077,7 +1079,7 @@
     <string name="plugins_read_failed">读取插件失败：%1$s</string>
     <string name="plugins_install_failed">安装失败：%1$s</string>
     <string name="plugins_uninstall">卸载</string>
-    <string name="plugins_uninstall_confirm">确定卸载这个插件吗？</string>
+    <string name="plugins_uninstall_confirm">确定卸载「%1$s」吗？卸载后要重新下载才能恢复。</string>
     <string name="plugins_manifest_url">插件清单地址</string>
     <string name="plugins_manifest_url_hint">插件从该地址的清单下载</string>
     <string name="plugins_save_manifest_url">保存</string>

@@ -518,6 +518,17 @@ val running: Boolean get() = state.isNotEmpty() && state != "off"
  * 注意：**不要**把没有把握匹配的错误也改写成套话 —— 那会让排障更难。
  */
 /**
+ * 读一个**可缺省**的字符串字段，缺省/JSON null 都返回 null。
+ *
+ * ⚠️ 为什么需要（2026-10-26 真机实测）：Rust 的 `Option<String>` 序列化成
+ * JSON `null`，而 `org.json` 的 `optString(key)` 对 JSON null 返回的是**字面量
+ * `"null"`**（不是空串）—— 于是 `optString("error").takeIf { it.isNotBlank() }`
+ * 会把 `"null"` 当成真实错误内容显示给用户（首启弹窗曾因此把副标题渲染成 null）。
+ */
+fun JSONObject.optText(key: String): String? =
+    if (!has(key) || isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
+
+/**
  * 同 [friendlyError]，但**走 Android 字符串资源**（2026-10-17 i18n）。
  *
  * ⚠️ 为什么保留旧的无 Context 版本：它有 27 处调用点，其中不少在

@@ -32,6 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
+import org.json.JSONObject
 
 /**
  * 首次运行引导：自动补齐缺失的推荐插件。
@@ -62,10 +63,58 @@ data class FirstRunUiState(
     val planned: List<String> = emptyList(),
     val doneIds: List<String> = emptyList(),
     val failedIds: List<String> = emptyList(),
+    /**
+     * 失败项的具体原因，形如「MobileGlues：下载失败：…」。
+     *
+     * 以前只标一个红色「失败」，用户不知道是网络、校验还是解压出问题。
+     */
+    val failureDetails: List<String> = emptyList(),
     val totalSize: Long = 0,
     /** 清单拿不到时的说明（首启离线）。 */
     val error: String? = null,
 )
+
+/**
+ * 消化 `install_recommended_plugins` 的返回值，算出「哪些装好了、哪些失败、为什么」。
+ *
+ * ── 为什么需要这个函数 ──────────────────────────────────────────────────
+ * 后端 `SetupResult.failed` 是**字符串数组**（`plugin.rs::install_recommended`
+ * 里 `failed.push(format!("{}：{e}", item.name))`）。
+ * 以前调用处按**对象数组**读 `optJSONObject(j).optString("name")` ——
+ * 对字符串元素永远返回 null，于是 `failedNames` 恒为空：
+ * 每一项都被判成「成功」、失败被彻底吞掉、进度卡在 `0/5` 后弹窗自行消失。
+ *
+ * 两处调用（首启自动安装 / 「重试」按钮）必须走同一份解析，别再各写一遍。
+ */
+fun FirstRunUiState.afterInstall(planned: List<String>, result: Result<String>): FirstRunUiState {
+    // 整批失败（清单都拉不到）：全部标失败并给出原因，别谎报「装好了」
+    result.exceptionOrNull()?.let { e ->
+        return copy(
+            running = false,
+            finished = true,
+            doneIds = emptyList(),
+            failedIds = planned,
+            failureDetails = listOf(e.message ?: "未知错误"),
+        )
+    }
+
+    val reasons = runCatching {
+        val arr = JSONObject(result.getOrNull() ?: "{}").optJSONArray("failed")
+        (0 until (arr?.length() ?: 0))
+            .map { arr!!.optString(it) }
+            .filter { it.isNotBlank() }
+    }.getOrDefault(emptyList())
+
+    // 失败项形如「名字：原因」，按前缀对回 planned 里的名字
+    fun hit(name: String) = reasons.any { it == name || it.substringBefore("：") == name }
+    return copy(
+        running = false,
+        finished = true,
+        doneIds = planned.filterNot { hit(it) },
+        failedIds = planned.filter { hit(it) },
+        failureDetails = reasons,
+    )
+}
 
 @Composable
 fun FirstRunSetup(
@@ -105,6 +154,8 @@ fun FirstRunSetup(
                         text = when {
                             state.error != null -> state.error
                             state.running -> stringResource(R.string.first_run_desc_running)
+                            state.failedIds.isNotEmpty() ->
+                                stringResource(R.string.first_run_partial, state.failedIds.size)
                             state.finished -> stringResource(R.string.first_run_done)
                             else -> stringResource(R.string.first_run_checking)
                         },
@@ -167,9 +218,23 @@ fun FirstRunSetup(
                         }
                     }
 
+                    // 失败原因逐条列出（后端给的是「名字：原因」，见 afterInstall）
+                    if (!state.running && state.failureDetails.isNotEmpty()) {
+                        Spacer(Modifier.height(QkSpacing.sm))
+                        Column(verticalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
+                            state.failureDetails.forEach { line ->
+                                Text(
+                                    text = line,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                    }
+
                     if (state.running) {
                         Spacer(Modifier.height(QkSpacing.sm))
-                        // 总进度：done 数 / 总数
+                        // 总进度：done 数 / 总数（由 plugin://progress 的 done 事件逐项推进）
                         val done = state.doneIds.size
                         val total = state.planned.size
                         if (total > 0) {
@@ -203,8 +268,8 @@ fun FirstRunSetup(
                             )
                         }
                         Spacer(Modifier.width(8.dp))
-                        if (state.failedIds.isNotEmpty() && !state.running) {
-                            // 有失败项：给「重试」而不是关掉
+                        // 有失败项、或清单根本拉不到（离线）：给「重试」而不是关掉
+                        if (!state.running && (state.failedIds.isNotEmpty() || state.error != null)) {
                             Button(onClick = onStart) { Text(stringResource(R.string.first_run_retry)) }
                         }
                     }

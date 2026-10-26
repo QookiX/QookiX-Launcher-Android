@@ -49,6 +49,13 @@ class StartupOverlay @JvmOverloads constructor(
         private const val HARD_HIDE_AFTER_MS = 150_000L
         /** 单次最多读 64KB，避免日志暴涨时一次性卡住主线程。 */
         private const val MAX_READ_BYTES = 64 * 1024L
+        /**
+         * 用于匹配标记的日志缓冲上限（**滑动窗口**，只保留最新的这段）。
+         *
+         * 不能改成「写满就停」：READY/FAILURE 标记总在日志末尾，
+         * 整合包启动日志轻松超过 16 KB，写满即停就永远等不到完成信号。
+         */
+        private const val MAX_SEEN_CHARS = 16_384
 
         /**
          * 「游戏窗口/首帧已就绪」的标志。
@@ -254,7 +261,14 @@ class StartupOverlay @JvmOverloads constructor(
                 offset += lastNewline + 1
 
                 val text = String(buf, 0, lastNewline, Charsets.UTF_8)
-                if (seen.length < 16_384) seen.append(text)
+                // ⚠️ 16 KB 是**滑动窗口**，不是「写满就停」（2026-10-26 审查 P1-18）：
+                // 原来 `seen.length < 16_384` 之后不再追加，而 READY/FAILURE 标记
+                // 恰恰出现在日志末尾 —— 整合包启动日志轻松超 16 KB，浮层就永远等不到
+                // 完成信号，盖住已就绪的游戏最长 150 秒。现在超出就丢最旧的部分。
+                if (seen.length + text.length > MAX_SEEN_CHARS) {
+                    seen.delete(0, (seen.length + text.length - MAX_SEEN_CHARS).coerceAtMost(seen.length))
+                }
+                seen.append(text)
                 text.split('\n').forEach { line ->
                     val trimmed = line.trimEnd()
                     if (trimmed.isNotEmpty()) {

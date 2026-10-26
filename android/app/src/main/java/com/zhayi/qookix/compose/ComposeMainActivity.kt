@@ -45,7 +45,7 @@ import com.zhayi.qookix.ServerDocsProvider
 import androidx.activity.ComponentActivity
 import com.zhayi.qookix.GameActivity
 import com.zhayi.qookix.compose.bridge.*
-import com.zhayi.qookix.compose.pages.FirstRunSetup
+import com.zhayi.qookix.compose.pages.FirstRunSetupHost
 import com.zhayi.qookix.compose.pages.FirstRunUiState
 import com.zhayi.qookix.compose.shell.LauncherShell
 import com.zhayi.qookix.compose.shell.NavDestination
@@ -687,10 +687,15 @@ class ComposeMainActivity : ComponentActivity() {
     fun setLogZoomListener(listener: ((Int) -> Unit)?) { logZoomListener = listener }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
-        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
-            keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+        // ⚠️ 没有监听者时必须把音量键让回系统（2026-10-26 审查 P1-20）：
+        // 原来无条件 `return true`，而 `logZoomListener` 全仓**没有注册点** ——
+        // 结果是启动器里音量键彻底失灵（按了没声音也不调节）。
+        val listener = logZoomListener
+        if (listener != null &&
+            (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
+                keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN)
         ) {
-            logZoomListener?.invoke(if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) 1 else -1)
+            listener(if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) 1 else -1)
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -1401,43 +1406,9 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 else { if (current !in NavDestination.bottomBar) backStack.add(current); current = dest }
             }
 
-            var firstRun by remember { mutableStateOf(FirstRunUiState()) }
-            LaunchedEffect(bridgeReady) {
-                if (!bridgeReady) return@LaunchedEffect
-                val api = QookixApi(bridge)
-                api.getPluginSetupStatus { r ->
-                    r.onSuccess { o ->
-                        val needed = o.optBoolean("needed", false)
-                        val dismissed = o.optBoolean("dismissed", false)
-                        if (needed && !dismissed) {
-                            val missing = o.optJSONArray("missing")
-                            val names = (0 until (missing?.length() ?: 0)).mapNotNull { i ->
-                                missing?.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
-                            }
-                            firstRun = firstRun.copy(visible = true, planned = names, running = true)
-                            api.installRecommendedPlugins { ir ->
-                                val failedArr = runCatching {
-                                    org.json.JSONObject(ir.getOrNull() ?: "{}").optJSONArray("failed")
-                                }.getOrNull()
-                                val failedNames = (0 until (failedArr?.length() ?: 0)).mapNotNull { j -> failedArr?.optJSONObject(j) }
-                                firstRun = firstRun.copy(
-                                    running = false, finished = true,
-                                    doneIds = names.filter { f -> failedNames.none { it.optString("name") == f } },
-                                    failedIds = names.filter { f -> failedNames.any { it.optString("name") == f } },
-                                )
-                                api.getPluginSetupStatus { s ->
-                                    s.onSuccess { o2 ->
-                                        if (!o2.optBoolean("needed", false)) {
-                                            android.os.Handler(android.os.Looper.getMainLooper())
-                                                .postDelayed({ firstRun = firstRun.copy(visible = false) }, 1500)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // 首启「准备运行环境」：检查 + 自动补齐 + 逐项进度 + 失败可见。
+            // 接线收在 FirstRunSetupHost 里（本文件已顶到体量预算）。
+            FirstRunSetupHost(bridge = bridge, bridgeReady = bridgeReady)
 
             LauncherShell(
                 current = current,
@@ -1521,38 +1492,6 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 )
             }
 
-            FirstRunSetup(
-                state = firstRun,
-                onStart = {
-                    firstRun = firstRun.copy(running = true, failedIds = emptyList())
-                    // ⚠️ 2026-10-17 修（审计报告 H-1）：
-                    // 原来这里传的是**空回调** `{ }` —— running 永远不会复位，
-                    // 而「稍后」按钮 enabled=!running、「重试」按钮显示条件含 !running，
-                    // 两个都消失，进度条永远转 → 界面**永久卡死**，只能杀进程。
-                    //
-                    // 现在和首次自动安装（见上面 getPluginSetupStatus 那段）走同一套回调：
-                    // 收 failed 列表 → 算出 doneIds/failedIds → running 复位。
-                    val api2 = QookixApi(bridge)
-                    val planned = firstRun.planned
-                    api2.installRecommendedPlugins { ir ->
-                        val failedArr = runCatching {
-                            org.json.JSONObject(ir.getOrNull() ?: "{}").optJSONArray("failed")
-                        }.getOrNull()
-                        val failedNames = (0 until (failedArr?.length() ?: 0))
-                            .mapNotNull { j -> failedArr?.optJSONObject(j) }
-                        firstRun = firstRun.copy(
-                            running = false,
-                            finished = true,
-                            doneIds = planned.filter { f -> failedNames.none { it.optString("name") == f } },
-                            failedIds = planned.filter { f -> failedNames.any { it.optString("name") == f } },
-                        )
-                    }
-                },
-                onDismiss = {
-                    QookixApi(bridge).dismissPluginSetup { }
-                    firstRun = firstRun.copy(visible = false)
-                },
-            )
         }
         }
     }

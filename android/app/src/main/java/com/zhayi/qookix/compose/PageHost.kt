@@ -3282,7 +3282,7 @@ private fun InstanceDetailRoute(
                         error = if (ok) {
                             context.getString(R.string.update_done_for, filename)
                         } else {
-                            context.getString(R.string.update_failed, o.optString("error"))
+                            context.getString(R.string.update_failed, o.optText("error").orEmpty())
                         },
                     )
                     // 重新拉当前分类，让新版本号/状态即时反映
@@ -3926,7 +3926,7 @@ private fun InstanceDetailRoute(
                                 ).show()
                             } else {
                                 state = state.copy(
-                                    error = o.optString("error").ifBlank { context.getString(R.string.import_failed, "") },
+                                    error = o.optText("error") ?: context.getString(R.string.import_failed, ""),
                                 )
                             }
                         }
@@ -5442,7 +5442,7 @@ private fun BrowseRoute(
                                         onSuccess = { o ->
                                             val supported = o.optBoolean("supported", false)
                                             val zh = o.optString("body").takeIf { it.isNotBlank() }
-                                            val err = o.optString("error").takeIf { it.isNotBlank() }
+                                            val err = o.optText("error")
                                             when {
                                                 zh != null -> projectBodyZh = zh
                                                 err != null -> projectBodyError = err

@@ -82,10 +82,11 @@ fun PlaytimePage(
     state: PlaytimeUiState,
     onRefresh: () -> Unit,
 ) {
-    // ⚠️ key 到 state 而不是 Unit：返回页面时 state 已含最新游玩时长，
-    // 若用 Unit 这行只在首次组合跑一次 —— 用户玩完回来看到旧数据，
-    // 会以为统计功能坏了（C-1 审计项）。
-    LaunchedEffect(state) { onRefresh() }
+    // ⚠️ 这里**不要**再 `LaunchedEffect(state) { onRefresh() }`（2026-10-26 审查 P1-12）：
+    // key 是整个 state，而每次 reload 都会 `copy(loading = true)` 产生新实例 →
+    // effect 重启 → 再 reload，变成永不停止的刷新循环（骨架/禁用态一直抖）。
+    // 首次加载与进入页面时的刷新由 `PlaytimeRoute` 的 `LaunchedEffect(ready)` 负责，
+    // 这里是纯展示层 + 手动「刷新」按钮。
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(

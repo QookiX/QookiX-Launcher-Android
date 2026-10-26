@@ -67,6 +67,8 @@ fun PluginsPane(
     onUninstallPlugin: (PluginUi) -> Unit = {},
     onSaveManifestUrl: (String) -> Unit = {},
 ) {
+    var pendingUninstall by remember { mutableStateOf<PluginUi?>(null) }
+
     SettingsPane(title = stringResource(R.string.plugins_title)) {
         // ── 初始化状态 ────────────────────────────────────────────────
         if (!state.ready) {
@@ -170,7 +172,10 @@ fun PluginsPane(
                         p,
                         showDivider = i != state.plugins.lastIndex,
                         onToggle = { enabled -> onTogglePlugin(p, enabled) },
-                        onUninstall = { onUninstallPlugin(p) },
+                        // ⚠️ 先弹确认再卸（2026-10-26 审查 P1-11）：卸载是破坏性的
+                        // （要重新下载几百 MB），原来点一下就执行，全仓 ConfirmDialog
+                        // 一次都没用在这里。
+                        onUninstall = { pendingUninstall = p },
                     )
                 }
             }
@@ -225,6 +230,20 @@ fun PluginsPane(
             text = stringResource(R.string.plugins_about),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
+        )
+    }
+
+    pendingUninstall?.let { p ->
+        ConfirmDialog(
+            title = stringResource(R.string.plugins_uninstall),
+            message = stringResource(R.string.plugins_uninstall_confirm, p.name),
+            confirmText = stringResource(R.string.plugins_uninstall),
+            danger = true,
+            onDismiss = { pendingUninstall = null },
+            onConfirm = {
+                pendingUninstall = null
+                onUninstallPlugin(p)
+            },
         )
     }
 }

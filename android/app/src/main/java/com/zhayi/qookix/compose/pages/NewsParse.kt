@@ -31,6 +31,9 @@ fun parseNews(json: String): List<NewsItemUi> = parseNews(null, json)
 fun parseNews(context: Context?, json: String): List<NewsItemUi> {
     return try {
         val arr = JSONArray(json)
+        // ⚠️ url 是列表的 key，必须唯一且非空（2026-10-26 审查 P1-19）：
+        // 两条缺 url 的新闻 key 都是 ""，LazyColumn 直接抛
+        // `IllegalArgumentException: Key ... was already present` 崩掉整页。
         (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
             val title = o.optString("title").trim()
@@ -43,7 +46,7 @@ fun parseNews(context: Context?, json: String): List<NewsItemUi> {
                 url = o.optString("url"),
                 image = o.optString("image"),
             )
-        }
+        }.filter { it.url.isNotBlank() }.distinctBy { it.url }
     } catch (e: Exception) {
         Log.w("NewsPage", "解析新闻失败", e)
         emptyList()

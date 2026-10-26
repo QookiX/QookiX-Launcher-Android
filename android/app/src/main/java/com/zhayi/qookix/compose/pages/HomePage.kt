@@ -1,10 +1,10 @@
 package com.zhayi.qookix.compose.pages
 
 import com.zhayi.qookix.compose.theme.QkSpacing
-
 import com.zhayi.qookix.compose.theme.QkRadius
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.CircularProgressIndicator
@@ -329,14 +329,15 @@ private fun SectionTitle(text: String, action: String? = null, onAction: (() -> 
             modifier = Modifier.weight(1f),
         )
         if (action != null && onAction != null) {
+            // ⚠️ 原来只有 `.then(Modifier)`（空操作）→「查看全部」是死文本，P1-13
             Text(
                 text = action,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .clip(MaterialTheme.shapes.small)
-                    .padding(horizontal = QkSpacing.xs, vertical = 4.dp)
-                    .then(Modifier),
+                    .clickable(onClick = onAction)
+                    .padding(horizontal = QkSpacing.xs, vertical = 4.dp),
             )
         }
     }
@@ -640,7 +641,3 @@ private fun iconGlyph(name: String): String {
     val major = trimmed.substringBefore('.')
     return major.take(2).ifEmpty { "?" }
 }
-
-
-
-
