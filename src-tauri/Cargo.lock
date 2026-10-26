@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "qookix-launcher"
-version = "0.2.1-beta4"
+version = "0.2.1-beta5"
 dependencies = [
  "anyhow",
  "base64",
