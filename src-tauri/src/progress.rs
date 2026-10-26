@@ -118,8 +118,76 @@ pub fn push(event: &str, payload: serde_json::Value) {
         if crate::android_bridge::push_event_to_kotlin(event, &json).is_some() {
             return;
         }
+        // 桥未就绪（`nativeAttach` 之前）：先存着，attach 后由 flush_pending_events 补发。
+        // 以前这里直接落空 —— 冷启动那几百毫秒里的 install://progress、launch://state
+        // 全部永久丢失，用户看到的就是「点了没反应」（审查 B-P1-4）。
+        queue_pending(event, json);
+    }
+}
+
+/// 桥未就绪期间最多缓存多少条事件 / 多少字节，超了丢最旧的。
+///
+/// 冷启动窗口里正常只有几条到几十条；给这么大的余量是为了「安装中切后台再回前台」
+/// 这类桥长时间不可用的场景，同时防止内存无上限增长。
+const MAX_PENDING_EVENTS: usize = 512;
+const MAX_PENDING_BYTES: usize = 256 * 1024;
+
+lazy_static::lazy_static! {
+    /// `(event, json)` 队列，只由 [push] 写入、[flush_pending_events] 消费。
+    static ref PENDING_EVENTS: StdMutex<std::collections::VecDeque<(String, String)>> =
+        StdMutex::new(std::collections::VecDeque::new());
+    static ref PENDING_BYTES: AtomicU64 = AtomicU64::new(0);
+    /// 因为超限被丢掉的条数（只用于日志，不上报）。
+    static ref PENDING_DROPPED: AtomicU64 = AtomicU64::new(0);
+}
+
+#[cfg(target_os = "android")]
+fn queue_pending(event: &str, json: String) {
+    let mut q = PENDING_EVENTS.lock().unwrap();
+    let mut bytes = PENDING_BYTES.load(Ordering::Relaxed);
+    bytes += json.len() as u64;
+    while q.len() >= MAX_PENDING_EVENTS || bytes > MAX_PENDING_BYTES as u64 {
+        let Some((_, old)) = q.pop_front() else { break };
+        bytes -= old.len() as u64;
+        PENDING_DROPPED.fetch_add(1, Ordering::Relaxed);
+    }
+    q.push_back((event.to_string(), json));
+    PENDING_BYTES.store(bytes, Ordering::Relaxed);
+}
+
+/// 桥就绪后把缓存的事件按顺序补发（`set_activity` 里调用）。
+///
+/// 仍然发不出去的放回队首，等下一次 attach —— 不丢。
+#[cfg(target_os = "android")]
+pub fn flush_pending_events() {
+    let batch: Vec<(String, String)> = {
+        let mut q = PENDING_EVENTS.lock().unwrap();
+        PENDING_BYTES.store(0, Ordering::Relaxed);
+        q.drain(..).collect()
+    };
+    if batch.is_empty() {
+        return;
+    }
+    let dropped = PENDING_DROPPED.swap(0, Ordering::Relaxed);
+    if dropped > 0 {
+        tracing::warn!("桥未就绪期间丢了 {dropped} 条事件（超过缓存上限）");
     }
 
+    let mut leftover: Vec<(String, String)> = Vec::new();
+    for (event, json) in batch {
+        if !leftover.is_empty()
+            || crate::android_bridge::push_event_to_kotlin(&event, &json).is_none()
+        {
+            leftover.push((event, json));
+        }
+    }
+    if !leftover.is_empty() {
+        let mut q = PENDING_EVENTS.lock().unwrap();
+        for (event, json) in leftover.into_iter().rev() {
+            q.push_front((event, json));
+        }
+        PENDING_BYTES.store(q.iter().map(|(_, j)| j.len() as u64).sum(), Ordering::Relaxed);
+    }
 }
 
 /// 安装阶段进度（步骤型）。

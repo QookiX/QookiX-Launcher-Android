@@ -28,6 +28,8 @@ use jni::JavaVM;
             // 进程级引用：故意不释放（释放需要 JNIEnv，且应用退出前一直有效）
             std::mem::forget(global);
             ACTIVITY.store(raw, Ordering::Release);
+            // 桥就绪前缓存的事件（进度 / 启动状态）现在补发（审查 B-P1-4）
+            crate::progress::flush_pending_events();
         }
     }
 
@@ -68,6 +70,22 @@ use jni::JavaVM;
         }
     }
 
+    /// 在一个**局部引用帧**里跑一段 JNI 调用，返回前一次性释放这一批局部引用。
+    ///
+    /// ⚠️ 为什么必须有（2026-10-26 审查 B-P1-2）：这些调用几乎全跑在
+    /// `attach_current_thread_as_daemon` 的**常驻线程**上（事件推送、日志 tail），
+    /// 而局部引用只在线程**退出**时释放 —— 线程永不退出，于是每个事件
+    /// 两次 `new_string` 就一直累积，长会话必然 `local reference table overflow` abort。
+    /// 全仓此前零 `with_local_frame` / `delete_local_ref`。
+    fn with_frame<T>(
+        env: &mut jni::JNIEnv,
+        f: impl FnOnce(&mut jni::JNIEnv) -> Option<T>,
+    ) -> Option<T> {
+        env.with_local_frame(16, |e| Ok::<_, jni::errors::Error>(f(e)))
+            .ok()
+            .flatten()
+    }
+
     /// 一个字符串参数的版本（`startJvmInstallService(json)` 用）。
     ///
     /// 只负责"叫一声"：真正的结果由 `:jvm` 服务写进
@@ -75,12 +93,12 @@ use jni::JavaVM;
     pub fn call_activity1(name: &str, sig: &str, arg: &str) -> Option<()> {
         let vm = java_vm()?;
         let mut env = vm.attach_current_thread_as_daemon().ok()?;
-        let r = (|| {
+        let r = with_frame(&mut env, |env| {
             let obj = activity()?;
             let a: JString = env.new_string(arg).ok()?;
             env.call_method(&obj, name, sig, &[JValue::Object(&a)]).ok()?;
             Some(())
-        })();
+        });
         clear_pending_exception(&mut env, name);
         r
     }
@@ -90,8 +108,8 @@ use jni::JavaVM;
         let vm = java_vm()?;
         let mut env = vm.attach_current_thread_as_daemon().ok()?;
         // 注意：这是事件上行通道（push_event_to_kotlin）的本体，
-        // 每帧都可能走这里 —— 异常必须清掉（B-P0-1）
-        let r = (|| {
+        // 每帧都可能走这里 —— 异常必须清掉（B-P0-1），局部引用必须成帧释放（B-P1-2）
+        let r = with_frame(&mut env, |env| {
             let obj = activity()?;
             let arg1: JString = env.new_string(first).ok()?;
             let arg2: JString = env.new_string(second).ok()?;
@@ -103,7 +121,7 @@ use jni::JavaVM;
             )
             .ok()?;
             Some(String::new())
-        })();
+        });
         clear_pending_exception(&mut env, name);
         r
     }
@@ -367,7 +385,7 @@ use jni::JavaVM;
     pub fn call_activity_str(name: &str, sig: &str) -> Option<String> {
         let vm = java_vm()?;
         let mut env = vm.attach_current_thread_as_daemon().ok()?;
-        let r = (|| {
+        let r = with_frame(&mut env, |env| {
             let obj = activity()?;
             let result = env.call_method(&obj, name, sig, &[]).ok()?;
             match result {
@@ -383,7 +401,7 @@ use jni::JavaVM;
                 jni::objects::JValueOwned::Int(v) => Some(v.to_string()),
                 _ => None,
             }
-        })();
+        });
         clear_pending_exception(&mut env, name);
         r
     }
@@ -396,7 +414,7 @@ use jni::JavaVM;
     pub fn call_activity_str2(name: &str, sig: &str, first: &str, second: &str) -> Option<String> {
         let vm = java_vm()?;
         let mut env = vm.attach_current_thread_as_daemon().ok()?;
-        let r = (|| {
+        let r = with_frame(&mut env, |env| {
             let obj = activity()?;
             let arg1: JString = env.new_string(first).ok()?;
             let arg2: JString = env.new_string(second).ok()?;
@@ -421,7 +439,7 @@ use jni::JavaVM;
                 }
                 _ => Some(String::new()),
             }
-        })();
+        });
         clear_pending_exception(&mut env, name);
         r
     }
@@ -474,7 +492,7 @@ use jni::JavaVM;
         let vm = java_vm()?;
         let mut env = vm.attach_current_thread_as_daemon().ok()?;
 
-        let r = (|| {
+        let r = with_frame(&mut env, |env| {
             let obj = activity()?;
             let result = match arg {
                 Some(value) => {
@@ -498,7 +516,7 @@ use jni::JavaVM;
                 // void / 基本类型返回：调用成功即可，用空串表示「成功但没有返回值」
                 _ => Some(String::new()),
             }
-        })();
+        });
         clear_pending_exception(&mut env, name);
         r
     }
