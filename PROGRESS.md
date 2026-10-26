@@ -80,6 +80,28 @@
 - 未推送提交 53 个；发版步骤见交接文档
 - commit `cb3e8d7`
 
+### 2026-10-26 · 交接文档（0.2.1-beta 线）
+- 交接文档：`docs/handoff-2026-10-26-beta-handoff.md`（本地文档，`docs/` 不入库）
+  —— 含现状、17 个提交对照、真机验证记录、发版命令、回滚点、10 条踩坑清单
+- **本轮最重要的发现（比 UI 修复都严重）**：**CI 发出去的 APK 在 Android 15/16 上
+  整个 App 不可用**。真机（OnePlus 8 / Android 16 / SDK 36）装机后所有命令失效，
+  Kotlin 侧只看到 `No implementation found for nativeInvoke`；logcat 里真凶是
+  `dlopen failed: cannot locate symbol "ANativeWindow_fromSurface"`
+  —— 根因是 `-landroid` 等链接参数只写在**本机** `src-tauri/.cargo/config.toml` 里，
+  而那个文件被 gitignore，CI 从来没用上（works on my machine）
+  → 修复 `28cddb1`：新增 `src-tauri/build.rs` 把链接参数写进仓库
+  （**beta1 / beta2 都带这个缺陷，下一版必须带上修复**）
+- 0.2.0 → HEAD 共 17 个提交：12 条高危 UI 修复（列表/实例/设置/编辑器/渲染器/桥层）
+  + 实例列表与游玩统计的「读失败可见」+ 全局轻提示（`QkFeedback`）
+- 体量：`servers.rs` 2438→2288、`PageHost.kt` 5866→5735、`launch.rs` 2055→2030
+- 真机已验：修复版 native 加载成功、服务器空态与实例空态文案正确
+- 真机未验：旧实例找回（`/sdcard/QookiX/instances` 里 4 个实例还在）、
+  16KB 页对齐（第三方 lwjgl/SDL3/openal 未对齐）、首次运行插件安装静默失败
+- 顺带修正上一条记录：在这台 OnePlus 8 上 `adb shell appops set <pkg>
+  MANAGE_EXTERNAL_STORAGE allow` **是生效的**（返回 allow），
+  「appops 无效」可能是那台 ColorOS 机器的特性而非普遍现象
+- commit `28cddb1`
+
 ### 2026-10-25 · Q2 收尾：删白名单分叉（**发现并修了 A2 的真 bug**）
 - `QookixApi.kt` **755 → 507**（累计 2337 → 507，**-78%**），进入 600 行健康线
 - 删 `NATIVE_COMMANDS`（214 行白名单）+ `call()` 里的双路径分叉
