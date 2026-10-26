@@ -28,6 +28,23 @@ pub(crate) const HANDLED: &[&str] = &[
     "fetch_news",
 ];
 
+/// 下载目标是否落在「游戏目录」或「应用数据目录」之内（审查 A-P2-9）。
+///
+/// 只做前缀判断（不做 canonicalize）：目标文件通常还不存在，canonicalize 会失败；
+/// 而 `..` 穿越在这里没有意义 —— 前缀匹配失败就直接拒绝。
+fn dest_allowed(dest: &str) -> bool {
+    let d = dest.replace('\\', "/");
+    [
+        crate::settings::game_root_sync(),
+        crate::settings::data_dir_sync(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|r| r.replace('\\', "/").trim_end_matches('/').to_string())
+    .filter(|r| !r.is_empty())
+    .any(|root| d == root || d.starts_with(&format!("{root}/")))
+}
+
 pub(crate) async fn dispatch(cmd: &str, p: &Value) -> Option<String> {
     if !HANDLED.contains(&cmd) {
         return None;
@@ -135,6 +152,12 @@ async fn run(cmd: &str, p: &Value) -> String {
             let (Some(url), Some(dest)) = (sarg(p, &["url"]), sarg(p, &["dest"])) else {
                 return err("缺少 url / dest");
             };
+            // ⚠️ 审查 A-P2-9：url + dest 直接透传，等于给出「往应用可写范围内任意
+            // 路径写任意内容」的能力（没有路径规范化，也没有根目录约束）。
+            // 这条命令目前 Kotlin 侧没有调用者，但不能留着一个越权的通用下载器。
+            if !dest_allowed(&dest) {
+                return err("下载目标不在游戏目录或应用数据目录内");
+            }
             match download_file(url, dest, sarg(p, &["sha1"])).await {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
