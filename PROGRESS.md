@@ -43,6 +43,13 @@
 
 ## 分步记录（最新在上）
 
+### 2026-10-27 · PageHost 第三刀：账号/首页/插件
+- AccountRoute(171) + HomeRoute(165) + PluginsRoute(115) → AccountHomeRoutes.kt
+- PageHost.kt **5083 → 4632**（-451）；**累计 5726 → 4632（-1094，-19%）**
+- 同一套定位法（函数名 + 括号计数）连续第二刀一次通过
+- 验证：compileArm64ReleaseKotlin / ssembleArm64Release / 单测 10 / 闸门 279 文件 0 超预算 ✅
+- commit 待补
+
 ### 2026-10-27 · PageHost 第二刀：新闻/占位/重命名/文件浏览
 - 4 个自成一体的小页面搬到 SimpleRoutes.kt：NewsRoute(27)、PlaceholderPage(31)、RenameDialog(42)、FileBrowserRoute(77)
 - PageHost.kt **5260 → 5083**（-177）；累计 5726 → 5083（-643）
