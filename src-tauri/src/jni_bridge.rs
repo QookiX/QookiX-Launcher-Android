@@ -1,9 +1,6 @@
 use jni::objects::{JClass, JString};
 use jni::sys::{jint, jstring};
 use jni::JNIEnv;
-use std::ffi::CString;
-use std::os::raw::c_char;
-use std::sync::OnceLock;
 
 fn launch_game_blocking(instance_id: String, account_uuid: String) -> i32 {
     // 关键：这里**不能**再 `tokio::runtime::Runtime::new().unwrap()`。
@@ -375,14 +372,7 @@ pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeSetSurfaceSize(
     crate::android_env::set_surface_size(width, height);
 }
 
-/// 版本清单的旧 JNI 入口（真实数据走 `get_version_manifest` 命令，这里目前无调用者）。
-/// Kotlin 侧的声明是**非空** `String`（TauriBridge.kt），返回 `null` 会让调用点抛 NPE ——
-/// 改为返回一个常驻空串，占位也安全。
-#[no_mangle]
-pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeGetVersionList(
-    _env: JNIEnv,
-    _class: JClass,
-) -> *const c_char {
-    static EMPTY: OnceLock<CString> = OnceLock::new();
-    EMPTY.get_or_init(CString::default).as_ptr()
-}
+// 版本清单的旧 JNI 入口已删（2026-10-26 审查 C-P1-1）：
+// Kotlin 侧声明的是 `String`，JNI 侧却返回 `*const c_char` —— 指针会被当成
+// jstring 句柄解引用，一旦有人接线就是立刻崩溃。真实数据走 `get_version_manifest`
+// 命令，这个入口从来没有调用者，删掉比留个假的「空串占位」安全。

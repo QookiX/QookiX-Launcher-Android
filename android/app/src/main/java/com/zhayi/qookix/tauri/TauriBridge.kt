@@ -129,7 +129,8 @@ object TauriBridge {
      */
     external fun nativeInvoke(cmd: String, payload: String): String
 
-    external fun nativeGetVersionList(): String
+    // nativeGetVersionList 已删（2026-10-26）：Rust 侧返回的是指针、这里声明的是 String，
+    // 接上就崩；版本清单走 `get_version_manifest` 命令。
     external fun nativeLaunchGame(instanceId: String, accountUuid: String): Int
     external fun nativeKillGame(): Int
     external fun nativeGetGameStatus(): String
