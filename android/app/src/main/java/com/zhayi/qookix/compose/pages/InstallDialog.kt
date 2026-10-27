@@ -166,7 +166,13 @@ fun InstallDialog(
                             }
                         }
                     }
-                } else {
+                }
+                // ⚠️ 2026-10-27 修：模组这里原来是 `else` —— 一旦算作「能装服务器」，
+                // 实例那一段就整个不再渲染。结果**没有服务器时模组根本装不了**：
+                // 界面上只剩一句「还没有服务器」，安装按钮永远是灰的。
+                // 现在两个区块并列显示（插件才只走服务器）。
+                if (!isPlugin) {
+                    if (serverTargets) Spacer(Modifier.height(QkSpacing.xs))
                     SectionLabel(stringResource(R.string.install_target_instance))
                     val candidates = instances.filter { it.loader != "vanilla" }
                     if (candidates.isEmpty()) {
