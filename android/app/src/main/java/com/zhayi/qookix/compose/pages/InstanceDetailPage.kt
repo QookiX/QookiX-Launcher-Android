@@ -88,6 +88,9 @@ import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.ui.SkeletonList
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.zhayi.qookix.compose.theme.QkRadius
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import com.zhayi.qookix.compose.motion.SharedHero
 
 /**
  * 实例详情。
@@ -232,7 +235,15 @@ fun InstanceDetailPage(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier
+                    .size(48.dp)
+                    .onGloballyPositioned {
+                        // 上报**落点**（窗口坐标）：上游的飞行浮层拿它当目标位置。
+                        // 只在真有飞行任务时才写，避免平时无谓地触发重组。
+                        if (SharedHero.pending != null) {
+                            SharedHero.landing = it.boundsInWindow()
+                        }
+                    },
                 shape = RoundedCornerShape(QkRadius.medium),
                 color = MaterialTheme.colorScheme.primaryContainer,
             ) {

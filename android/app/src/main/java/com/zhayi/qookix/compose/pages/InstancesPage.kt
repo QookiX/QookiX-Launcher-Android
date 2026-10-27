@@ -60,6 +60,9 @@ import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.zhayi.qookix.compose.ui.QkAppear
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import com.zhayi.qookix.compose.motion.SharedHero
 
 /**
  * 实例列表页。
@@ -428,6 +431,13 @@ private fun InstanceCard(
     // 按下缩放：combinedClickable 必须显式接收这个 source，
     // 否则它内部自建一个，pressScale 永远收不到按压事件
     val pressSource = remember { MutableInteractionSource() }
+
+    // ── 共享元素：起飞点（2026-10-27）─────────────────────────────────
+    // 图标在窗口里的位置 + 颜色，点击瞬间交给 SharedHero；详情页 hero 布局完
+    // 后上报落点，浮层才开始飞（两段式，避免"先飞到占位位置再跳一下"）。
+    val iconBg = parseHexColor(inst.colorHex) ?: MaterialTheme.colorScheme.primaryContainer
+    val iconFg = MaterialTheme.colorScheme.onPrimaryContainer
+    var iconRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -438,7 +448,14 @@ private fun InstanceCard(
                 interactionSource = pressSource,
                 indication = LocalIndication.current,
                 enabled = !busy,
-                onClick = onClick,
+                onClick = {
+                    // 起飞：点击瞬间把图标位置交给飞行层。
+                    // 详情页 hero 布局完成后上报落点，浮层才开始飞（两段式）。
+                    iconRect?.let { r ->
+                        SharedHero.launch(r, inst.name.take(1).uppercase(), iconBg, iconFg)
+                    }
+                    onClick()
+                },
                 onLongClick = onLongClick,
             ),
         shape = MaterialTheme.shapes.medium,
@@ -452,7 +469,10 @@ private fun InstanceCard(
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(QkRadius.medium)),
+                    .clip(RoundedCornerShape(QkRadius.medium))
+                    // 记住图标在窗口里的位置（跨页面坐标系必须用 boundsInWindow，
+                    // boundsInParent 是相对直接父容器，跨层就错位）
+                    .onGloballyPositioned { iconRect = it.boundsInWindow() },
                 contentAlignment = Alignment.Center,
             ) {
                 Surface(

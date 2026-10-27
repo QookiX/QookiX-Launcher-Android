@@ -173,6 +173,7 @@ import com.zhayi.qookix.compose.pages.settings.SettingsTab
 import com.zhayi.qookix.compose.pages.settings.SettingsUiState
 import com.zhayi.qookix.compose.pages.settings.StoragePane
 import com.zhayi.qookix.compose.shell.NavDestination
+import com.zhayi.qookix.compose.motion.SharedHeroOverlay
 
 /**
  * 冷启动的「渲染器健康检查」是否已跑过。
@@ -936,6 +937,10 @@ fun PageHost(
 
         else -> PlaceholderPage(dest)
     }
+
+    // 共享元素飞行层：挂在页面之上，从卡片图标飞到详情页 hero。
+    // 它是全屏 Box 的最后一个子项，所以覆盖在所有页面内容之上。
+    SharedHeroOverlay()
 
     // ── 渲染器建议弹窗（对应旧 UI 的 RendererHintDialog）────────────
     //
