@@ -66,6 +66,16 @@ import androidx.compose.ui.graphics.Color
 import com.zhayi.qookix.compose.theme.QkRadius
 import com.zhayi.qookix.compose.theme.qkPressable
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInParent
 
 /**
  * 启动器主壳（Material 3）—— 完全重做，不参照旧 Vue 界面。
@@ -257,26 +267,58 @@ fun LauncherShell(
                 // 层次才是「背景 → 侧栏 → 卡片」。
                 color = MaterialTheme.colorScheme.surface,
             ) {
-                Column(
-                    // ⚠️ 这里**不能**再写 fillMaxHeight()：
-                    // 外层 Surface 已经撑满高度，而 verticalScroll 会把子项的
-                    // 高度约束变成 Infinity —— 两者叠加会让 NavigationDrawerItem
-                    // 被拉伸、项间距异常放大（实测：6 项铺满整屏且「更多」被裁）。
-                    // 只保留 verticalScroll 作兜底（将来加入口也不会被裁）。
-                    modifier = Modifier
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
-                ) {
-                    // 品牌区（MD3 常驻抽屉的标准做法：抽屉顶部放产品名，
+                // ── 选中项的滑动指示器 ──────────────────────────────────────
+                //
+                // 原来选中态由每一项自己变背景色 → 切换时是「这块灭、那块亮」。
+                // 现在一个滑块在项之间移动，带 spring 惯性（ZL2 那种"有重量"）。
+                //
+                // 用 offset + size 而不是重新排版：它们只走绘制，不触发测量
+                //（宽度那种会重排的属性才必须用单调曲线，这里的位移可以用弹性）。
+                val density = LocalDensity.current
+                val bounds = remember { mutableStateMapOf<NavDestination, Rect>() }
+                val ix = remember { Animatable(0f) }
+                val iy = remember { Animatable(0f) }
+                val iw = remember { Animatable(0f) }
+                val ih = remember { Animatable(0f) }
 
-                    NavDestination.bottomBar.forEach { dest ->
-                        QkRailItem(
-                            dest = dest,
-                            selected = dest == current,
-                            expanded = sidebarExpanded,
-                            onClick = { onNavigate(dest) },
-                            onLongPress = { sidebarExpanded = !sidebarExpanded },
+                LaunchedEffect(bounds[current], sidebarExpanded) {
+                    val r = bounds[current] ?: return@LaunchedEffect
+                    launch { ix.animateTo(r.left, QookiX.spatialSpec()) }
+                    launch { iy.animateTo(r.top, QookiX.spatialSpec()) }
+                    launch { iw.animateTo(r.width, QookiX.spatialSpec()) }
+                    launch { ih.animateTo(r.height, QookiX.spatialSpec()) }
+                }
+
+                Box {
+                    if (iw.value > 1f) {
+                        Box(
+                            modifier = Modifier
+                                .offset { IntOffset(ix.value.roundToInt(), iy.value.roundToInt()) }
+                                .size(
+                                    with(density) { iw.value.toDp() },
+                                    with(density) { ih.value.toDp() },
+                                )
+                                .background(
+                                    MaterialTheme.colorScheme.secondaryContainer,
+                                    RoundedCornerShape(QkRadius.medium),
+                                ),
                         )
+                    }
+                    Column(
+                        // 去掉了 verticalScroll：指示器需要稳定的坐标系，
+                        // 而且收起态 6 × 48dp = 288dp，横屏 320dp 放得下。
+                        modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 6.dp),
+                    ) {
+                        NavDestination.bottomBar.forEach { dest ->
+                            QkRailItem(
+                                dest = dest,
+                                selected = dest == current,
+                                expanded = sidebarExpanded,
+                                onClick = { onNavigate(dest) },
+                                onLongPress = { sidebarExpanded = !sidebarExpanded },
+                                onBounds = { bounds[dest] = it },
+                            )
+                        }
                     }
                 }
             }
@@ -374,13 +416,12 @@ private fun QkRailItem(
     expanded: Boolean,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
+    /** 把自己相对父容器的位置/尺寸报上去，供滑动的选中指示器定位。 */
+    onBounds: (androidx.compose.ui.geometry.Rect) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val bg by animateColorAsState(
-        targetValue = if (selected) colors.secondaryContainer else Color.Transparent,
-        animationSpec = tween(180, easing = QookiX.EaseOut),
-        label = "railBg",
-    )
+    // 注意：这里**不再画自己的背景** —— 选中底色由外层那个滑动 indicator 统一负责，
+    // 否则会出现「滑块在动 + 每项自己也变色」的双重效果。
     val fg by animateColorAsState(
         targetValue = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant,
         animationSpec = tween(180, easing = QookiX.EaseOut),
@@ -397,7 +438,7 @@ private fun QkRailItem(
     val base = Modifier
         .fillMaxWidth()
         .clip(RoundedCornerShape(QkRadius.medium))
-        .background(bg)
+        .onGloballyPositioned { onBounds(it.boundsInParent()) }
         .pressScale(interaction)
         .combinedClickable(
             interactionSource = interaction,
