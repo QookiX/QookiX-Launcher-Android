@@ -19,8 +19,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
@@ -40,23 +38,17 @@ import kotlin.math.roundToInt
  * 而本项目 `PageHost` 用 `when (dest)` 切页 —— 换成 `AnimatedContent` 后各页的
  * `LaunchedEffect(bridgeReady)` 不再执行（2026-10-13 踩过）。
  *
- * ## 这里的做法
+ * ## 两条已确认的硬约束
  *
- * 在页面之上画一个临时浮层，从卡片图标位置飞到详情页 hero：
+ * 1. **动画不能放在全局协程里**：`Animatable.animateTo` 需要 Compose 的
+ *    `MonotonicFrameClock`，全局 `CoroutineScope(Dispatchers.Main)` 没有它 ——
+ *    实测直接抛 `IllegalStateException: A MonotonicFrameClock is not available`。
+ *    所以动画必须在 Composable 的作用域里启动。
+ * 2. **组合是单线程的**：切页那一帧要先完成详情页的组合（1000+ 行、还要拉数据），
+ *    提交之后 `LaunchedEffect` 才会跑。��「图标先卡一下、等那边加载完才飞」——
+ *    这不是动画的问题，是**详情页首帧太重**。
  *
- * ```
- * 点卡片 → 记录图标窗口位置 → 切页
- *        → 浮层**立即**起飞（目标先用估算位置，不等落点）
- *        → hero 布局完成上报真实落点 → 改目标继续飞（从当前值接续，不跳）
- *        → 落地清除
- * ```
- *
- * ## 两个必须注意的坐标问题（都踩过）
- *
- * 1. 起点/落点用 `boundsInWindow()`（窗口坐标），不能用 `boundsInParent()`
- *    —— 后者相对直接父容器，跨层就差一个 padding。
- * 2. **浮层自己的原点也不是窗口原点**：它挂在内容区（侧栏右侧、顶栏下方），
- *    所以绘制时要减掉 `localToWindow(0,0)`，否则整体偏移（用户反馈「飞的位置不对」）。
+ * 所以能做的优化是：**不等落点**（用估算位置先飞），把等待压到最短。
  */
 object SharedHero {
 
@@ -76,10 +68,21 @@ object SharedHero {
 
     /** 落点：目标页 hero 布局完成后写入。 */
     var landing by mutableStateOf<Rect?>(null)
+        private set
+
+    /** 点击时刻（纳秒），用于测量「切页 → hero 就位」的实际耗时。 */
+    var launchedAtNanos: Long = 0L
+        private set
 
     fun launch(from: Rect, label: String, background: Color, foreground: Color) {
         landing = null
+        launchedAtNanos = System.nanoTime()
         pending = Launch(from, label, background, foreground)
+    }
+
+    /** 真实落点到达。 */
+    fun updateLanding(rect: Rect) {
+        landing = rect
     }
 
     fun clear() {
@@ -91,13 +94,12 @@ object SharedHero {
 /**
  * 落点还没上报时的**估算位置**。
  *
- * 详情页 hero 固定在「内容区左上 + 页面内边距」处（48dp 图标），
- * 这里按横屏布局估算一个矩形。误差几十 dp 无妨：飞行本身只有几百毫秒，
- * 真实落点到达后会自动改目标、从当前值接续。
+ * 详情页 hero 固定在「内容区左上 + 页面内边距」处（48dp 图标）。
+ * 误差几十 dp 无妨：真实落点到达后会自动改目标、从当前值接续。
  */
-private fun estimatedLanding(density: Density): Rect {
+fun estimatedLanding(density: Density): Rect {
     val sideBar = 168.dp      // 侧栏展开宽（收起是 88dp，误差可接受）
-    val pagePad = 20.dp       // 内容区 padding
+    val pagePad = 20.dp
     val icon = 48.dp
     val topBar = 64.dp
     val cx = sideBar + pagePad + icon / 2
@@ -118,8 +120,7 @@ private fun estimatedLanding(density: Density): Rect {
  * 看起来像「切完页才开始飞」）。
  *
  * @param origin 内容区左上角在**窗口**里的位置。起点/落点都是窗口坐标，
- *   绘制时要减掉它。由 PageHost 稳定提供 —— 浮层自己测的话要多等一帧
- *   （布局完成后才有值），用户会看到「图标先顿一下再飞」。
+ *   绘制时要减掉它。由 PageHost 稳定提供。
  */
 @Composable
 fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
@@ -140,8 +141,6 @@ fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
         // 布局完成才动，用户感知到的是「点了半天才飞」（反馈里的「延迟」）。
         val target = landing ?: estimatedLanding(density)
         coroutineScope {
-            // spatialSpec（spring）而不是 slowSpatialSpec：后者为大范围慢速设计，
-            // 400-600ms 的飞行在手机尺寸上显得拖沓。
             launch { left.animateTo(target.left, QookiX.spatialSpec()) }
             launch { top.animateTo(target.top, QookiX.spatialSpec()) }
             launch { w.animateTo(target.width, QookiX.spatialSpec()) }

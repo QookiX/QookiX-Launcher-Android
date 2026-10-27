@@ -63,6 +63,8 @@ import com.zhayi.qookix.compose.ui.QkAppear
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import com.zhayi.qookix.compose.motion.SharedHero
+import androidx.compose.ui.platform.LocalDensity
+import com.zhayi.qookix.compose.motion.estimatedLanding
 
 /**
  * 实例列表页。
@@ -438,6 +440,8 @@ private fun InstanceCard(
     val iconBg = parseHexColor(inst.colorHex) ?: MaterialTheme.colorScheme.primaryContainer
     val iconFg = MaterialTheme.colorScheme.onPrimaryContainer
     var iconRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    // LocalDensity.current 是 @Composable 的读取，不能写在点击回调里 —— 先取好。
+    val density = LocalDensity.current
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -449,10 +453,18 @@ private fun InstanceCard(
                 indication = LocalIndication.current,
                 enabled = !busy,
                 onClick = {
-                    // 起飞：点击瞬间把图标位置交给飞行层。
-                    // 详情页 hero 布局完成后上报落点，浮层才开始飞（两段式）。
+                    // 起飞：把图标位置交给飞行层，详情页 hero 会接住。
+                    //
+                    // ⚠️ 这里**不**等落点：起飞必须和点击同帧发生（用户反馈
+                    // 「点完立马飞，不要等那边加载完成才动」）。落点由 hero 稍后上报，
+                    // 动画在 object 里独立跑，到达后改目标、从当前值接续。
                     iconRect?.let { r ->
-                        SharedHero.launch(r, inst.name.take(1).uppercase(), iconBg, iconFg)
+                        SharedHero.launch(
+                            from = r,
+                            label = inst.name.take(1).uppercase(),
+                            background = iconBg,
+                            foreground = iconFg,
+                        )
                     }
                     onClick()
                 },

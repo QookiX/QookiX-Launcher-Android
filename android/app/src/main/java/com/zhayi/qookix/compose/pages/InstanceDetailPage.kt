@@ -255,7 +255,12 @@ fun InstanceDetailPage(
                         // 上报**落点**（窗口坐标）：上游的飞行浮层拿它当目标位置。
                         // 只在真有飞行任务时才写，避免平时无谓地触发重组。
                         if (SharedHero.pending != null) {
-                            SharedHero.landing = it.boundsInWindow()
+                            // 测量「点击 → hero 就位」的耗时。
+                            // 用户反馈的「图标先卡一下，等那边加载完才飞」就是这个数 ——
+                            // 组合是单线程的，详情页组合完之前任何 effect 都跑不了。
+                            val dt = (System.nanoTime() - SharedHero.launchedAtNanos) / 1_000_000
+                            android.util.Log.i("QkPerf", "hero 就位耗时 ${dt}ms")
+                            SharedHero.updateLanding(it.boundsInWindow())
                         }
                     },
                 shape = RoundedCornerShape(QkRadius.medium),
