@@ -1223,6 +1223,7 @@
     <string name="frp_tunnel_not_ready_host">陶瓦隧道未就绪。请先启动一次游戏，再回到这里开房。</string>
     <string name="loader_no_versions">这个游戏版本没有可用的 %1$s 版本</string>
     <string name="import_partial">导入完成，但有 %1$d 项没下全（进游戏前建议点「修复文件」）</string>
+    <string name="import_auto_repair">导入完成，正在自动补全游戏文件…</string>
     <string name="import_done">已导入：%1$s</string>
     <!-- ── Repo 层（实例详情 / 服务器详情，2026-10-17 注入 Context）── -->
     <string name="repair_file_missing">文件缺失</string>

@@ -992,6 +992,16 @@ internal fun CreateRoute(
                             if (bad > 0) context.getString(R.string.import_partial, bad)
                             else context.getString(R.string.import_done, name),
                         )
+                        // 导入只解包**内容**（mods/config/…），游戏本体（客户端 jar、
+                        // libraries、assets）不在包里 —— 以前要用户进实例手动点「补全」，
+                        // 而大多数人只会觉得「导入完了却启动不了」。
+                        // 这里导入成功即自动补全缺失的游戏文件（同一套 repair_instance_files，
+                        // 进度仍由 install://progress 推到任务卡/详情页）。
+                        val newId = inst?.optString("id").orEmpty()
+                        if (newId.isNotBlank()) {
+                            QkFeedback.show(context.getString(R.string.import_auto_repair))
+                            api.repairInstanceFiles(newId) { }
+                        }
                         onCreated()
                     },
                     onFailure = { e ->

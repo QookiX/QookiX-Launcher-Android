@@ -26,7 +26,7 @@
   "android/app/src/main/java/com/zhayi/qookix/compose/ComposeMainActivity.kt": 1563,
   "android/app/src/main/java/com/zhayi/qookix/compose/FrpRoutes.kt": 646,
   "android/app/src/main/java/com/zhayi/qookix/compose/PageHost.kt": 2444,
-  "android/app/src/main/java/com/zhayi/qookix/compose/PlayRoutes.kt": 1106,
+  "android/app/src/main/java/com/zhayi/qookix/compose/PlayRoutes.kt": 1116,
   "android/app/src/main/java/com/zhayi/qookix/compose/SimpleRoutes.kt": 358,
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/ApiError.kt": 50,
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/CoreState.kt": 169,
