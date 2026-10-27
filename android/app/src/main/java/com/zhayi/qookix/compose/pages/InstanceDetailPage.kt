@@ -503,16 +503,16 @@ fun InstanceDetailPage(
         // 表现为「设置 tab 内容超一屏但滑不动」。
         // 外层先给一个明确尺寸的 Box，AnimatedContent 填满它，就稳定了。
         Box(modifier = Modifier.weight(1f)) {
-            // ⚠️ 首帧只画「壳」（hero + tab 条），tab 内容推迟一帧再组合。
-            // 实测（OnePlus 8 / debug）：点卡片到 hero 就位要 126ms —— 这段时间
-            // 主线程在组合 161 个模组的列表 + 各 tab 的 LaunchedEffect，共享元素
-            // 浮层一帧都画不出来，用户的感受就是「卡一下，然后图标才飞」。
-            // 把内容挪到第二帧，hero 就能在第一帧落地、飞行从第一帧开始跑。
-            var bodyReady by remember { mutableStateOf(false) }
+            // ⚠️ tab 内容等**图标落地**再组合：详情页首次组合要 100ms+（161 个模组
+            // 的列表），Compose 单线程——这段时间一帧都画不出来。只在首帧挡一下的话，
+            // 重组合正好落在飞行途中 → 「飞到一半卡一下」。落地后再付这笔成本，飞行
+            // 期间帧预算全给动画；500ms 兜底防内容永不出现。
+            var forceReady by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
-                withFrameNanos { }
-                bodyReady = true
+                kotlinx.coroutines.delay(500)
+                forceReady = true
             }
+            val bodyReady = forceReady || SharedHero.pending == null
             if (!bodyReady) {
                 Spacer(Modifier.fillMaxSize())
             } else {

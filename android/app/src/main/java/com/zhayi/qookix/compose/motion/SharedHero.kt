@@ -131,7 +131,9 @@ object SharedHero {
             }
             val t = target ?: continue
             val c = current.value ?: continue
-            val k = 0.22f                            // 每帧趋近 22%（指数趋近，永不超调）
+            // 每帧趋近 28%（指数趋近，永不超调）。先前是 0.22（约 330ms 到位），
+            // 现在内容要等落地才组合，飞行久一点就多等一点 —— 调快到这里约 200ms。
+            val k = 0.28f
             val next = Rect(
                 c.left + (t.left - c.left) * k,
                 c.top + (t.top - c.top) * k,
