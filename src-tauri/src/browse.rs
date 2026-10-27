@@ -2282,6 +2282,7 @@ pub async fn list_content(instance_id: &str, kind: &str) -> Result<serde_json::V
         crate::util::fill_content_from_jar(&mut rec, &content_dir.join(fname));
         new_records.push(rec);
     }
+    let registered = new_records.len();
     if !new_records.is_empty() {
         let _ = crate::instances::add_content_batch(instance_id, kind, new_records.clone()).await;
         records.extend(new_records);
@@ -2302,6 +2303,17 @@ pub async fn list_content(instance_id: &str, kind: &str) -> Result<serde_json::V
     if updated {
         let _ = crate::instances::add_content_batch(instance_id, kind, records.clone()).await;
     }
+
+    // 诊断（2026-10-27）：用户反馈「mods 目录 161 个 jar，界面只显示 140」。
+    // 这条日志把三个数字摊开，一眼能看出是「磁盘没读到」还是「补注册没生效」
+    // 还是「Kotlin 侧过滤掉了」——否则只能靠猜。
+    crate::util::log_line(&format!(
+        "[content] {kind}: instance.json={} 磁盘={} 补注册={} 返回={}",
+        records.len().saturating_sub(registered),
+        on_disk.len(),
+        registered,
+        records.len(),
+    ));
 
     let items: Vec<Value> = records
         .iter()
