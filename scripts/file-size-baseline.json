@@ -220,7 +220,7 @@
   "src-tauri/src/android_bridge/mod_android.rs": 529,
   "src-tauri/src/android_env.rs": 1022,
   "src-tauri/src/app_state.rs": 65,
-  "src-tauri/src/browse.rs": 2985,
+  "src-tauri/src/browse.rs": 2997,
   "src-tauri/src/commands.rs": 1319,
   "src-tauri/src/commands/dispatch_account.rs": 192,
   "src-tauri/src/commands/dispatch_content.rs": 373,

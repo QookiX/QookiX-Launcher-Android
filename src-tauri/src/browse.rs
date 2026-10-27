@@ -706,9 +706,17 @@ where
     //   镜像 https://bmclapi2.bangbang93.com/fabric-meta/...     → 0.71 秒
     // 结果就是创建实例时「加载器版本获取失败」，用户建不出可用的实例。
     // 既然镜像只是**候选**（并行发、谁先回用谁），多挂一个纯赚。
-    let mirrored_default = crate::mirror::map(crate::mirror::BMCLAPI_BASE, url);
-    if !mirrored_default.is_empty() && mirrored_default != url && !urls.contains(&mirrored_default) {
-        urls.push(mirrored_default);
+    // ⚠️ 2026-10-27：兜底源也要**尊重设置**。以前无条件挂 BMCLAPI，
+    // 用户选了「官方源」仍会从镜像取元数据（列表里的下载地址也变成镜像的）。
+    let base = crate::mirror::current_base();
+    if !base.is_empty() {
+        let mirrored_default = crate::mirror::map(&base, url);
+        if !mirrored_default.is_empty()
+            && mirrored_default != url
+            && !urls.contains(&mirrored_default)
+        {
+            urls.push(mirrored_default);
+        }
     }
     urls.push(url.to_string());
 
@@ -1918,10 +1926,14 @@ async fn write_simple_loader_profile(
     //   官方 meta.fabricmc.net/.../profile/json → Connect 超时（经常拉不到）
     //   镜像 bmclapi2.bangbang93.com/fabric-meta/... → 0.7 秒
     // 只请求官方时，删除坏 profile 后**重新拉取直接失败**，等于修不好。
+    // 同 `fetch_list_mirrored`：只按用户选的源来，官方源不挂镜像
     let mut candidates: Vec<String> = Vec::new();
-    let mirrored = crate::mirror::map(crate::mirror::BMCLAPI_BASE, &url);
-    if !mirrored.is_empty() && mirrored != url {
-        candidates.push(mirrored);
+    let base = crate::mirror::current_base();
+    if !base.is_empty() {
+        let mirrored = crate::mirror::map(&base, &url);
+        if !mirrored.is_empty() && mirrored != url {
+            candidates.push(mirrored);
+        }
     }
     candidates.push(url.clone());
 
