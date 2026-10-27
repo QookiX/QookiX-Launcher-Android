@@ -608,16 +608,11 @@ fun PageHost(
     // `remember(dest) { Animatable(起点) }` 让起点在**同一帧**就生效：
     // dest 一变，新的 Animatable 立刻以 0 参与这一帧绘制，不存在「先画终点」。
     //
-    // 首次进入不播（shouldAnimate = false，直接从 1f 起），之后每次切页都播。
-    val firstDest = remember { dest }
-    val shouldAnimate = dest != firstDest
-    val pageAnim = remember(dest) {
-        androidx.compose.animation.core.Animatable(if (shouldAnimate) 0f else 1f)
-    }
+    // 首次进入也播（原来用 `shouldAnimate = dest != firstDest` 把首屏排除了，
+    // 结果就是「别的页面都有从下往上浮出、只有首页没有」）。
+    val pageAnim = remember(dest) { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(pageAnim) {
-        if (shouldAnimate) {
-            pageAnim.animateTo(1f, QookiX.pageSpec())
-        }
+        pageAnim.animateTo(1f, QookiX.pageSpec())
     }
 
     // 由同一个 progress（0→1）派生出全部视觉量，保证完全同步
