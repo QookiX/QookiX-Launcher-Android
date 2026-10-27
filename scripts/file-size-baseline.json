@@ -278,6 +278,6 @@
   "src-tauri/src/translate.rs": 554,
   "src-tauri/src/updater.rs": 323,
   "src-tauri/src/util.rs": 578,
-  "src-tauri/src/version.rs": 833,
+  "src-tauri/src/version.rs": 841,
   "src-tauri/src/world_backup.rs": 273
 }
