@@ -70,10 +70,21 @@ fn cached_client(mode: &str, proxy: &str) -> reqwest::Client {
         }
     }
 
+    // ⚠️ 2026-10-27 真机：下载 97.7MB 的游戏本体卡在 25.6MB 不动，等 10 分钟才报错。
+    //
+    // 原因：原来只有 `.timeout(600s)` —— reqwest 的 timeout 是**整个请求的总时长**
+    //（连接 + 读完 body），不是「多久没数据就断」。于是：
+    //   · 连接被中间设备挂起 → 干等 600 秒才失败，用户看到的就是「卡住」；
+    //   · 网速慢于约 170KB/s → 600 秒下不完 97.7MB，正常下载也会被判超时。
+    //
+    // 改法：用 **read_timeout（空闲超时）** 做真正的主力 ——
+    // 连续 30 秒拿不到任何数据才断，连接挂起能立刻脱身；
+    // 总超时放宽到 1 小时，只兜「一直有数据但极慢」的极端情况。
     let mut builder = reqwest::Client::builder()
         .user_agent("QookiX-Launcher-Android")
         .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(600));
+        .read_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(3600));
     let addr = proxy.trim();
     if !addr.is_empty() {
         if let Ok(p) = reqwest::Proxy::all(addr) {
