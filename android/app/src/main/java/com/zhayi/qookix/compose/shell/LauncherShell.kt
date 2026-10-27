@@ -159,11 +159,16 @@ fun LauncherShell(
                     // 详情页用这个表示「我的标题马上由 titleContent 提供，别填默认值」。
                     val t = title ?: titleFor(current)
                     if (t.isNotEmpty()) {
+                        // ⚠️ 2026-10-27：titleLarge(24sp) → titleMedium(20sp) + 灰色。
+                        //
+                        // 对照 ZL2（用户指定的参考）后确认：它的顶栏标题只有 16sp 且是
+                        // onSurfaceVariant（灰），**故意让内容当主角**；我们原来是 24sp 白，
+                        // 视觉焦点被标题抢走，越看越"工具感"。
                         Text(
                             text = t,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleMedium,
                         )
                     }
                 }
@@ -181,8 +186,11 @@ fun LauncherShell(
             scrollBehavior = scrollBehavior,
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
-                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                titleContentColor = MaterialTheme.colorScheme.onBackground,
+                // 滚动时也不再变成一块更亮的色块 —— 那会在内容上方压出一条"假分隔"，
+                // 和 ZL2 那种「顶栏完全融进背景」相反。
+                scrolledContainerColor = MaterialTheme.colorScheme.background,
+                // 标题用次级色（灰），和 ZL2 一致：焦点留给内容
+                titleContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             ),
         )
@@ -197,7 +205,10 @@ fun LauncherShell(
                     // 168dp 仍能放下「内容服务」等 4 字标签（48dp 触控高度不变）。
                     .width(sidebarWidthDp.dp)
                     .fillMaxHeight(),
-                color = MaterialTheme.colorScheme.surfaceContainer,
+                // 侧栏原来和卡片同色（surfaceContainer），于是「侧栏」和「卡片」看起来
+                // 是同一层级，整屏糊成一片。退到 surface：比背景略亮、比卡片暗，
+                // 层次才是「背景 → 侧栏 → 卡片」。
+                color = MaterialTheme.colorScheme.surface,
             ) {
                 Column(
                     // ⚠️ 这里**不能**再写 fillMaxHeight()：

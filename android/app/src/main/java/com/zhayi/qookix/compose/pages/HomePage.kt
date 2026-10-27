@@ -133,7 +133,10 @@ fun HomePage(
                     .weight(1f)
                     .fillMaxHeight()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = QkSpacing.xxs, end = 20.dp, top = 20.dp, bottom = 20.dp),
+                    // start 原来是 QkSpacing.xxs（4dp）—— 右栏几乎贴着主卡片，
+                    // 两个区块看起来是"一个整体被切开"，不是"两块独立内容"。
+                    // ZL2 的留白是 20dp 起，这里对齐。
+                    .padding(start = QkSpacing.lg, end = 20.dp, top = 20.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(QkSpacing.lg),
             ) {
                 // 置顶实例（2026-10-21 补：getPins/setPins 一直没 UI）
@@ -351,8 +354,12 @@ private fun CurrentInstanceCard(
         // 同一个屏幕里两种卡放一起不像一套（Expressive 的层次应该是
         // 「背景 → 卡片(container) → 卡片内条目(containerLow)」三级，不是四级）。
         shape = RoundedCornerShape(QkRadius.card),
+        // 主卡用 High（比背景亮两档），小卡用 Low —— 三级层次：
+        //   背景 background → 主卡 High → 小卡 Low
+        // 之前全部用 Container，卡片和背景只差一档，视觉上"糊"在一起，
+        // 这正是和 ZL2 最大的差距（它的卡片明显是浮起来的）。
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
     ) {
         Column(modifier = Modifier.padding(QkSpacing.lg)) {
@@ -494,8 +501,10 @@ private fun RecentInstanceCard(inst: InstanceUi, onClick: () -> Unit) {
             .width(150.dp)
             .pressScale(pressSource),
         shape = MaterialTheme.shapes.medium,
+        // Low(tone 10) 和背景(tone 6)只差 4 档，卡片会"看不见"；提到 Container(12)。
+        // 三级变成 背景 6 → 小卡 12 → 主卡 17。
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
     ) {
         Column(modifier = Modifier.padding(QkSpacing.md)) {
