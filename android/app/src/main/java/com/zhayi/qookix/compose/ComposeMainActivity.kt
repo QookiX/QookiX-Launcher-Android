@@ -65,6 +65,41 @@ class ComposeMainActivity : ComponentActivity() {
     }
 
     /**
+     * 把未捕获异常写到 `files/crash-last.txt`。
+     *
+     * ## 为什么需要
+     *
+     * 用户报「点设置闪退 / 点启动游戏几秒后闪退」，但他们没有 adb，
+     * logcat 一重启就没了 —— 结果只能靠猜（2026-10-27 就卡在这一步）。
+     * 落盘之后可以走现成的「导出日志」把文件带出来。
+     *
+     * ## 边界
+     *
+     * 只做**旁路记录**：记完仍然交给原来的处理器，系统的崩溃表现（弹窗/重启）
+     * 完全不变。任何写入失败都吞掉（崩溃处理器里再崩就彻底没日志了）。
+     */
+    private fun installCrashHandler() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching {
+                java.io.File(filesDir, "crash-last.txt").writeText(
+                    buildString {
+                        appendLine("time=${System.currentTimeMillis()}")
+                        appendLine("thread=${thread.name}")
+                        appendLine(Log.getStackTraceString(error))
+                    },
+                )
+            }
+            // 交回系统：不吞异常，否则表现会从「闪退」变成「无响应」
+            if (previous != null) {
+                previous.uncaughtException(thread, error)
+            } else {
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
+        }
+    }
+
+    /**
      * 游戏退出后自动重启进程。
      *
      * ## 为什么必须有（2026-10-23 真机事故）
@@ -150,6 +185,8 @@ class ComposeMainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 最先挂上：之后任何未捕获异常都会落盘，用户能通过「导出日志」带出来。
+        installCrashHandler()
         super.onCreate(savedInstanceState)
         TauriBridge.attach(this)
 

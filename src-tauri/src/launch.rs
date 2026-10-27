@@ -1348,6 +1348,19 @@ pub async fn export_instance_logs(instance_id: &str) -> anyhow::Result<()> {
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
         .and_then(|v| v.get("version_name").and_then(|x| x.as_str()).map(String::from))
         .unwrap_or_else(|| "minecraft".to_string());
+    // 把**启动器自身**的崩溃记录也带上。
+    //
+    // 用户报「点设置闪退 / 启动游戏几秒后闪退」时，只有游戏日志是没用的 ——
+    // 崩溃发生在 Kotlin 侧，栈写在私有目录的 crash-last.txt（见
+    // ComposeMainActivity.installCrashHandler）。拷进 logs 目录后，
+    // 现成的分享流程就能把它带出来，不用让用户折腾 adb。
+    if let Some(data) = crate::settings::data_dir_sync() {
+        let crash = std::path::Path::new(&data).join("crash-last.txt");
+        if crash.is_file() {
+            let _ = std::fs::copy(&crash, dir.join("launcher-crash.txt"));
+        }
+    }
+
     let archive = format!("qookix-logs-{}-{}.zip", sanitize(&tag), instance_id);
     // 系统分享面板只有安卓有；桌面端（以及跑单测的宿主目标）没有这一步
     #[cfg(target_os = "android")]
