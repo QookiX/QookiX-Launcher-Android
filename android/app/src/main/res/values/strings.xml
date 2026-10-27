@@ -1118,7 +1118,12 @@
     <string name="plugins_save_manifest_url">保存</string>
     <string name="skin_lib_read_failed">读取皮肤库失败：%1$s</string>
     <string name="skin_image_read_failed">读皮肤图片失败：%1$s</string>
-    <string name="skin_3d_render_failed">3D 渲染失败：%1</string>
+    <!-- ⚠️ 占位符必须写全 `%1$s`：2026-10-27 真机抓到的闪退就是这里写成了
+         `%1` —— 任何一次 3D 渲染失败走到 getString(id, msg) 时
+         String.format 解析 `%1` 直接到串尾，抛 UnknownFormatConversionException
+         把主线程炸掉（release/debug 都崩）。之后每次进皮肤页都会自动重渲染、
+         再次失败、再次崩，表现成「点皮肤必闪退」。 -->
+    <string name="skin_3d_render_failed">3D 渲染失败：%1$s</string>
     <string name="nav_file">文件</string>
     <!-- ── PageHost 续 2（皮肤 / 设置 / 代理 / 更新）── -->
     <string name="frp_start_failed">启动失败：%1$s</string>
