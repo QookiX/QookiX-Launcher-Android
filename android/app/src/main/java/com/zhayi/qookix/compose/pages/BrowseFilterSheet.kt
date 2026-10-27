@@ -41,6 +41,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.zhayi.qookix.R
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import com.zhayi.qookix.compose.motion.QookiX
 
 /**
  * 内容中心的**筛选面板**（底部弹出）。
@@ -102,6 +112,27 @@ fun BrowseFilterSheet(
             decorFitsSystemWindows = false,
         ),
     ) {
+        // ── 进场动画（2026-10-27）────────────────────────────────────────
+        //
+        // 之前这块弹层是**硬出现**的：只有 Dialog 窗口自带的一点淡入，
+        // 内容没有任何"弹出"的过程。
+        //
+        // 现在：从下方 96dp 滑到 0，曲线用 Jelly（阻尼余弦，0.6 振幅）——
+        // 它会冲过 0 一点点再弹回来，就是"Q 弹"的来源。
+        // 透明度单独用 effectsSpec（无回弹）：回弹曲线驱动 alpha 会瞬间到位，
+        // 淡入等于没有（踩过两次）。
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        val slide by animateDpAsState(
+            targetValue = if (shown) 0.dp else 96.dp,
+            animationSpec = tween(340, easing = QookiX.Jelly),
+            label = "sheetSlide",
+        )
+        val fade by animateFloatAsState(
+            targetValue = if (shown) 1f else 0f,
+            animationSpec = QookiX.effectsSpec(),
+            label = "sheetFade",
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -117,7 +148,9 @@ fun BrowseFilterSheet(
                     .fillMaxWidth()
                     // 限高：外层 Box 是无限约束，不限高的话里面的
                     // verticalScroll 会直接抛异常（真机实测崩溃）。
-                    .heightIn(max = sheetMaxHeight),
+                    .heightIn(max = sheetMaxHeight)
+                    .offset(y = slide)
+                    .graphicsLayer { alpha = fade },
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
             ) {
