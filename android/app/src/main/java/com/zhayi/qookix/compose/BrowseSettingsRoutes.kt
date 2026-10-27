@@ -1001,7 +1001,8 @@ internal fun BrowseRoute(
             activity = activity,
             tasks = tasks.active,
             onCancelTask = onCancelTask,
-            onTitleChange = onTitleChange,
+            // 顶栏复用内容中心那条通道：图标 + 资源名 + 作者
+            onRegisterToolbar = onRegisterToolbar,
             onRequestCreateInstance = onRequestCreateInstance,
         )
         return

@@ -2,10 +2,12 @@ package com.zhayi.qookix.compose.pages
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.QookixApi
 import com.zhayi.qookix.compose.bridge.friendlyError
@@ -15,9 +17,11 @@ import com.zhayi.qookix.compose.bridge.installServerPlugin
 import com.zhayi.qookix.compose.bridge.projectDependencies
 import com.zhayi.qookix.compose.bridge.projectVersions
 import com.zhayi.qookix.compose.bridge.translateModDescriptions
+import com.zhayi.qookix.compose.ui.QkFeedback
 
 /**
- * 「安装内容」的完整状态机 + 对话框（[InstallDialog]）。
+ * 「安装内容」的完整状态机 + 两种外壳：[InstallDialog]（弹窗）与
+ * [InstallPanel]（详情页左栏常驻面板）。
  *
  * ## 为什么要单独抽出来
  *
@@ -25,13 +29,14 @@ import com.zhayi.qookix.compose.bridge.translateModDescriptions
  * 复制一份就会出现两套「版本筛选 / 依赖 / 目标实例 / 服务器」逻辑，
  * 改一处漏一处。所以收敛成这一个宿主：**调用方只负责给项目和内容类型**。
  *
- * ## 行为（与原来在 BrowseRoute 里的完全一致）
+ * ## 行为
  *
  * - 插件（Hangar）只能装到服务器，且不选版本（由 Hangar 自己挑）
- * - 模组装到实例 **或** 服务器（`mods/`）
+ * - 模组装到实例 **或**「支持模组的服务器」（fabric/forge/neoforge；纯插件服 paper 不算）
  * - 资源包 / 光影只能装到实例
  * - 进来自动挑第一个非 vanilla 实例 + 该实例对应的最新正式版
  * - 换实例会按它的 MC 版本/加载器重新筛版本（筛空则回退全量）
+ * - 版本列表可以按「类型（正式/测试/先行）」和「游戏版本」筛选
  */
 @Composable
 fun ContentInstallHost(
@@ -40,10 +45,15 @@ fun ContentInstallHost(
     project: ProjectUi?,
     /** 内容类型（mod / modpack / resourcepack / shader / plugin）。 */
     kind: String,
-    /** 进来时预选的版本 id（从详情页版本列表点某个版本进来时用）。 */
+    /** 进来时预选的版本 id（从版本列表点某个版本进来时用）。 */
     initialVersionId: String? = null,
     /** 没有可用实例时的引导（null = 不显示按钮）。 */
     onCreateTargetInstance: (() -> Unit)? = null,
+    /** true = 画成常驻面板（详情页左栏），false = 弹窗。 */
+    inline: Boolean = false,
+    /** 详情页顶栏的安装按钮用（内联模式下由宿主接管点击）。 */
+    handle: ContentInstallHandle? = null,
+    modifier: Modifier = Modifier,
     onDismiss: () -> Unit,
 ) {
     val start = project ?: return
@@ -60,6 +70,7 @@ fun ContentInstallHost(
     var instanceId by remember(start.id) { mutableStateOf<String?>(null) }
     var serverId by remember(start.id) { mutableStateOf<String?>(null) }
     var typeFilter by remember(start.id) { mutableStateOf("all") }
+    var gameFilter by remember(start.id) { mutableStateOf("all") }
     var deps by remember(start.id) { mutableStateOf<List<DependencyUi>>(emptyList()) }
     var descZh by remember(start.id) { mutableStateOf<String?>(null) }
     var descLoading by remember(start.id) { mutableStateOf(false) }
@@ -133,7 +144,10 @@ fun ContentInstallHost(
                 r.onSuccess { arr ->
                     // 复用 MultiplayerRepo 的解析（不要另抄一份）
                     servers = MultiplayerRepo.parseServers(arr)
-                    serverId = servers.firstOrNull()?.id
+                    // 默认目标：只有插件才预选服务器。模组默认装实例 ——
+                    // 两边都预选的话 serverId/instanceId 同时非空，
+                    // 安装会静默走「服务器」分支（用户以为装进了实例）。
+                    if (isPlugin) serverId = servers.firstOrNull()?.id
                 }
             }
         }
@@ -152,6 +166,8 @@ fun ContentInstallHost(
                     instanceId = instances.firstOrNull { it.loader != "vanilla" }?.id
                     loadVersions()
                 }
+                // 拉不到实例（比如只装了服务器）也要能把版本列出来
+                r.onFailure { loadVersions() }
             }
         }
         descLoading = true
@@ -164,110 +180,243 @@ fun ContentInstallHost(
         }
     }
 
-    InstallDialog(
+    /** 装：服务器（插件 / 模组）优先，其次实例。 */
+    fun startInstall() {
+        if (installing) return
+        val vid = version
+        val iid = instanceId
+        val sid = serverId
+        val wantsServer = sid != null && (isPlugin || kind == "mod")
+        if (wantsServer) {
+            if (isPlugin) {
+                installing = true
+                error = null
+                api.installServerPlugin(sid!!, target.id, target.title) { r ->
+                    installing = false
+                    r.fold(
+                        onSuccess = {
+                            QkFeedback.show(context.getString(R.string.install_started))
+                            onDismiss()
+                        },
+                        onFailure = { e -> error = context.getString(R.string.install_failed, e.message) },
+                    )
+                }
+                return
+            }
+            // 模组：需要版本号（插件那条路由 Hangar 自己挑版本）
+            if (vid == null) {
+                error = context.getString(R.string.install_pick_server_version)
+                return
+            }
+            installing = true
+            error = null
+            api.installServerContent(sid!!, target.provider, target.id, vid, kind) { r ->
+                installing = false
+                r.fold(
+                    onSuccess = {
+                        QkFeedback.show(context.getString(R.string.install_started))
+                        onDismiss()
+                    },
+                    onFailure = { e -> error = context.getString(R.string.install_failed, e.message) },
+                )
+            }
+            return
+        }
+        if (iid == null || vid == null) {
+            error = context.getString(R.string.install_pick_instance_version)
+            return
+        }
+        installing = true
+        error = null
+        api.installContent(iid, target.provider, target.id, vid, kind) { r ->
+            installing = false
+            r.fold(
+                onSuccess = {
+                    QkFeedback.show(context.getString(R.string.install_started))
+                    onDismiss()
+                },
+                onFailure = { e -> error = context.getString(R.string.install_failed, friendlyError(context, e)) },
+            )
+        }
+    }
+
+    /** 换筛选条件后，原来选中的版本可能已经不在了 —— 自动落到第一条。 */
+    fun reselectIfFilteredOut(newType: String, newGame: String) {
+        val next = filterVersions(versions, newType, newGame)
+        if (next.isEmpty()) return
+        if (next.none { it.id == version }) version = next.first().id
+    }
+
+    val visibleVersions = filterVersions(versions, typeFilter, gameFilter)
+    val gameOptions = remember(versions) { gameVersionOptions(versions) }
+    val visibleServers = if (kind == "plugin") servers else servers.filter { it.supportsMods() }
+
+    val state = InstallUiState(
         project = target,
         kind = kind,
         isPlugin = isPlugin,
-        versions = versions.filter { typeFilter == "all" || it.type == typeFilter },
+        versions = visibleVersions,
         loadingVersions = loadingVersions,
         selectedVersion = version,
         instances = instances,
-        servers = servers,
+        servers = visibleServers,
         selectedInstanceId = instanceId,
         selectedServerId = serverId,
         typeFilter = typeFilter,
+        gameVersions = gameOptions,
+        gameFilter = gameFilter,
         deps = deps,
         descZh = descZh,
         descLoading = descLoading,
         installing = installing,
         error = error,
-        onSelectVersion = { v ->
-            version = v
-            // 换版本重拉依赖
-            api.projectDependencies(target.provider, target.id, v) { dr ->
-                dr.onSuccess { arr -> deps = parseDependencies(arr, target.provider, context) }
-            }
-        },
-        // 目标二选一：不清掉另一侧的话，两个 id 同时非空 → 模组会被装进服务器目录
-        onSelectInstance = { id ->
-            instanceId = id
-            serverId = null
-            loadVersions()
-        },
-        onSelectServer = { serverId = it; instanceId = null },
-        onTypeFilterChange = { typeFilter = it },
-        onOpenDependency = { d ->
-            // 切到那个依赖项目继续装（依赖自身也可能有前置，LaunchedEffect 会重拉）
-            target = d.asProjectUi()
-            error = null
-            versions = emptyList()
-            deps = emptyList()
-            version = null
-        },
-        onTranslate = {
-            descLoading = true
-            api.translateModDescriptions(target.provider, listOf(target.id)) { r ->
-                descLoading = false
-                r.onSuccess { o ->
-                    val t = o.optJSONObject("translations")
-                    descZh = t?.optString(target.id)?.takeIf { it.isNotBlank() }
-                        ?: context.getString(R.string.translation_none)
-                }
-            }
-        },
-        onCreateTargetInstance = onCreateTargetInstance,
-        onInstall = {
-            if (installing) return@InstallDialog
-            val vid = version
-            val iid = instanceId
-            val sid = serverId
-            val wantsServer = sid != null && (isPlugin || kind == "mod")
-            if (wantsServer) {
-                if (isPlugin) {
-                    installing = true
-                    error = null
-                    api.installServerPlugin(sid!!, target.id, target.title) { r ->
-                        installing = false
-                        r.fold(
-                            onSuccess = { onDismiss() },
-                            onFailure = { e -> error = context.getString(R.string.install_failed, e.message) },
-                        )
-                    }
-                    return@InstallDialog
-                }
-                // 模组：需要版本号（插件那条路由 Hangar 自己挑版本）
-                if (vid == null) {
-                    error = context.getString(R.string.install_pick_server_version)
-                    return@InstallDialog
-                }
-                installing = true
-                error = null
-                api.installServerContent(sid!!, target.provider, target.id, vid, kind) { r ->
-                    installing = false
-                    r.fold(
-                        onSuccess = { onDismiss() },
-                        onFailure = { e -> error = context.getString(R.string.install_failed, e.message) },
-                    )
-                }
-                return@InstallDialog
-            }
-            if (iid == null || vid == null) {
-                error = context.getString(R.string.install_pick_instance_version)
-                return@InstallDialog
-            }
-            installing = true
-            error = null
-            api.installContent(iid, target.provider, target.id, vid, kind) { r ->
-                installing = false
-                r.fold(
-                    onSuccess = { onDismiss() },
-                    onFailure = { e -> error = context.getString(R.string.install_failed, friendlyError(context, e)) },
-                )
-            }
-        },
-        onDismiss = onDismiss,
     )
+
+    val onSelectVersion: (String) -> Unit = { v ->
+        version = v
+        // 换版本重拉依赖
+        api.projectDependencies(target.provider, target.id, v) { dr ->
+            dr.onSuccess { arr -> deps = parseDependencies(arr, target.provider, context) }
+        }
+    }
+    // 目标二选一：不清掉另一侧的话，两个 id 同时非空 → 模组会被装进服务器目录
+    val onSelectInstance: (String?) -> Unit = { id ->
+        instanceId = id
+        serverId = null
+        loadVersions()
+    }
+    val onSelectServer: (String?) -> Unit = { sid ->
+        serverId = sid
+        instanceId = null
+    }
+    val onOpenDependency: (DependencyUi) -> Unit = { d ->
+        // 切到那个依赖项目继续装（依赖自身也可能有前置，LaunchedEffect 会重拉）
+        target = d.asProjectUi()
+        error = null
+        versions = emptyList()
+        deps = emptyList()
+        version = null
+    }
+    val onTranslate: () -> Unit = {
+        descLoading = true
+        api.translateModDescriptions(target.provider, listOf(target.id)) { r ->
+            descLoading = false
+            r.onSuccess { o ->
+                val t = o.optJSONObject("translations")
+                descZh = t?.optString(target.id)?.takeIf { it.isNotBlank() }
+                    ?: context.getString(R.string.translation_none)
+            }
+        }
+    }
+
+    // 详情页顶栏的「安装」按钮靠这个句柄驱动面板里的安装流程
+    if (handle != null) {
+        SideEffect {
+            handle.installAction = { startInstall() }
+            handle.canInstall = state.canInstall
+            handle.installing = state.installing
+        }
+    }
+
+    if (inline) {
+        InstallPanel(
+            state = state,
+            onSelectVersion = onSelectVersion,
+            onSelectInstance = onSelectInstance,
+            onSelectServer = onSelectServer,
+            onTypeFilterChange = { f ->
+                typeFilter = f
+                reselectIfFilteredOut(f, gameFilter)
+            },
+            onGameFilterChange = { g ->
+                gameFilter = g
+                reselectIfFilteredOut(typeFilter, g)
+            },
+            onOpenDependency = onOpenDependency,
+            onTranslate = onTranslate,
+            onCreateTargetInstance = onCreateTargetInstance,
+            modifier = modifier,
+        )
+    } else {
+        InstallDialog(
+            state = state,
+            onSelectVersion = onSelectVersion,
+            onSelectInstance = onSelectInstance,
+            onSelectServer = onSelectServer,
+            onTypeFilterChange = { f ->
+                typeFilter = f
+                reselectIfFilteredOut(f, gameFilter)
+            },
+            onGameFilterChange = { g ->
+                gameFilter = g
+                reselectIfFilteredOut(typeFilter, g)
+            },
+            onOpenDependency = onOpenDependency,
+            onTranslate = onTranslate,
+            onInstall = { startInstall() },
+            onCreateTargetInstance = onCreateTargetInstance,
+            onDismiss = onDismiss,
+        )
+    }
 }
+
+/**
+ * 「这个服务端核心能不能加载模组」。
+ *
+ * 只认 fabric / forge / neoforge —— paper 是插件服，把 mods 列出来
+ * 用户点了也装不上（装进 `mods/` 也不会被加载）。
+ */
+internal fun ServerUi.supportsMods(): Boolean {
+    val c = core.trim().lowercase()
+    return c == "fabric" || c == "forge" || c == "neoforge"
+}
+
+/** 版本列表 → 按类型 + 游戏版本过滤（`"all"` = 不过滤）。 */
+internal fun filterVersions(
+    versions: List<ContentVersionUi>,
+    type: String,
+    game: String,
+): List<ContentVersionUi> = versions.filter { v ->
+    (type == "all" || v.type == type) &&
+        (game == "all" || v.supportsGame(game))
+}
+
+/** 这个版本支不支持某个游戏版本（用完整列表，不是展示用的那两个）。 */
+internal fun ContentVersionUi.supportsGame(game: String): Boolean {
+    val all = if (allGameVersions.isNotEmpty()) allGameVersions else gameVersions.split(",").map { it.trim() }
+    return all.any { it == game }
+}
+
+/**
+ * 版本列表里出现过的游戏版本，倒序（新的在前），最多 12 个。
+ *
+ * 选项完全来自数据本身：不同项目的 MC 版本差异很大，
+ * 写死一份 1.21.x 列表只会对一半项目有效。
+ */
+internal fun gameVersionOptions(versions: List<ContentVersionUi>): List<String> =
+    versions.asSequence()
+        .flatMap { v ->
+            (if (v.allGameVersions.isNotEmpty()) v.allGameVersions.asSequence()
+            else v.gameVersions.split(",").asSequence())
+        }
+        .map { it.trim() }
+        // 只留正式版本号（1.21.1 / 26.4）。快照（25w46a）和愚人节版
+        // （24w14potato、23w13a_or_b、20w14infinite）在 Fabric API 的
+        // game_versions 里有一大把，全列出来会把这行筛选撑成噪音。
+        .filter { it.matches(STABLE_VERSION) }
+        .distinct()
+        .sortedWith(compareByDescending { mcVersionSortKey(it) })
+        .take(10)
+        .toList()
+
+/** `1.21.1` / `26.4` 这类正式版本号。 */
+private val STABLE_VERSION = Regex("^\\d+(\\.\\d+)*$")
+
+/** `1.21.10` > `1.21.9`（按数字比较，不按字符串），非数字段原样保留。 */
+internal fun mcVersionSortKey(v: String): String =
+    v.split('.').joinToString(".") { part ->
+        part.toIntOrNull()?.let { n -> n.toString().padStart(4, '0') } ?: part
+    }
 
 /**
  * 依赖跳转：把依赖当成新的待装项目。
@@ -297,6 +446,9 @@ internal fun parseContentVersions(
         if (id.isBlank()) return@mapNotNull null
         val type = o.optString("version_type")
             .ifBlank { o.optString("release_type") }
+        val gvAll = o.optJSONArray("game_versions")?.let { gv ->
+            (0 until gv.length()).mapNotNull { gv.optString(it)?.takeIf { s -> s.isNotBlank() } }
+        }.orEmpty()
         ContentVersionUi(
             id = id,
             versionNumber = o.optString("version_number").ifBlank { o.optString("name") },
@@ -306,22 +458,20 @@ internal fun parseContentVersions(
                 "alpha" -> context.getString(R.string.version_type_alpha)
                 else -> context.getString(R.string.version_type_release)
             },
-            gameVersions = o.optJSONArray("game_versions")?.let { gv ->
-                (0 until gv.length()).mapNotNull { gv.optString(it) }
-                    .takeLast(2).joinToString(", ")
-            }.orEmpty(),
+            gameVersions = gvAll.takeLast(2).joinToString(", "),
             datePublished = o.optString("date_published"),
+            allGameVersions = gvAll,
         )
     }
 }
 
 /** 解析 `project_dependencies` 的返回。 */
 internal fun parseDependencies(
-    arr: org.json.JSONArray,
-    defaultProvider: String,
+    json: org.json.JSONArray,
+    provider: String,
     context: android.content.Context,
-): List<DependencyUi> = (0 until arr.length()).mapNotNull { i ->
-    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+): List<DependencyUi> = (0 until json.length()).mapNotNull { i ->
+    val o = json.optJSONObject(i) ?: return@mapNotNull null
     val dt = o.optString("dependencyType").ifBlank { o.optString("dependency_type") }
     DependencyUi(
         projectId = o.optString("projectId").ifBlank { o.optString("project_id") },
@@ -334,6 +484,6 @@ internal fun parseDependencies(
             "embedded" -> context.getString(R.string.dep_embedded)
             else -> dt
         },
-        provider = o.optString("provider").ifBlank { defaultProvider },
+        provider = o.optString("provider").ifBlank { provider },
     )
 }

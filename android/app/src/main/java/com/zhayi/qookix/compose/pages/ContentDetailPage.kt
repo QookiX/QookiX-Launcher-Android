@@ -5,6 +5,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
@@ -16,7 +17,6 @@ import com.zhayi.qookix.compose.bridge.friendlyError
 import com.zhayi.qookix.compose.bridge.mcWikiUrl
 import com.zhayi.qookix.compose.bridge.optText
 import com.zhayi.qookix.compose.bridge.projectInfo
-import com.zhayi.qookix.compose.bridge.projectVersions
 import com.zhayi.qookix.compose.bridge.reportTranslationQuality
 import com.zhayi.qookix.compose.bridge.reportTranslationStale
 import com.zhayi.qookix.compose.bridge.translateProjectBody
@@ -104,19 +104,19 @@ fun ContentDetailRoute(
     /** 进行中的任务（由外层共用的 TasksRepo 快照传入，不另建订阅）。 */
     tasks: List<TaskUi> = emptyList(),
     onCancelTask: (Long) -> Unit = {},
-    /** 把资源名报到顶栏（返回内容中心时由调用方清空）。 */
-    onTitleChange: (String?) -> Unit = {},
+    /**
+     * 把「图标 + 资源名 + 作者」注册到顶栏（null = 注销）。
+     *
+     * 用的是内容中心同一条通道：顶栏标题区放自定义内容，
+     * 省掉页面里再画一遍图标和标题的一整块高度。
+     */
+    onRegisterToolbar: ((@Composable () -> Unit)?) -> Unit = {},
     /** 没有可用实例时的引导（去新建实例）。 */
     onRequestCreateInstance: (() -> Unit)? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
     val project = selection.project
-
-    // ── 顶栏标题 = 资源名 ────────────────────────────────────────────────
-    LaunchedEffect(project.title) { onTitleChange(project.title) }
-    // 离开时清掉覆盖，否则回到内容中心标题还停在资源名
-    DisposableEffect(Unit) { onDispose { onTitleChange(null) } }
 
     // ── 正文（失败只影响正文区）──────────────────────────────────────────
     var info by remember(project.id) { mutableStateOf<ContentDetailUi?>(null) }
@@ -157,31 +157,6 @@ fun ContentDetailRoute(
         }
     }
 
-    // ── 版本列表 ────────────────────────────────────────────────────────
-    var versions by remember(project.id) { mutableStateOf<List<ContentVersionUi>>(emptyList()) }
-    var versionsLoading by remember(project.id) { mutableStateOf(true) }
-    var versionsError by remember(project.id) { mutableStateOf<String?>(null) }
-    var versionsRetry by remember(project.id) { mutableStateOf(0) }
-
-    LaunchedEffect(project.id, versionsRetry) {
-        versionsLoading = true
-        versionsError = null
-        // 不带 mc/loader：详情页展示的是「这个项目有哪些版本」，
-        // 按实例筛是安装对话框的事（那里才知道目标实例）。
-        api.projectVersions(project.provider, project.id, "", "") { r ->
-            versionsLoading = false
-            r.fold(
-                onSuccess = { versions = parseContentVersions(context, it) },
-                onFailure = { e ->
-                    versionsError = context.getString(
-                        R.string.content_detail_versions_failed,
-                        friendlyError(context, e),
-                    )
-                },
-            )
-        }
-    }
-
     // ── 正文翻译（沿用 translate_project_body，别另造一套）────────────────
     var bodyZh by remember(project.id) { mutableStateOf<String?>(null) }
     var translating by remember(project.id) { mutableStateOf(false) }
@@ -189,9 +164,34 @@ fun ContentDetailRoute(
     // 译文拿到后还能切回原文看（术语 / 代码块翻坏了可以对照）
     var showZh by remember(project.id) { mutableStateOf(true) }
 
-    // ── 安装对话框（复用内容中心那一套状态机）────────────────────────────
-    var installOpen by remember(project.id) { mutableStateOf(false) }
-    var installVersion by remember(project.id) { mutableStateOf<String?>(null) }
+    // ── 顶栏：图标 / 名字 / 作者 · 下载量 / MC 百科 / 安装 ─────────────────
+    //
+    // 顶栏这一行本来就横着很宽（用户指出），与其在左栏再画一遍封面和标题，
+    // 不如把「下载次数、百科跳转、安装按钮」都收进顶栏，左栏整块让给安装面板。
+    // 安装的动作通过 handle 交给面板里的状态机执行。
+    val installHandle = remember(project.id) { ContentInstallHandle() }
+    val openWiki: () -> Unit = {
+        val slug = info?.slug
+        api.mcWikiUrl(project.title, slug?.takeIf { it.isNotBlank() }, project.provider) { r ->
+            r.onSuccess { url -> if (url.isNotBlank()) activity?.openExternalUrl(url) }
+        }
+    }
+    // 顶栏内容替换掉默认标题；离开时注销，否则回到内容中心顶栏还挂着资源图标。
+    SideEffect {
+        onRegisterToolbar {
+            ContentDetailTopBar(
+                icon = info?.iconUrl?.takeIf { it.isNotBlank() } ?: project.iconUrl,
+                title = project.title,
+                author = info?.author?.takeIf { it.isNotBlank() } ?: project.author,
+                downloads = info?.downloads ?: project.downloads,
+                canInstall = installHandle.canInstall,
+                installing = installHandle.installing,
+                onOpenWiki = openWiki,
+                onInstall = { installHandle.install() },
+            )
+        }
+    }
+    DisposableEffect(Unit) { onDispose { onRegisterToolbar(null) } }
 
     ContentDetailLayout(
         project = project,
@@ -202,16 +202,21 @@ fun ContentDetailRoute(
         showTranslation = showZh,
         translating = translating,
         notice = notice,
-        versions = versions,
-        versionsLoading = versionsLoading,
-        versionsError = versionsError,
         tasks = tasks,
-        onRetryBody = { bodyRetry++ },
-        onRetryVersions = { versionsRetry++ },
-        onInstall = { versionId ->
-            installVersion = versionId
-            installOpen = true
+        // 安装面板 = 内容中心那套状态机，只是不装弹窗外壳
+        installPanel = { m ->
+            ContentInstallHost(
+                api = api,
+                project = project,
+                kind = selection.kind,
+                inline = true,
+                handle = installHandle,
+                modifier = m,
+                onCreateTargetInstance = onRequestCreateInstance,
+                onDismiss = { },
+            )
         },
+        onRetryBody = { bodyRetry++ },
         onToggleTranslation = { showZh = !showZh },
         onTranslateBody = {
             val slug = info?.slug.orEmpty()
@@ -259,31 +264,6 @@ fun ContentDetailRoute(
             api.reportTranslationStale(project.provider, info?.slug.orEmpty()) { }
             notice = context.getString(R.string.browse_body_report_stale_thanks)
         },
-        onOpenWiki = {
-            val title = project.title
-            val slug = info?.slug
-            api.mcWikiUrl(title, slug?.takeIf { it.isNotBlank() }, project.provider) { r ->
-                r.onSuccess { url ->
-                    if (url.isNotBlank()) activity?.openExternalUrl(url)
-                }
-            }
-        },
         onCancelTask = onCancelTask,
     )
-
-    if (installOpen) {
-        ContentInstallHost(
-            api = api,
-            project = project,
-            kind = selection.kind,
-            initialVersionId = installVersion,
-            onCreateTargetInstance = onRequestCreateInstance?.let { cb ->
-                {
-                    installOpen = false
-                    cb()
-                }
-            },
-            onDismiss = { installOpen = false },
-        )
-    }
 }

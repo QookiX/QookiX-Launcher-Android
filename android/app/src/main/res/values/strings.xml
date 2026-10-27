@@ -884,6 +884,7 @@
     <string name="install_no_versions">该分类下没有版本</string>
     <string name="install_dependencies">前置依赖</string>
     <string name="install_installing">安装中…</string>
+    <string name="install_started">已开始安装，进度在「下载」页</string>
     <string name="install_install">安装</string>
     <string name="install_cancel">取消</string>
 
