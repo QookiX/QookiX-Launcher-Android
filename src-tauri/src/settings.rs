@@ -408,7 +408,8 @@ pub async fn get_settings() -> Result<Settings> {
             selected_account: raw_str(&settings, &["selected_account", "selectedAccount"]),
             proxy_mode: raw_str(&settings, &["proxy_mode", "proxyMode"]).unwrap_or_else(|| "system".into()),
             proxy: raw_str(&settings, &["proxy"]),
-            mirror: raw_str(&settings, &["mirror"]).unwrap_or_else(|| "bmclapi".into()),
+            // 默认**官方源**（最稳；BMCLAPI 是公益镜像，由用户主动选择）
+        mirror: raw_str(&settings, &["mirror"]).unwrap_or_else(|| "official".into()),
             mirror_custom: raw_str(&settings, &["mirror_custom", "mirrorCustom"]),
             background_image: raw_str(&settings, &["background_image", "backgroundImage"]),
             background_blur: raw_i64(&settings, &["background_blur", "backgroundBlur"], 0) as i32,
@@ -453,7 +454,7 @@ pub async fn get_settings() -> Result<Settings> {
             selected_account: None,
             proxy_mode: "system".to_string(),
             proxy: None,
-            mirror: "bmclapi".to_string(),
+            mirror: "official".to_string(),
             mirror_custom: None,
             background_image: None,
             background_blur: 0,

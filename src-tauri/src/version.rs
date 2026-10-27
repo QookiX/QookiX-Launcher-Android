@@ -180,10 +180,18 @@ pub async fn fetch_manifest() -> Result<VersionList> {
     //   用户**根本没法创建实例**。而同一时刻设备上 curl 官方只要 1.0 秒、
     //   镜像 0.5 秒 —— 说明单请求路径会卡在 TLS/连接建立上（首启尤其明显）。
     // 这里改成两个候选并行发、各 30 秒硬超时，谁先回用谁。
+    // ⚠️ 2026-10-27：必须**尊重设置**。以前无条件把 BMCLAPI 当候选并行发，
+    // 用户明明选了「官方源」，先回来的却是镜像那份清单 —— 于是后续所有
+    // 客户端/库/资源下载链接都是 bmclapi 的（真机表现：「我改成官方了，
+    // 补全时链接还是 bmclapi」）。
+    // 现在只有设置里确实选了镜像（或自定义）才把镜像作为候选。
+    let base = crate::mirror::current_base();
     let mut candidates: Vec<String> = Vec::new();
-    let mirrored = crate::mirror::manifest_url(crate::mirror::BMCLAPI_BASE);
-    if !mirrored.is_empty() && mirrored != url {
-        candidates.push(mirrored);
+    if !base.is_empty() {
+        let mirrored = crate::mirror::manifest_url(&base);
+        if mirrored != url {
+            candidates.push(mirrored);
+        }
     }
     candidates.push(url.clone());
 

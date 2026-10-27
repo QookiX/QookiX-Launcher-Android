@@ -57,6 +57,28 @@ pub fn resolve_from(id: &str, custom: &str) -> String {
         .unwrap_or_default()
 }
 
+/// 当前生效的镜像根地址（官方源 → **空串**）。
+///
+/// ⚠️ 2026-10-27：`version.rs` / `servers.rs` 里原来把 `BMCLAPI_BASE` 硬编码进
+/// URL 生成，用户在设置里选「官方源」也照样走镜像 —— 真机表现是「我已经改成官方了，
+/// 补全时下载链接还是 bmclapi」。
+///
+/// 约定：返回空串 = 官方源，调用方**不做任何 URL 改写**（不是替换成官方地址，
+/// 那样会二次拼接）。读不到设置时按官方处理（`OFFICIAL` 是默认值）。
+pub fn current_base() -> String {
+    let map = crate::settings::load_raw_settings_sync();
+    let id = map
+        .get("mirror")
+        .and_then(|v| v.as_str())
+        .unwrap_or(OFFICIAL);
+    let custom = map
+        .get("mirrorCustom")
+        .or_else(|| map.get("mirror_custom"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    resolve_from(id, custom)
+}
+
 /// 镜像预设列表（供前端渲染）
 pub fn presets() -> Value {
     Value::Array(
