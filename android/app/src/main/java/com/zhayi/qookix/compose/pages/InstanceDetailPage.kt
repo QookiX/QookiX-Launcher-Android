@@ -1690,25 +1690,11 @@ fun InstanceDetailToolbar(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = name.ifBlank { stringResource(R.string.instance_detail_untitled) },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+        // 名字 / 版本**不再放顶栏**：页内顶部的 hero（48dp 图标 + 名字 + 版本）
+        // 已经承担了身份信息，两边都写就是重复显示
+        //（2026-10-17 用户就指出过「两套叠在一起」）。
+        // 顶栏只留操作按钮，靠这个 weight 推到右侧。
+        Spacer(Modifier.weight(1f))
 
         Spacer(Modifier.width(8.dp))
 
