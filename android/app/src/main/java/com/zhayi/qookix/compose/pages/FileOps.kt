@@ -59,7 +59,12 @@ class InstanceFileOps(private val api: QookixApi, private val instanceId: String
         }
 
     override fun read(rel: String, onResult: (Result<String>) -> Unit) =
-        api.readInstanceFile(instanceId, rel, onResult)
+        api.readInstanceFile(instanceId, rel) { r ->
+            // ⚠️ 命令返回的是 `{"content":"..."}` 包裹，不是纯文本。
+            // 直接把它塞进编辑器，用户看到的就是一整行转义 JSON
+            //（`{\"content\":\"version:3955\\nao:false...`），像"坏的"一样。
+            onResult(r.map { plainText(it) })
+        }
 
     override fun write(rel: String, content: String, onResult: (Result<String>) -> Unit) =
         api.writeInstanceFile(instanceId, rel, content, onResult)
@@ -84,7 +89,7 @@ class ServerFileOps(private val api: QookixApi, private val serverId: String) : 
         }
 
     override fun read(rel: String, onResult: (Result<String>) -> Unit) =
-        api.readHostedServerFile(serverId, rel, onResult)
+        api.readHostedServerFile(serverId, rel) { r -> onResult(r.map { plainText(it) }) }
 
     override fun write(rel: String, content: String, onResult: (Result<String>) -> Unit) =
         api.writeHostedServerFile(serverId, rel, content, onResult)
@@ -189,6 +194,24 @@ internal fun tooLargeToEdit(size: Long): Boolean = size > MAX_EDIT_BYTES
 /** 便捷：把 JSONObject 里的字段安全转字符串（配置值可能是数字/布尔）。 */
 internal fun JSONObject.optStringAny(key: String): String =
     this.opt(key)?.toString()?.trim('"') ?: ""
+
+/**
+ * 把读文件命令的返回还原成**纯文本**。
+ *
+ * ⚠️ 2026-10-27 真机：`read_instance_file` / `read_hosted_server_file` 返回的是
+ * `{"content":"..."}` 包裹，而编辑器要的是文件原文。之前直接把整个 JSON 塞进
+ * 输入框 —— 用户打开 options.txt 看到的是一整行转义字符串
+ * （`{\"content\":\"version:3955\\nao:false...`），像文件坏了一样。
+ *
+ * 不是 JSON 对象 / 没有 content 键时原样返回，对其它返回格式是安全的。
+ */
+internal fun plainText(raw: String): String {
+    if (!raw.trimStart().startsWith("{")) return raw
+    return runCatching {
+        val o = org.json.JSONObject(raw)
+        if (o.has("content")) o.optString("content") else raw
+    }.getOrDefault(raw)
+}
 
 
 
