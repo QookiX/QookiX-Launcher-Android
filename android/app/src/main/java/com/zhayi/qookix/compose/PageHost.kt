@@ -640,6 +640,8 @@ fun PageHost(
     // 眼睛对这种变化极度敏感。位移和透明度都能靠「起点不可见」藏住，缩放不行。
     val pageScale = 1f
 
+    // 外层 Box 只给飞行浮层一个**不受转场影响**的坐标系（见文件末尾的说明）。
+    Box(modifier = Modifier.fillMaxSize()) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -938,9 +940,7 @@ fun PageHost(
         else -> PlaceholderPage(dest)
     }
 
-    // 共享元素飞行层：挂在页面之上，从卡片图标飞到详情页 hero。
-    // 它是全屏 Box 的最后一个子项，所以覆盖在所有页面内容之上。
-    SharedHeroOverlay()
+    // 共享元素飞行层挪到了文件末尾（转场层**之外**），原因见那里的注释。
 
     // ── 渲染器建议弹窗（对应旧 UI 的 RendererHintDialog）────────────
     //
@@ -984,10 +984,19 @@ fun PageHost(
             dismissButton = {
                 TextButton(onClick = { rendererIssue = null }) { Text(stringResource(R.string.renderer_hint_keep)) }
             },
-        )
-    }
-    }
-}
+            )
+            }
+            }
+
+            // ⚠️ 飞行浮层必须在**转场层之外**。
+            //
+            // 之前它挂在 `graphicsLayer(alpha = pageAlpha)` 那个 Box 里面，于是跟着页面
+            // 一起 0 → 1 淡入 —— 用户看到的是「切页结束后才出现并开始飞」，
+            // 反馈里的「速度太慢」就是这个。放到外面后它从第一帧就是满不透明，
+            // 起飞和切页同时发生。
+            SharedHeroOverlay()
+            }
+            }
 
 /** 第三方组件与许可证声明（GPL 合规要求，不可省略）。 */
 internal const val THIRD_PARTY_LICENSES = """QookiX Launcher Android 本体
