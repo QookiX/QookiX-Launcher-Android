@@ -517,6 +517,14 @@ fun PageHost(
         }
     }
 
+    // ── 按键布局导入：选完文件后的结果接收 ──────────────────────────────
+    //
+    // ⚠️ 2026-10-27 修（用户原话「按确定没有任何反应」）：原来固定轮询
+    // `take_control_import` 40 次（1 次/秒）。用户在系统文件选择器里翻目录
+    // 普遍超过 40 秒 —— 轮询结束后才选完文件，control-import.json 就永远
+    // 没人读，界面毫无反应。现在宿主在 onActivityResult 写完盘后 tick +1，
+    // 结果接收挪到了 InstanceDetailRoute（state 在那边）。
+
     // ── 冷启动静默检查一次渲染器（D9）──────────────────────────────────
     //
     // 触发时机：启动器起来后查一次「最近一次启动」的日志。之前出现过
@@ -1118,6 +1126,43 @@ private fun InstanceDetailRoute(
     val repo = remember(api) { InstanceDetailRepo(api, context) }
 
     var state by remember(instanceId) { mutableStateOf(InstanceDetailUiState(id = instanceId)) }
+
+    // ── 按键布局导入：选完文件后的结果接收 ──────────────────────────────
+    //
+    // ⚠️ 2026-10-27 修（用户原话「按确定没有任何反应」）：原来固定轮询
+    // `take_control_import` 40 次（1 次/秒）。用户在系统文件选择器里翻目录
+    // 普遍超过 40 秒 —— 轮询结束后才选完文件，control-import.json 就永远
+    // 没人读，界面毫无反应。现在宿主在 onActivityResult 写完盘后 tick +1，
+    // 这里 collect 到就立刻取走结果（onLayoutImport 里另有 10 秒短轮询兜底）。
+    fun consumeControlImport(s: String?) {
+        val o = runCatching { org.json.JSONObject(s ?: "") }.getOrNull() ?: return
+        if (o.optBoolean("ok")) {
+            // 成功：回到按键 tab，列表里就能看到 TMP_IMPORT_FILE
+            state = state.copy(tab = InstanceTab.Keys)
+            android.widget.Toast.makeText(
+                context,
+                context.getString(R.string.control_import_done, o.optInt("buttons")),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        } else if (o.has("error")) {
+            state = state.copy(
+                error = o.optText("error") ?: context.getString(R.string.import_failed, ""),
+            )
+        }
+    }
+
+    LaunchedEffect(activity) {
+        val act = activity ?: return@LaunchedEffect
+        var last = act.controlImportTick.value
+        act.controlImportTick.collect { tick ->
+            if (tick != last) {
+                last = tick
+                api.takeControlImport { pr ->
+                    pr.onSuccess { s -> consumeControlImport(s) }
+                }
+            }
+        }
+    }
 
     // 启动阶段文案（检查文件 / 补全 / 启动中）
     var launchStage by remember(instanceId) { mutableStateOf<String?>(null) }
@@ -1822,35 +1867,14 @@ private fun InstanceDetailRoute(
                     android.util.Log.w("PageHost", "导入布局失败: ${e.message}")
                 }
             }
-            // ⚠️ 2026-10-18 补（修「按键导入选完文件没反应」后半段）：
-            // 原生命令选完文件把结果写进 control-import.json，
-            // **前端必须轮询 take_control_import 取走** —— 这一步迁移时整个丢了，
-            // 结果文件永远没人读，界面毫无反馈。
-            // 拿到 ok=true 后把 TMP_IMPORT_FILE 填进预览（与旧 UI 一致）。
+            // 选完文件后的结果接收：正常走上面的 collect（事件驱动），
+            // 这里再兜一个 10 秒的短轮询，覆盖「结果先落盘、collect 还没挂上」的竞态。
             var importPolls = 0
             fun pollControlImport() {
-                if (importPolls++ > 40) return  // 最多轮 40 次（约 40 秒）
+                if (importPolls++ > 10) return
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     api.takeControlImport { pr ->
-                        pr.onSuccess { s ->
-                            val o = runCatching { org.json.JSONObject(s ?: "") }.getOrNull()
-                            if (o == null) {
-                                pollControlImport()  // 还没写好，继续等
-                            } else if (o.optBoolean("ok")) {
-                                // 成功：刷新按键列表即可看到 TMP_IMPORT_FILE
-                                state = state.copy(tab = InstanceTab.Keys)
-                                state = state.copy(tab = InstanceTab.Keys)
-                                android.widget.Toast.makeText(
-                                    context,
-                                    context.getString(R.string.control_import_done, o.optInt("buttons")),
-                                    android.widget.Toast.LENGTH_SHORT,
-                                ).show()
-                            } else {
-                                state = state.copy(
-                                    error = o.optText("error") ?: context.getString(R.string.import_failed, ""),
-                                )
-                            }
-                        }
+                        pr.onSuccess { s -> consumeControlImport(s) }
                         pr.onFailure { pollControlImport() }
                     }
                 }, 1000L)

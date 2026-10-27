@@ -776,6 +776,11 @@ class ComposeMainActivity : ComponentActivity() {
                 runCatching {
                     java.io.File(filesDir, "control-import.json").writeText(json)
                 }.onFailure { Log.w("ComposeMain", "写 control-import.json 失败", it) }
+                // ⚠️ 2026-10-27 修（「导入选完文件还是没反应」）：
+                // 前端原来只轮询 40 次（1 次/秒）。用户在系统文件选择器里翻目录
+                // 普遍超过 40 秒 —— 轮询结束之后才选完文件，结果就永远没人读。
+                // 现在写完盘立刻发一个 tick，PageHost 按事件取走结果。
+                controlImportTick.value += 1
             }
             else -> caps.onPickFileResult(data?.data)
         }
@@ -896,6 +901,16 @@ class ComposeMainActivity : ComponentActivity() {
         }
     }
     private var lastControlEditorLaunch = 0L
+
+    /**
+     * 按键布局导入选完文件的信号。
+     *
+     * `onActivityResult` 把结果写进 `control-import.json` 后 +1；
+     * PageHost 监听这个值（collect），一变化就取走结果 ——
+     * 替换掉「固定轮询 40 次」的老办法（用户在文件选择器里停留超过
+     * 40 秒的话轮询早已结束，选完文件没人处理，界面毫无反应）。
+     */
+    val controlImportTick = kotlinx.coroutines.flow.MutableStateFlow(0)
 
     fun importControlLayout(): String? {
         caps.importControlLayout()
