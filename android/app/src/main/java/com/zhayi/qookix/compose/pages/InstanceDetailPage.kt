@@ -399,56 +399,24 @@ fun InstanceDetailPage(
                     modifier = Modifier.padding(start = QkSpacing.md, end = 8.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.instance_detail_files_incomplete, report.ok, report.total),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                        )
-                        if (report.advice.isNotBlank()) {
-                            Text(
-                                text = report.advice,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                        }
-                        // 补全进行中：阶段 + 百分比 + 确定进度条（以前只有转圈，看不出进度）
-                        if (repairing) {
-                            val stageText = repairStage.ifBlank {
-                                stringResource(R.string.instance_detail_repairing)
-                            }
-                            Spacer(Modifier.height(QkSpacing.xxs))
-                            if (repairFraction >= 0f) {
-                                LinearProgressIndicator(
-                                    progress = { repairFraction },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-                                )
-                            } else {
-                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            }
-                            Spacer(Modifier.height(QkSpacing.xxs))
-                            Text(
-                                text = if (repairFraction >= 0f) {
-                                    "$stageText ${(repairFraction * 100).toInt()}%"
-                                } else {
-                                    stageText
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                        }
-                        // 列出缺什么（最多 3 条，避免撑爆）
-                        report.missing.take(3).forEach { m ->
-                            Text(
-                                text = "· ${m.detail.ifBlank { m.kind }}" +
-                                    if (!m.fixable) stringResource(R.string.instance_detail_needs_manual) else "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                        }
-                    }
+                    // ⚠️ 只占**一行**：之前这里是「标题 + 建议 + 最多 3 条缺失项 + 进度条」，
+                    // 在横屏 320dp 高度里能吃掉半个屏幕 —— 用户报「补全提示占满，下面的
+                    // 存档/按键/文件根本看不到，文件 tab 上面还压着一张共享文件卡片，更没救」。
+                    // 缺哪几项属于排查信息，点「补全」后失败时也会再说，不必常驻。
+                    Text(
+                        text = if (repairing) {
+                            repairStage.ifBlank { stringResource(R.string.instance_detail_repairing) } +
+                                if (repairFraction >= 0f) " ${(repairFraction * 100).toInt()}%" else ""
+                        } else {
+                            stringResource(R.string.instance_detail_files_incomplete, report.ok, report.total)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
                     if (onRepair != null) {
                         TextButton(
                             onClick = onRepair,
