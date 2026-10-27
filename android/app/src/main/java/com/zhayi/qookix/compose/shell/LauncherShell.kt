@@ -53,6 +53,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import com.zhayi.qookix.compose.theme.QkRadius
+import com.zhayi.qookix.compose.theme.qkPressable
+import androidx.compose.foundation.layout.fillMaxWidth
 
 /**
  * 启动器主壳（Material 3）—— 完全重做，不参照旧 Vue 界面。
@@ -208,6 +221,17 @@ fun LauncherShell(
     }
 
     if (size.useRail) {
+        // ── 侧栏收起 / 展开（2026-10-27）─────────────────────────────
+        //
+        // 默认收起成 88dp 的图标 rail（省出 80dp 给内容），**长按任一导航项**切换。
+        // 宽度用 spatialSpec（spring，dampingRatio 0.8）—— 会轻微冲过目标再回来，
+        // 就是用户要的那种「Q 弹」。
+        var sidebarExpanded by remember { mutableStateOf(false) }
+        val sidebarW by animateDpAsState(
+            targetValue = if (sidebarExpanded) 168.dp else 88.dp,
+            animationSpec = QookiX.spatialSpec(),
+            label = "sidebarW",
+        )
         // ── 横屏 / 平板：常驻侧栏（图标+文字横排）────────────────────────
         // ⚠️ 2026-10-27 布局重构：顶栏**贯穿全宽**（原来它只在内容区，
         // 左边被侧栏挡住，看起来像两个独立的头部）。
@@ -219,7 +243,7 @@ fun LauncherShell(
                 modifier = Modifier
                     // 2026-10-17：196dp → 168dp（用户反馈侧边栏偏宽，占掉内容区）。
                     // 168dp 仍能放下「内容服务」等 4 字标签（48dp 触控高度不变）。
-                    .width(sidebarWidthDp.dp)
+                    .width(sidebarW)
                     .fillMaxHeight(),
                 // 侧栏原来和卡片同色（surfaceContainer），于是「侧栏」和「卡片」看起来
                 // 是同一层级，整屏糊成一片。退到 surface：比背景略亮、比卡片暗，
@@ -239,93 +263,16 @@ fun LauncherShell(
                     // 品牌区（MD3 常驻抽屉的标准做法：抽屉顶部放产品名，
 
                     NavDestination.bottomBar.forEach { dest ->
-                        val selected = dest == current
-                        // ── 切换动画（2026-10-17 加，用户要求「侧边栏切换 tab 要有动画」）──
-                        //
-                        // 原来 `selected` 一变，背景色和图标是**瞬间**跳的 —— 硬切，没有过渡。
-                        // 这里补三样：
-                        //   1. 背景色 0→1 渐变（animateFloatAsState 驱动颜色插值）
-                        //   2. 图标 Filled↔Outlined 用 AnimatedContent 淡入淡出
-                        //   3. 文字色同步渐变 + 选中时轻微加粗
-                        //
-                        // ⚠️ 时长 180ms（比页面转场的 260ms 短）：
-                        // 侧边栏是「即时反馈」，等太久会显得迟钝；
-                        // 而页面内容需要更长时间才能看清，两者节奏不同是对的。
-                        val selAnim by animateFloatAsState(
-                            targetValue = if (selected) 1f else 0f,
-                            animationSpec = tween(
-                                durationMillis = 180,
-                                easing = QookiX.EaseOut,
-                            ),
-                            label = "navSel_${dest.route}",
-                        )
-                        // 每项**各自**一个 source：
-                        //   - 不能共享 —— 共享的话按 A 项会把 6 项一起缩放
-                        //   - 又必须传给 item 本体 —— 不传的话它内部自己新建，
-                        //     缩放 modifier 拿到的永远是空状态（看起来对但不生效）
-                        val itemSource = remember { MutableInteractionSource() }
-                        NavigationDrawerItem(
-                            label = {
-                                Text(
-                                    text = stringResource(dest.labelRes),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = androidx.compose.ui.graphics.lerp(
-                                        MaterialTheme.colorScheme.onSurfaceVariant,
-                                        MaterialTheme.colorScheme.onSecondaryContainer,
-                                        selAnim,
-                                    ),
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                )
-                            },
-                            icon = {
-                                // 图标淡入淡出切换：Filled（选中）↔ Outlined（未选中）
-                                androidx.compose.animation.AnimatedContent(
-                                    targetState = selected,
-                                    transitionSpec = {
-                                        (androidx.compose.animation.fadeIn(
-                                            tween(180, easing = QookiX.EaseOut)
-                                        ) togetherWith androidx.compose.animation.fadeOut(
-                                            tween(120, easing = QookiX.EaseIn)
-                                        ))
-                                    },
-                                    label = "navIcon_${dest.route}",
-                                ) { isSel ->
-                                    Icon(
-                                        imageVector = if (isSel) dest.selectedIcon else dest.unselectedIcon,
-                                        contentDescription = null,
-                                    )
-                                }
-                            },
-                            selected = selected,
+                        QkRailItem(
+                            dest = dest,
+                            selected = dest == current,
+                            expanded = sidebarExpanded,
                             onClick = { onNavigate(dest) },
-                            shape = MaterialTheme.shapes.extraLarge,
-                            colors = NavigationDrawerItemDefaults.colors(
-                                unselectedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                // 选中底色也走渐变：否则背景还是硬切，只有图标淡入会很怪
-                                selectedContainerColor = androidx.compose.ui.graphics.lerp(
-                                    MaterialTheme.colorScheme.surfaceContainer,
-                                    MaterialTheme.colorScheme.secondaryContainer,
-                                    selAnim,
-                                ),
-                            ),
-                            interactionSource = itemSource,
-                            // ⚠️ 必须固定高度：外层 verticalScroll 会给出
-                            // maxHeight = Infinity 的约束，NavigationDrawerItem
-                            // 内部用的是 minHeight 语义，在无限约束下会被拉伸
-                            // （实测：6 项铺满整屏、「更多」被挤出屏幕）。
-                            //
-                            // 取 48dp 而非 56dp：本机横屏可用高度只有 384dp，
-                            // 6 项 × 56 + 品牌区 ≈ 380dp 会顶到边缘。
-                            // 48dp 是 MD3 的**最小触控目标**，既合规又放得下。
-                            modifier = Modifier
-                                .height(48.dp)
-                                .pressScale(interactionSource = itemSource)
-                                .padding(vertical = 1.dp),
+                            onLongPress = { sidebarExpanded = !sidebarExpanded },
                         )
                     }
                 }
             }
-            VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             Scaffold(
                 // ⚠️ 必须用 weight(1f)，不能 fillMaxSize()：左边是固定 196dp 的导航栏，
@@ -402,11 +349,89 @@ private fun titleFor(d: NavDestination): String = stringResource(
     }
 )
 
+/**
+ * 侧栏项：收起时竖排（图标 + 小字），展开时横排（图标 + 文字）。
+ *
+ * 为什么不用 `NavigationDrawerItem`：
+ *   · 它在 88dp 下会溢出（内置最小内边距比 rail 宽）；
+ *   · 它未选中时也画背景，看起来"每个按钮都有个框"（用户指出多余）——
+ *     这里只有选中项有 pill 底。
+ *
+ * 长按切换侧栏展开/收起：手势挂在每一项上，而不是容器 —— 容器的
+ * `Column(modifier = …)` 里塞 pointerInput 很容易破坏参数列表结构（踩过）。
+ */
+@Composable
+private fun QkRailItem(
+    dest: NavDestination,
+    selected: Boolean,
+    expanded: Boolean,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val bg by animateColorAsState(
+        targetValue = if (selected) colors.secondaryContainer else Color.Transparent,
+        animationSpec = tween(180, easing = QookiX.EaseOut),
+        label = "railBg",
+    )
+    val fg by animateColorAsState(
+        targetValue = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant,
+        animationSpec = tween(180, easing = QookiX.EaseOut),
+        label = "railFg",
+    )
+    val icon = if (selected) dest.selectedIcon else dest.unselectedIcon
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
+    // ⚠️ 只能有一份点击处理。
+    // 原来同时挂了 `qkPressable { onClick() }`（内含 clickable）和
+    // `combinedClickable(onClick = onClick)` —— 一次点击会触发两次导航。
+    // 现在：pressScale 只负责"按下缩放"（它自己不挂 clickable），
+    //       combinedClickable 负责「点击 + 长按」。
+    val base = Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(QkRadius.medium))
+        .background(bg)
+        .pressScale(interaction)
+        .combinedClickable(
+            interactionSource = interaction,
+            indication = androidx.compose.foundation.LocalIndication.current,
+            onClick = onClick,
+            onLongClick = onLongPress,
+        )
 
-
-
-
-
-
-
+    if (expanded) {
+        Row(
+            modifier = base
+                .height(48.dp)
+                .padding(horizontal = QkSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(QkSpacing.sm))
+            Text(
+                text = stringResource(dest.labelRes),
+                style = MaterialTheme.typography.labelLarge,
+                color = fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    } else {
+        Column(
+            // vertical padding 8 → 5：横屏可用高度只有 320dp 左右，
+            // 6 项 × 56dp 会超，最后一项（"更多"）的文字被裁掉。
+            // 5dp 让每项落到约 46dp，6 项刚好放得下。
+            modifier = base.padding(vertical = 5.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(dest.labelRes),
+                style = MaterialTheme.typography.labelSmall,
+                color = fg,
+                maxLines = 1,
+            )
+        }
+    }
+}
