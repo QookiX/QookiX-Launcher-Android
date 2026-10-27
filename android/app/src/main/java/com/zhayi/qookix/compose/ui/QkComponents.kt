@@ -36,7 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.graphicsLayer
-import com.zhayi.qookix.compose.theme.QkEasing
+import com.zhayi.qookix.compose.motion.QookiX
 import kotlinx.coroutines.delay
 
 /**
@@ -222,8 +222,8 @@ fun QkBusy(
  * 全出现」，没有「内容正在进来」的过程 —— 列表再好看也会显得生硬。
  * 按 index 错开 40ms 之后才有层次。
  *
- * 刻意**不用**回弹曲线：列表是高频出现的，回弹会变成噪音。这里用 [QkEasing.Standard]
- *（单调减速），只在页面转场/弹层这种「一次性」动作上用 SoftBounce/Jelly。
+ * 刻意**不用**回弹曲线：列表是高频出现的，回弹会变成噪音。这里用 [QookiX.enterSpec]
+ *（单调减速），只在页面转场/弹层这种「一次性」动作上用 QookiX 的 SoftBounce/Jelly。
  *
  * @param index 在列表中的位置（算延迟用）
  * @param maxStagger 最多错开几档 —— 长列表末尾不该等几秒才出现
@@ -270,7 +270,7 @@ fun QkAppear(
     // 位移的收益（多一点点"浮上来"）远小于它带来的掉帧，所以只留 alpha。
     val alpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 200, easing = QkEasing.Standard),
+        animationSpec = QookiX.enterSpec(),
         label = "qkAppearAlpha",
     )
     Box(Modifier.graphicsLayer { this.alpha = alpha }) {

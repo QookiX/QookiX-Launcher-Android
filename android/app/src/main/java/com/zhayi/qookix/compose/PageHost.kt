@@ -1,6 +1,5 @@
 package com.zhayi.qookix.compose
 
-import com.zhayi.qookix.compose.theme.QkEasing
 import com.zhayi.qookix.compose.theme.QkSpacing
 
 import androidx.compose.ui.res.stringResource
@@ -616,13 +615,9 @@ fun PageHost(
             pageAnim.snapTo(0f)
             pageAnim.animateTo(
                 targetValue = 1f,
-                // 320ms + 轻弹曲线。
-                //
-                // 原来这里是 `tween(260, QookiX.EaseOut)`：单调减速、没有过冲，
-                // 值涨到 1 就停住 —— 视觉上"到位得太平"，没有重量感。
-                // 换成阻尼余弦的 SoftBounce 后，内容会轻微冲过头再收回来
-                //（35% 振幅，克制版，不会像果冻那样晕）。
-                animationSpec = tween(durationMillis = 320, easing = QkEasing.SoftBounce),
+                // 统一走 QookiX.pageSpec()：MEDIUM + SoftBounce（阻尼余弦，轻微过冲）。
+                // 以前这里各自写 tween(260/320, EaseOut)，是全项目六种时长之一。
+                animationSpec = QookiX.pageSpec(),
             )
         }
         lastDest.value = dest

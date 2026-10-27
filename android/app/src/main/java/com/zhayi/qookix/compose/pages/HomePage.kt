@@ -3,7 +3,6 @@ package com.zhayi.qookix.compose.pages
 import com.zhayi.qookix.compose.theme.QkSpacing
 import com.zhayi.qookix.compose.theme.QkRadius
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -14,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import com.zhayi.qookix.compose.motion.pressScale
-import com.zhayi.qookix.compose.motion.qkListItemEnter
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -154,17 +152,9 @@ fun HomePage(
                     SectionTitle(stringResource(R.string.home_recent_instances))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
                         itemsIndexed(state.recent, key = { _, it -> it.id }) { index, inst ->
-                            // 依次进场：横向列表的卡片逐个浮现，
-                            // 比整排同时出现更有"内容在加载出来"的节奏感
-                            var appeared by remember(inst.id) { mutableStateOf(false) }
-                            LaunchedEffect(inst.id) {
-                                delay(index * 60L)
-                                appeared = true
-                            }
-                            AnimatedVisibility(
-                                visible = appeared,
-                                enter = qkListItemEnter(index),
-                            ) {
+                            // 统一走 QkAppear（全项目唯一一套入场）。
+                            // 和实例列表的 QkAppear 是两套实现（时长/曲线都不同）。
+                            QkAppear(index = index, scope = "home") {
                                 RecentInstanceCard(inst) { onOpenInstance(inst.id) }
                             }
                         }
@@ -245,15 +235,7 @@ private fun HomeSecondaryContent(
         // 横屏时用横向滚动更省纵向空间；窄屏用纵向列表更易读。
         // 这里统一走纵向 —— 窄屏是它的主场，横屏下也只是多占一点高度。
         state.recent.forEachIndexed { index, inst ->
-            var appeared by remember(inst.id) { mutableStateOf(false) }
-            LaunchedEffect(inst.id) {
-                kotlinx.coroutines.delay(index * 60L)
-                appeared = true
-            }
-            AnimatedVisibility(
-                visible = appeared,
-                enter = qkListItemEnter(index),
-            ) {
+            QkAppear(index = index, scope = "home") {
                 RecentInstanceCard(inst) { onOpenInstance(inst.id) }
             }
         }

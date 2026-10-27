@@ -8,6 +8,9 @@ import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.unit.IntOffset
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.exp
 
 /**
  * QookiX 的动画规格。
@@ -97,6 +100,60 @@ object QookiX {
 
     /** 页面缩放的起始值（1.0 = 不缩放）。 */
     const val SCALE_START = 0.96f
+
+    // ── 带过冲的曲线（阻尼余弦）────────────────────────────────────────
+
+    /**
+     * 轻弹：`1 - 0.35·e^(-9t)·cos(5πt)`。
+     *
+     * 上面那三条 [EaseOut] / [EaseIn] / [EaseInOut] 都是**单调减速**：值涨到 1
+     * 就停住，所以「到位得太平」，没有重量感。这条会先冲过头 35% 再收回来，
+     * 那一「收」就是重量感的来源。
+     *
+     * 用的是**阻尼余弦物理模型**（弹簧-阻尼系统的解析解），不是贝塞尔近似 ——
+     * 过冲和衰减自洽，不会「弹得很假」。**页面转场用它**（[pageSpec]）。
+     */
+    val SoftBounce: Easing = Easing { t ->
+        (1.0 - 0.35 * exp(-9.0 * t) * cos(5.0 * PI * t)).toFloat()
+    }
+
+    /**
+     * 果冻弹：`1 - 0.6·e^(-8t)·cos(6πt)`，冲过头 60%、约 3 个周期。
+     *
+     * 只在需要「存在感」的地方用（弹层出现、主题切换）。**不要用在列表或转场上** ——
+     * 高频动作里回弹会变成噪音。
+     */
+    val Jelly: Easing = Easing { t ->
+        (1.0 - 0.6 * exp(-8.0 * t) * cos(6.0 * PI * t)).toFloat()
+    }
+
+    // ── 语义化 spec ────────────────────────────────────────────────────
+    //
+    // 调用方只需要说「这是进入 / 退出 / 整页切换 / 按压」，不再各自挑时长和曲线。
+    // 以前那些 `tween(200, …)` / `tween(320, …)` 就是这么长出六种的。
+
+    /** 元素**进入**屏幕：MEDIUM + EaseOut。 */
+    fun <T> enterSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = EaseOut)
+
+    /** 元素**离开**屏幕：MEDIUM + EaseIn。 */
+    fun <T> exitSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = EaseIn)
+
+    /**
+     * 整页切换：MEDIUM + [SoftBounce]（唯一允许有回弹的常规场景）。
+     *
+     * 用 MEDIUM 而不是 LONG：420ms 在页面上会被读成「卡了一下」，
+     * 因为我们的转场只有进入（没有旧内容淡出），时长越长越像延迟。
+     */
+    fun <T> pageSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = SoftBounce)
+
+    /** 按压缩放：阻尼 0.55、刚度 900（跟手、略回弹）。 */
+    fun <T> pressSpec(): FiniteAnimationSpec<T> = spring(
+        dampingRatio = 0.55f,
+        stiffness = 900f,
+    )
+
+    /** 按下时的缩放比例。 */
+    const val PRESS_SCALE = 0.97f
 }
 
 /** 页面转场的位移规格（IntOffset 专用，用于 AnimatedContent 的 slideIntoContainer）。 */

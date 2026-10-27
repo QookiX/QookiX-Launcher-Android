@@ -10,7 +10,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.zhayi.qookix.compose.motion.qkListItemEnter
-import kotlinx.coroutines.delay
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
+import com.zhayi.qookix.compose.ui.QkAppear
 
 /**
  * 「更多」页。
@@ -82,17 +82,10 @@ fun MorePage(
         ) {
             Column {
                 entries.forEachIndexed { i, e ->
-                    // 依次进场：每行延迟 40ms 淡入上移，
-                    // 比整块同时出现有节奏感（延迟封顶 300ms，项多也不拖沓）
-                    var appeared by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        delay((i * 40).coerceAtMost(300).toLong())
-                        appeared = true
-                    }
-                    AnimatedVisibility(
-                        visible = appeared,
-                        enter = qkListItemEnter(i),
-                    ) {
+                    // 统一走 QkAppear（全项目唯一一套入场）。
+                    // 原来这里是内联的 AnimatedVisibility + qkListItemEnter，
+                    // 和实例列表/首页是另外两套实现（时长、曲线、错开间隔都不同）。
+                    QkAppear(index = i, scope = "more") {
                         MoreRow(e)
                     }
                     if (i != entries.lastIndex) {

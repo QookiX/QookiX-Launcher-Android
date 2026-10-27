@@ -14,6 +14,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.zhayi.qookix.compose.motion.QookiX
 
 /**
  * QookiX 设计 token（间距 / 圆角 / 动效）。
@@ -84,20 +85,6 @@ object QkRadius {
 }
 
 /**
- * 动效。Expressive 的核心观感之一是**弹簧**而不是线性缓动。
- *
- * `press` 用在可点击卡片上：按下缩到 97%，松手弹回，比单纯的 ripple 有"实体感"。
- */
-object QkMotion {
-    /** 按下时的缩放比例 */
-    const val pressScale: Float = 0.97f
-
-    /** 按压弹簧：阻尼 0.55（略回弹、不晃）、刚度 900（跟手） */
-    const val pressDamping: Float = 0.55f
-    const val pressStiffness: Float = 900f
-}
-
-/**
  * 可点击且有按压回弹的 modifier。
  *
  * 替代裸 `Modifier.clickable {}`：后者只有 ripple、按下去"没有实体感"。
@@ -113,11 +100,8 @@ fun Modifier.qkPressable(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed && enabled) QkMotion.pressScale else 1f,
-        animationSpec = spring(
-            dampingRatio = QkMotion.pressDamping,
-            stiffness = QkMotion.pressStiffness,
-        ),
+        targetValue = if (pressed && enabled) QookiX.PRESS_SCALE else 1f,
+        animationSpec = QookiX.pressSpec(),
         label = "qkPress",
     )
     this
