@@ -597,94 +597,46 @@ fun PageHost(
     //
     // 方向在 LaunchedEffect 里**当场算**（用上一次真正生效的 dest），
     // 不放进 `remember` 缓存 —— 避免"用了过期值"。
-    // ⚠️ 2026-10-27：改成 `remember(dest)` 新建 Animatable —— 这是修「抽搐」的关键。
+    // ── 页面转场 ────────────────────────────────────────────────────────
     //
-    // 原来写的是 `remember { Animatable(1f) }` +
-    // `LaunchedEffect(dest) { snapTo(0f); animateTo(1f) }`：
-    // dest 变化的那次组合里 progress 还是旧值 1，Compose 会**先画出一帧完整内容**，
-    // 之后 LaunchedEffect 才执行 snapTo(0f) —— 于是看到「完整内容闪一下、再重新淡入」，
-    // 这就是抽搐。LaunchedEffect 是**组合提交后**才运行的，改不了这一帧。
+    // 这段改过四轮，每轮都是同一个目标：**起点那一帧不能被看成「跳」**。
     //
-    // `remember(dest) { Animatable(起点) }` 让起点在**同一帧**就生效：
-    // dest 一变，新的 Animatable 立刻以 0 参与这一帧绘制，不存在「先画终点」。
+    //   · 第 1 轮：全部从同一条 progress 派生 —— 缩放和位移在 snapTo(0) 那一帧
+    //     瞬间生效，看起来像「抖一下」。
+    //   · 第 2 轮：砍掉 scale 和位移，只留 alpha 0.88→1 —— 变化太小，等于没动画。
+    //   · 第 3 轮：alpha 改成 0→1（起点不可见，几何起点也就藏住了），配 16dp
+    //     上浮 + tween 240 —— 有了，但和 ZL2 比「没有重量」。
+    //   · 第 4 轮（现在）：**alpha 与位移分开驱动**，各用各的曲线。
     //
-    // 首次进入也播（原来用 `shouldAnimate = dest != firstDest` 把首屏排除了，
-    // 结果就是「别的页面都有从下往上浮出、只有首页没有」）。
-    val pageAnim = remember(dest) { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(pageAnim) {
-        // ⚠️ 2026-10-27：先等一帧，再启动动画。
-        //
-        // `dest` 变化的那一次组合要把整棵新页面组合 + 布局一遍（首页有 4 张卡片
-        // 加新闻列表，实测量级几十毫秒）。动画如果同时起跑，前几帧会被组合开销
-        // 挤掉 —— 用户感知就是「进页面卡一下」。
-        //
-        // 等 `withFrameNanos` 一帧之后，页面已经渲染出来（只是 alpha=0），
-        // 动画期间就只剩 layer 属性变化，代价可以忽略。
+    // 为什么要拆开：绑在一条 progress 上就只能选一条曲线 ——
+    // 给 alpha 用弹性曲线会「瞬间到位」（回弹曲线 t=0.1 就冲到 1，已踩两次），
+    // 给位移用无弹性曲线又「没有重量」。而 MD3 Expressive 的规则本来就是两条：
+    //   透明度 → effects（dampingRatio = 1，无弹性、快速收敛）
+    //   位移   → spatial（dampingRatio = 0.8，带弹性、会轻微过冲）
+    //
+    // 起点仍在**同一帧**生效：`remember(dest)` 让 visible 初值 false，
+    // 这一帧 alpha=0、translationY=16dp —— 完全不可见，所以「起点偏下」
+    // 看不出来（第 3 轮的结论：几何动画安全与否，取决于起点是否可见）。
+    var visible by remember(dest) { mutableStateOf(false) }
+    LaunchedEffect(dest) {
+        // 等首帧：新页面的组合 + 布局要几十毫秒（首页 4 张卡 + 新闻列表），
+        // 动画同时起跑会被挤掉（实测卡顿）。等页面渲染出来（alpha=0）再动，
+        // 动画期间就只剩 layer 属性变化。
         withFrameNanos { }
-        pageAnim.animateTo(1f, QookiX.pageSpec())
+        visible = true
     }
-
-    // 由同一个 progress（0→1）派生出全部视觉量，保证完全同步
-    //
-    // ⚠️ 2026-10-17 三次修：**去掉横向位移**。
-    //
-    // 上一版给了 ±24dp 的 translationX，真机上表现为「内容整体往右窜一下、
-    // 又弹回来」—— 因为内容区左边紧贴侧边栏的 VerticalDivider，
-    // 平移时**左边会露出一条空白缝**，看起来像被推歪了，这就是用户说的"抽搐"。
-    //
-    // 现在只用「透明度 + 极轻微缩放」：
-    //   - 缩放从**中心**收缩（transformOrigin 0.5/0.5），四周对称内收，
-    //     不会露出任何一边的缝隙
-    //   - 幅度只有 4%（0.96→1.0），是"内容浮上来"而不是"页面被推动"
-    //   - 位移只保留纵向 6dp，向上浮起 —— 纵向不会碰到侧边栏
-    val progress = pageAnim.value
-    // ⚠️ alpha 不做 0→1，而是 0.65→1：
-    // 真机抓帧发现「内容先完全消失（纯白）、再淡入」非常刺眼 ——
-    // 那不是"转场"，是"闪一下"。留 65% 底色后视觉上是「新内容浮上来」，
-    // 连贯得多，也符合 MD3 的 fade-through 思路（旧内容退到半透明，不是消失）。
-    // 从**完全透明**淡入（0 → 1）。
-    //
-    // 这段值改过三次，每次都是为了让"起点那一帧"不被看成跳变：
-    //   · 0.65 起：旧版配合"旧内容留 65%"的 fade-through，但我们没有退出动画，
-    //     0.65 起跳看起来像"内容先暗一下再亮起来"；
-    //   · 0.88 起：几乎看不见，于是变成了"没有转场"（用户反馈：点完直接出来）；
-    //   · 0 起（现在）：起点那一帧是**完全不可见**的，所以它不会被读成
-    //     "跳变" —— 眼睛看到的只是"从无到有"的淡入。
-    //
-    // 之前不敢用 0，是因为当时背景是浅色，alpha=0 会闪一下白；现在背景是深色
-    //（曲奇金主题的 surface），透明度归零露出的就是背景本身，不刺眼。
-    val pageAlpha = progress
-    val pageShiftX = 0.dp
-    // ⚠️ 2026-10-27：纵向位移也去掉了（原来 4dp 上浮）。
-    //
-    // 和缩放是同一个病因：`snapTo(0f)` 那一帧 progress=0 → translationY=4dp，
-    // 内容**瞬间下移 4dp**，然后 320ms 挪回 0。用户看到的就是「从下面往上挪一下」。
-    //
-    // 结论（两次踩坑换来的）：没有退出动画时，**任何「进入时变化的几何属性」
-    //（scale / translationY / translationX）都会变成起点那一帧的跳变**。
-    // 想不跳，就只能让几何属性恒定 —— 只有透明度可以变（它跳变时是"暗一下"，
-    // 眼睛不会把它读成"位置动了"）。
-    // 纵向 16dp 上浮 + 淡入。
-    //
-    // 为什么现在敢加位移了：起点是 `alpha = 0`（完全不可见），
-    // 所以「起点偏下 16dp」这件事用户根本看不见 —— 他看到的是内容
-    // 从下方浮上来，不是「先挪一下再回来」。
-    //
-    // 早先（alpha 从 0.65 起）加位移会被读成抽搐，就是这个差别：
-    // **几何动画是否安全，取决于起点是否可见，而不是位移本身**。
-    //
-    // 用纵向而不是横向：内容区左边紧贴侧边栏分隔线，横向平移会露缝。
-    val pageShiftY = 16.dp * (1f - progress)
-    // ⚠️ 2026-10-27：缩放**恒为 1**，不再做 0.98 → 1.0。
-    //
-    // 用户反馈「切换页面时整个页面稍微缩小一下再放大，会抽搐」—— 原因就在这：
-    // 切页时 pageAnim 先 snapTo(0f)，缩放会**瞬间跳到 0.98**（因为 progress=0），
-    // 然后再用 320ms 放大回 1.0。旧页面是瞬间消失的（我们没有退出动画），
-    // 只有新页面从缩小状态放大 —— 两者叠在一起就是「抖一下」。
-    //
-    // MD3 的 fade-through 之所以顺，是**旧内容同时在缩小淡出**，进出对称。
-    // 不做 AnimatedContent（见上面那段注释的坑），那就只能**单边不缩**：
-    // 让页面尺寸始终不变，只做透明度 + 极轻的纵向位移。
+    val pageAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = QookiX.effectsSpec(),
+        label = "pageAlpha",
+    )
+    val pageShiftY by animateDpAsState(
+        targetValue = if (visible) 0.dp else 16.dp,
+        animationSpec = QookiX.spatialSpec(),
+        label = "pageShiftY",
+    )
+    // 恒为 1：缩放是唯一「必然抽搐」的属性 —— 从中心收缩时四周同时内收，
+    // 眼睛对这种变化极度敏感。位移和透明度都能靠「起点不可见」藏住，缩放不行。
     val pageScale = 1f
 
     Box(
@@ -699,7 +651,8 @@ fun PageHost(
             //
             // `graphicsLayer` 的 translationY 会同步移动命中区域，没有这个问题。
             .graphicsLayer {
-                translationX = pageShiftX.toPx()
+                // 不做横向平移：内容区左边紧贴侧边栏分隔线，横向移动时左侧会露出
+                // 一条背景缝（2026-10-17 实测「像被推歪了」）。纵向没有这个问题。
                 translationY = pageShiftY.toPx()
                 alpha = pageAlpha
                 scaleX = pageScale
