@@ -612,6 +612,15 @@ fun PageHost(
     // 结果就是「别的页面都有从下往上浮出、只有首页没有」）。
     val pageAnim = remember(dest) { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(pageAnim) {
+        // ⚠️ 2026-10-27：先等一帧，再启动动画。
+        //
+        // `dest` 变化的那一次组合要把整棵新页面组合 + 布局一遍（首页有 4 张卡片
+        // 加新闻列表，实测量级几十毫秒）。动画如果同时起跑，前几帧会被组合开销
+        // 挤掉 —— 用户感知就是「进页面卡一下」。
+        //
+        // 等 `withFrameNanos` 一帧之后，页面已经渲染出来（只是 alpha=0），
+        // 动画期间就只剩 layer 属性变化，代价可以忽略。
+        withFrameNanos { }
         pageAnim.animateTo(1f, QookiX.pageSpec())
     }
 

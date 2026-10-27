@@ -148,7 +148,7 @@ object QookiX {
      * 回弹曲线只适合**位移/缩放**（冲过头再收回来才有弹性感）；
      * 透明度必须用单调曲线，否则「淡入」会被压缩到肉眼看不见的一瞬。
      */
-    fun <T> pageSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = EaseOut)
+    fun <T> pageSpec(): FiniteAnimationSpec<T> = tween(240, easing = EaseOut)
 
     /** 按压缩放：阻尼 0.55、刚度 900（跟手、略回弹）。 */
     fun <T> pressSpec(): FiniteAnimationSpec<T> = spring(
