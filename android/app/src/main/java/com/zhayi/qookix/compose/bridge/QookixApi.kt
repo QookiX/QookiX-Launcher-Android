@@ -41,6 +41,10 @@ class QookixApi(private val bridge: RustBridge) {
         private val LONG_TASK_HINTS = listOf(
             "install", "import", "download", "launch", "modpack",
             "extract", "unpack", "upload", "backup", "restore",
+            // ⚠️ 2026-10-27 真机：`repair_instance_files` 要下几百 MB、动辄几分钟。
+            // 不在名单里 → 120 秒后被判超时，弹「补全失败」，而任务其实还在正常跑
+            //（用户同时看到「补全失败」和 100% 进度条）。
+            "repair",
         )
 
         /**
