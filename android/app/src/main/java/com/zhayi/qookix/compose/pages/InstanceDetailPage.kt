@@ -91,6 +91,9 @@ import com.zhayi.qookix.compose.theme.QkRadius
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import com.zhayi.qookix.compose.motion.SharedHero
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import com.zhayi.qookix.compose.motion.QookiX
 
 /**
  * 实例详情。
@@ -234,9 +237,20 @@ fun InstanceDetailPage(
                 .padding(horizontal = QkSpacing.lg, vertical = QkSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 飞行期间 hero 是**透明的**，但仍然占位、仍然测量位置：
+            //  - 占位是必须的：落点坐标靠 onGloballyPositioned 测，真隐藏了就没落点；
+            //  - 透明是必须的：飞到位之前不让真实 hero 出现，否则会看到两个图标重叠
+            //    （用户：「等他飞到位之后，那个实例的东西再加载出来」）。
+            // 落地后 SharedHero.clear() 把 pending 置空，hero 淡入。
+            val heroAlpha by animateFloatAsState(
+                targetValue = if (SharedHero.pending == null) 1f else 0f,
+                animationSpec = QookiX.enterSpec(),
+                label = "heroAlpha",
+            )
             Surface(
                 modifier = Modifier
                     .size(48.dp)
+                    .graphicsLayer { alpha = heroAlpha }
                     .onGloballyPositioned {
                         // 上报**落点**（窗口坐标）：上游的飞行浮层拿它当目标位置。
                         // 只在真有飞行任务时才写，避免平时无谓地触发重组。

@@ -174,6 +174,8 @@ import com.zhayi.qookix.compose.pages.settings.SettingsUiState
 import com.zhayi.qookix.compose.pages.settings.StoragePane
 import com.zhayi.qookix.compose.shell.NavDestination
 import com.zhayi.qookix.compose.motion.SharedHeroOverlay
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
 
 /**
  * 冷启动的「渲染器健康检查」是否已跑过。
@@ -640,8 +642,15 @@ fun PageHost(
     // 眼睛对这种变化极度敏感。位移和透明度都能靠「起点不可见」藏住，缩放不行。
     val pageScale = 1f
 
-    // 外层 Box 只给飞行浮层一个**不受转场影响**的坐标系（见文件末尾的说明）。
-    Box(modifier = Modifier.fillMaxSize()) {
+    // 外层 Box 只给飞行浮层一个**不受转场影响**的坐标系。
+    // 它的窗口原点在这里一次算好 —— 浮层自己测的话要多等一帧（布局完成后才有值），
+    // 用户会看到「图标先顿一下再飞」（反馈原话：「出现之后它会简单的顿一下」）。
+    var contentOrigin by remember { mutableStateOf(Offset.Zero) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { contentOrigin = it.localToWindow(Offset.Zero) },
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -994,7 +1003,7 @@ fun PageHost(
             // 一起 0 → 1 淡入 —— 用户看到的是「切页结束后才出现并开始飞」，
             // 反馈里的「速度太慢」就是这个。放到外面后它从第一帧就是满不透明，
             // 起飞和切页同时发生。
-            SharedHeroOverlay()
+            SharedHeroOverlay(origin = contentOrigin)
             }
             }
 

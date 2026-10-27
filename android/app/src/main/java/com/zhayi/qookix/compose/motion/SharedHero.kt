@@ -114,16 +114,18 @@ private fun estimatedLanding(density: Density): Rect {
 }
 
 /**
- * 飞行浮层。挂在 `PageHost` 的 `when(dest)` 之后（全屏 Box 最后一个子项）。
+ * 飞行浮层。挂在 `PageHost` 的**转场层之外**（否则会跟着页面淡入，
+ * 看起来像「切完页才开始飞」）。
+ *
+ * @param origin 内容区左上角在**窗口**里的位置。起点/落点都是窗口坐标，
+ *   绘制时要减掉它。由 PageHost 稳定提供 —— 浮层自己测的话要多等一帧
+ *   （布局完成后才有值），用户会看到「图标先顿一下再飞」。
  */
 @Composable
-fun SharedHeroOverlay(modifier: Modifier = Modifier) {
+fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
     val launch = SharedHero.pending ?: return
     val landing = SharedHero.landing
     val density = LocalDensity.current
-
-    // 浮层自己的窗口原点。它不在窗口 (0,0) —— 上边有顶栏、左边有侧栏。
-    var origin by remember { mutableStateOf<Offset?>(null) }
 
     // 四个维度各自 Animatable：好处是「目标中途改变」时能从当前值接续，
     // 而不是像 progress + lerp 那样一换目标就整体跳一下。
@@ -132,8 +134,7 @@ fun SharedHeroOverlay(modifier: Modifier = Modifier) {
     val w = remember(launch) { Animatable(launch.from.width) }
     val h = remember(launch) { Animatable(launch.from.height) }
 
-    LaunchedEffect(launch, landing, origin) {
-        if (origin == null) return@LaunchedEffect
+    LaunchedEffect(launch, landing) {
         // ⚠️ 不等落点：先用估算位置起飞。
         // 之前是 `val landing = SharedHero.landing ?: return` —— 要等详情页
         // 布局完成才动，用户感知到的是「点了半天才飞」（反馈里的「延迟」）。
@@ -151,14 +152,12 @@ fun SharedHeroOverlay(modifier: Modifier = Modifier) {
         if (landing != null) SharedHero.clear()
     }
 
-    val o = origin ?: Offset.Zero
     Box(
         modifier = modifier
-            .onGloballyPositioned { origin = it.localToWindow(Offset.Zero) }
             .offset {
                 IntOffset(
-                    (left.value - o.x).roundToInt(),
-                    (top.value - o.y).roundToInt(),
+                    (left.value - origin.x).roundToInt(),
+                    (top.value - origin.y).roundToInt(),
                 )
             }
             .size(
