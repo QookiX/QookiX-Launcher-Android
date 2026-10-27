@@ -519,6 +519,20 @@ async fn stream_to_file(
     Err(last.unwrap_or_else(|| StreamFail::Retry(anyhow::anyhow!("Failed to download {url}"))))
 }
 
+/// 等到任一取消标志被置位（200ms 轮询）。
+///
+/// 为什么轮询而不是通知：取消标志是 `AtomicBool`，设置方散落在 `cancel_download`
+/// 和安装任务两处，改成 notify 要动四个文件；而对「点取消」这个动作来说，
+/// 200ms 的响应延迟已经完全够用。
+async fn wait_cancelled(cancel: &Arc<AtomicBool>, install: Option<&Arc<AtomicBool>>) {
+    loop {
+        if cancel.load(Ordering::Relaxed) || install.is_some_and(|f| f.load(Ordering::Relaxed)) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
 async fn stream_to_file_once(
     client: &reqwest::Client,
     url: &str,
@@ -603,20 +617,25 @@ async fn stream_to_file_once(
     let mut last_report = std::time::Instant::now();
 
     loop {
+        // ⚠️ 2026-10-27 真机：`chunk().await` 会**一直阻塞到有数据**。服务器把连接
+        // 挂起时（弱网/镜像抽风），循环开头的取消检查永远轮不到 —— 用户点
+        // 「取消」完全没反应。现象就是：下载卡在某个百分比，界面上的按钮点了全部无效。
+        //
+        // 改成 select!：同时等「下一块数据」和「取消轮询」，取消最多 200ms 生效。
         // 两个取消来源都要看：本次下载自己的标志（`cancel_download`），
         // 以及所属安装任务的标志（前端「下载中心」的取消按钮）。
-        if cancel.load(Ordering::Relaxed)
-            || install_cancel.is_some_and(|f| f.load(Ordering::Relaxed))
-        {
-            return Err(StreamFail::Cancelled);
-        }
-        let chunk = match response.chunk().await {
-            Ok(Some(c)) => c,
-            Ok(None) => break,
-            Err(e) => {
-                return Err(StreamFail::Retry(anyhow::anyhow!(
-                    "Download interrupted for {url}: {e}"
-                )))
+        let chunk = tokio::select! {
+            c = response.chunk() => match c {
+                Ok(Some(c)) => c,
+                Ok(None) => break,
+                Err(e) => {
+                    return Err(StreamFail::Retry(anyhow::anyhow!(
+                        "Download interrupted for {url}: {e}"
+                    )))
+                }
+            },
+            _ = wait_cancelled(cancel, install_cancel) => {
+                return Err(StreamFail::Cancelled)
             }
         };
         hasher.update(&chunk);
