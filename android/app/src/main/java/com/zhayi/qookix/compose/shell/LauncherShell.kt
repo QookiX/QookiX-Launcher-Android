@@ -52,6 +52,7 @@ import com.zhayi.qookix.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
 
 /**
  * 启动器主壳（Material 3）—— 完全重做，不参照旧 Vue 界面。
@@ -159,17 +160,27 @@ fun LauncherShell(
                     // 详情页用这个表示「我的标题马上由 titleContent 提供，别填默认值」。
                     val t = title ?: titleFor(current)
                     if (t.isNotEmpty()) {
-                        // ⚠️ 2026-10-27：titleLarge(24sp) → titleMedium(20sp) + 灰色。
-                        //
-                        // 对照 ZL2（用户指定的参考）后确认：它的顶栏标题只有 16sp 且是
-                        // onSurfaceVariant（灰），**故意让内容当主角**；我们原来是 24sp 白，
-                        // 视觉焦点被标题抢走，越看越"工具感"。
-                        Text(
-                            text = t,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // 品牌名从侧栏移到顶栏（2026-10-27 布局重构）：
+                            // 顶栏现在贯穿全宽，左侧腾出位置放它；侧栏则只放导航。
+                            // 用 onSurface（亮）而不是灰色，让它是唯一"实在"的文字。
+                            Text(
+                                text = "QookiX",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.width(QkSpacing.md))
+                            // 页面名用 titleMedium + 灰色：ZL2 的标题就是这个气质 ——
+                            // 故意退后，让内容当主角（原来是 24sp 白，抢焦点）。
+                            Text(
+                                text = t,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             },
@@ -198,7 +209,12 @@ fun LauncherShell(
 
     if (size.useRail) {
         // ── 横屏 / 平板：常驻侧栏（图标+文字横排）────────────────────────
-        Row(modifier = Modifier.fillMaxSize()) {
+        // ⚠️ 2026-10-27 布局重构：顶栏**贯穿全宽**（原来它只在内容区，
+        // 左边被侧栏挡住，看起来像两个独立的头部）。
+        // 现在的层次：顶栏（全宽）→ 下面才是 侧栏 + 内容。
+        Column(modifier = Modifier.fillMaxSize()) {
+            topBar()
+            Row(modifier = Modifier.weight(1f)) {
             Surface(
                 modifier = Modifier
                     // 2026-10-17：196dp → 168dp（用户反馈侧边栏偏宽，占掉内容区）。
@@ -221,15 +237,6 @@ fun LauncherShell(
                         .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
                 ) {
                     // 品牌区（MD3 常驻抽屉的标准做法：抽屉顶部放产品名，
-                    // 顶栏放页面标题 —— 两者不重复）
-                    // 横屏高度紧张（本机 384dp），品牌区压到最小
-                    Text(
-                        text = "QookiX",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = QkSpacing.md, top = 4.dp, bottom = 8.dp),
-                    )
 
                     NavDestination.bottomBar.forEach { dest ->
                         val selected = dest == current
@@ -325,7 +332,6 @@ fun LauncherShell(
                 // fillMaxSize() 会和它**抢宽度**（窄屏/大缩放时内容区被压成一条竖线）。
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 containerColor = MaterialTheme.colorScheme.background,
-                topBar = topBar,
                 snackbarHost = { SnackbarHost(snackbarHost) },
             ) { inner ->
                 Box(
@@ -334,6 +340,7 @@ fun LauncherShell(
                         .padding(inner),
                 ) { content() }
             }
+        }
         }
     } else {
         // ── 竖屏：底部 NavigationBar ──────────────────────────────────────
