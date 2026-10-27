@@ -418,7 +418,14 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
             message = message,
             fraction = fraction,
             progressText = progressText,
-            speedText = if (!finished && speed > 0) fmtSpeed(speed) else "",
+            // 速度 + 预估剩余时间：`37.3 MB/s · 剩余 2 分 10 秒`
+            speedText = if (!finished && speed > 0) {
+                val base = fmtSpeed(speed)
+                if (bytesTotal > 0 && bytesDone in 0 until bytesTotal) {
+                    val secs = ((bytesTotal - bytesDone) / speed).toLong()
+                    if (secs in 1..86_400) "$base · 剩余 ${fmtEta(secs)}" else base
+                } else base
+            } else "",
             // 停滞：进度 30 秒没动过（前置条件：已经下过一点东西，
             // 否则「刚创建任务还没开始」会被误判成停滞）
             stalled = !finished && lastProgressMark >= 0 &&
@@ -446,6 +453,19 @@ internal fun fmtBytes(bytes: Long): String {
 }
 
 /** 速度格式化（对齐旧前端 `fmtSpeed`）。 */
+/** 预估剩余时间的口语化格式：`45 秒` / `2 分 10 秒` / `1 小时 5 分`。 */
+internal fun fmtEta(seconds: Long): String {
+    if (seconds < 60) return "${seconds} 秒"
+    val m = seconds / 60
+    if (m < 60) {
+        val s = seconds % 60
+        return if (s == 0L) "$m 分" else "$m 分 $s 秒"
+    }
+    val h = m / 60
+    val mm = m % 60
+    return if (mm == 0L) "$h 小时" else "$h 小时 $mm 分"
+}
+
 internal fun fmtSpeed(bytesPerSec: Double): String {
     if (bytesPerSec <= 0) return ""
     return fmtBytes(bytesPerSec.toLong()) + "/s"
