@@ -115,39 +115,39 @@ object SharedHero {
      * @param onArrive 落地回调（置 landed=true，让目标页 hero 现身）
      */
     suspend fun flyLoop(onArrive: () -> Unit) {
-        // 兜底：目标页万一没上报落点（页面异常/被销毁），最多飞 90 帧
-        // （约 1.5s）就必须收尾，绝不能让浮层永远挂在屏幕上。
+        // ⚠️ 用**固定时长 + 缓出曲线**，不用指数趋近。
+        //
+        // 指数趋近（每帧乘 0.72）数学上永远到不了终点：最后几厘米要走十几帧，
+        // 观感是「先冲一下，然后黏住」——用户的原话是「应该先快后慢」。
+        // 现在按 220ms 归一化时间轴走 `1-(1-t)^3`（立方缓出）：起步最快、末段平滑收住，
+        // 且到 t=1 一定精确落在目标上。
+        val started = pending ?: return
+        val start = started.from
+        val t0 = withFrameNanos { it }
+        // 兜底：目标页万一没上报落点，最多 1.5s 也要收尾
         var frames = 0
         while (pending != null) {
-            withFrameNanos { }                       // 等下一帧
+            val now = withFrameNanos { it }
             frames++
             if (frames > 90 && !targetReal) {
-                target = current.value
+                target = target ?: current.value
                 targetReal = true
             }
             if (frames > 120) {
                 onArrive()
                 return
             }
-            val t = target ?: continue
-            val c = current.value ?: continue
-            // 每帧趋近 28%（指数趋近，永不超调）。先前是 0.22（约 330ms 到位），
-            // 现在内容要等落地才组合，飞行久一点就多等一点 —— 调快到这里约 200ms。
-            val k = 0.28f
-            val next = Rect(
-                c.left + (t.left - c.left) * k,
-                c.top + (t.top - c.top) * k,
-                c.right + (t.right - c.right) * k,
-                c.bottom + (t.bottom - c.bottom) * k,
+            val goal = target ?: continue
+            val raw = ((now - t0) / 1_000_000f / 220f).coerceIn(0f, 1f)
+            val e = 1f - (1f - raw) * (1f - raw) * (1f - raw)   // cubic ease-out
+            current.value = Rect(
+                start.left + (goal.left - start.left) * e,
+                start.top + (goal.top - start.top) * e,
+                start.right + (goal.right - start.right) * e,
+                start.bottom + (goal.bottom - start.bottom) * e,
             )
-            current.value = next
-            // 接近且目标已是真实落点 → 落地（估算阶段不能落地，否则会提前消失）
-            val cx = (next.left + next.right) / 2f
-            val cy = (next.top + next.bottom) / 2f
-            val tx = (t.left + t.right) / 2f
-            val ty = (t.top + t.bottom) / 2f
-            if (targetReal && abs(cx - tx) < 2f && abs(cy - ty) < 2f) {
-                current.value = t
+            if (raw >= 1f && targetReal) {
+                current.value = goal
                 onArrive()
             }
         }

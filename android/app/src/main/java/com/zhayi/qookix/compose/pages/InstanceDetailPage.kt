@@ -243,11 +243,10 @@ fun InstanceDetailPage(
             //  - 透明是必须的：飞到位之前不让真实 hero 出现，否则会看到两个图标重叠
             //    （用户：「等他飞到位之后，那个实例的东西再加载出来」）。
             // 落地后 SharedHero.clear() 把 pending 置空，hero 淡入。
-            val heroAlpha by animateFloatAsState(
-                targetValue = if (SharedHero.pending == null) 1f else 0f,
-                animationSpec = QookiX.enterSpec(),
-                label = "heroAlpha",
-            )
+            // ⚠️ 落地瞬间**硬切换**，不做淡入：浮层与真实 hero 的位置、尺寸、颜色
+            // 完全一致，淡入会让两者在半透明的那几帧里同时露背景 —— 用户看到的
+            // 就是「到位之后闪一下」。
+            val heroAlpha = if (SharedHero.pending == null) 1f else 0f
             Surface(
                 modifier = Modifier
                     .size(48.dp)
