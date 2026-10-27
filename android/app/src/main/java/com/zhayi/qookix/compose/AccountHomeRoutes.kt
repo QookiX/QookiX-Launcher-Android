@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,10 +43,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Newspaper
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +72,10 @@ import com.zhayi.qookix.compose.motion.qkSlideInLeft
 import com.zhayi.qookix.compose.motion.qkSlideInRight
 import com.zhayi.qookix.compose.pages.AccountPanel
 import com.zhayi.qookix.compose.pages.AccountUi
+import com.zhayi.qookix.compose.pages.MoreEntry
+import com.zhayi.qookix.compose.pages.MoreEntryList
+import com.zhayi.qookix.compose.pages.TaskCard
+import com.zhayi.qookix.compose.pages.TaskUi
 import com.zhayi.qookix.compose.pages.BrowsePage
 import com.zhayi.qookix.compose.pages.BrowseType
 import com.zhayi.qookix.compose.pages.BrowseRepo
@@ -147,7 +159,6 @@ import com.zhayi.qookix.compose.pages.NewsCache
 import com.zhayi.qookix.compose.pages.NewsItemUi
 import com.zhayi.qookix.compose.pages.NewsPage
 import com.zhayi.qookix.compose.pages.NewsUiState
-import com.zhayi.qookix.compose.pages.TaskUi
 import com.zhayi.qookix.compose.pages.TasksRepo
 import com.zhayi.qookix.compose.pages.loadNews
 import com.zhayi.qookix.compose.pages.parseNews
@@ -190,15 +201,25 @@ import com.zhayi.qookix.compose.shell.NavDestination
  */
 
 /**
- * 账号面板 + 数据加载。
+ * 「我的」页（2026-10-27 从「账号」页扩容，接管底栏第五个位置）。
  *
- * 没有账号就没法启动游戏，所以这个页面挡在「能用」与「不能用」之间。
+ * 底栏原来有 6 项（首页/实例/内容/多人/下载/更多），「下载」和「更多」
+ * 都是低频入口 —— 下载任务在首页/实例详情/这里都能看到，皮肤/统计/新闻/
+ * 设置则全部挪进这个页面的入口列表。两个旧页面本身保留，从这里点进去。
+ *
+ * 结构：身份卡（头像/名字/账号类型）→ 进行中的任务 → 入口列表 → 账号管理。
  */
 @Composable
 internal fun AccountRoute(
     bridge: RustBridge,
     bridgeReady: Boolean,
     activity: ComposeMainActivity? = null,
+    /** 进行中的任务（下载/安装/补全），由外层共用的 TasksRepo 快照传入。 */
+    tasks: List<TaskUi> = emptyList(),
+    /** 页面内入口跳转（皮肤 / 下载任务 / 统计 / 新闻 / 设置）。 */
+    onNavigate: (NavDestination) -> Unit = {},
+    /** 取消一个进行中的任务。 */
+    onCancelTask: (Long) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
@@ -278,6 +299,19 @@ internal fun AccountRoute(
         msFlow = null
         error = context.getString(R.string.login_timeout_detail)
     }
+
+    // ── 身份卡：头像 + 名字 + 账号类型（展示块在 ProfilePage.kt）─────────
+    val current = accounts.firstOrNull { it.uuid == currentUuid }
+    ProfileIdentityCard(current)
+
+    // ── 进行中的任务（下载 / 安装 / 补全）────────────────────────────────
+    ProfileTasksSection(tasks, onCancelTask)
+
+    // ── 入口列表（下载任务 / 皮肤 / 统计 / 新闻 / 设置）─────────────────
+    ProfileEntryList(
+        onNavigate,
+        modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 10.dp),
+    )
 
     AccountPanel(
         accounts = accounts,

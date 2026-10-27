@@ -179,9 +179,14 @@ enum class NavDestination(
     ;
 
     companion object {
-        /** 底栏展示的项（按现有 App.vue 的顺序）。 */
+        /**
+         * 底栏展示的项（2026-10-27 改）：
+         * 「下载」「更多」从底栏撤下，换成「我的」（Account）——
+         * 下载任务在首页/实例详情/「我的」里都能看到；「更多」的皮肤/统计/
+         * 新闻/设置入口全部挪进「我的」。两个页面本身保留，从「我的」进入。
+         */
         val bottomBar: List<NavDestination> = listOf(
-            Home, Instances, Browse, Multiplayer, Downloads, More,
+            Home, Instances, Browse, Multiplayer, Account,
         )
     }
 }

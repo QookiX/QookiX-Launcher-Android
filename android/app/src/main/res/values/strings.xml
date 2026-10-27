@@ -81,7 +81,7 @@
     <string name="nav_frp">MohuaFrp</string>
     <string name="nav_frp_rooms">联机房间</string>
     <string name="nav_playtime">游戏统计</string>
-    <string name="nav_account">账号</string>
+    <string name="nav_account">我的</string>
 
     <!-- ── LauncherShell：顶栏标题 / 无障碍描述 ── -->
     <string name="shell_title_home">首页</string>
@@ -96,7 +96,7 @@
     <string name="shell_title_create_instance">新建实例</string>
     <string name="shell_title_server_detail">服务器详情</string>
     <string name="shell_title_instance_detail">实例详情</string>
-    <string name="shell_title_account">账号</string>
+    <string name="shell_title_account">我的</string>
     <string name="shell_title_playtime">游玩统计</string>
     <string name="shell_title_frp">FRP 隧道</string>
     <string name="shell_title_frp_rooms">联机房间</string>
@@ -365,6 +365,9 @@
     <string name="account_code">代码：%1$s</string>
     <string name="account_open">打开</string>
     <string name="account_empty_title">还没有账号</string>
+    <string name="profile_add_hint">在下方添加账号后就能启动游戏（离线账号也可以）</string>
+    <string name="profile_tasks">进行中的任务</string>
+    <string name="profile_downloads">下载任务</string>
     <string name="account_empty_desc">点击添加账号</string>
     <string name="account_delete_title">确定要删除账号「%1$s」吗？</string>
     <string name="account_delete_online_desc">再次使用需要重新登录微软账号</string>

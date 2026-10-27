@@ -987,6 +987,10 @@ fun PageHost(
             bridge = bridge,
             bridgeReady = bridgeReady,
             activity = activity,
+            // 「我的」页顶部显示进行中的任务（下载/安装/补全）
+            tasks = tasksState.active,
+            onCancelTask = { tasksRepo.cancel(it) },
+            onNavigate = onNavigate,
         )
 
         else -> PlaceholderPage(dest)

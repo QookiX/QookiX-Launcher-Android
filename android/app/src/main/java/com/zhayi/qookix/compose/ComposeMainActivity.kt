@@ -1431,7 +1431,8 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 NavDestination.ServerDetail, NavDestination.ServerCreate,
                 NavDestination.Frp, NavDestination.FrpRooms -> NavDestination.Multiplayer
                 NavDestination.Skins, NavDestination.News,
-                NavDestination.Playtime, NavDestination.Settings -> NavDestination.More
+                NavDestination.Playtime, NavDestination.Settings,
+                NavDestination.Downloads -> NavDestination.Account
                 NavDestination.Account -> NavDestination.Home
                 // 内容详情是内容中心的下钻层
                 NavDestination.ContentDetail -> NavDestination.Browse

@@ -75,31 +75,42 @@ fun MorePage(
             .verticalScroll(rememberScrollState())
             .padding(start = QkSpacing.md, end = 16.dp, top = 4.dp, bottom = 16.dp),
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            Column {
-                entries.forEachIndexed { i, e ->
-                    // 统一走 QkAppear（全项目唯一一套入场）。
-                    // 原来这里是内联的 AnimatedVisibility + qkListItemEnter，
-                    // 和实例列表/首页是另外两套实现（时长、曲线、错开间隔都不同）。
-                    QkAppear(index = i, scope = "more") {
-                        MoreRow(e)
-                    }
-                    if (i != entries.lastIndex) {
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                        )
-                    }
+        MoreEntryList(entries)
+    }
+}
+
+/**
+ * 「更多」式入口列表（Surface 卡 + 56dp 行 + 分隔线）。
+ *
+ * 2026-10-27 从 MorePage 抽出来：「我的」页（Account）也要一份一模一样的
+ * 入口列表（皮肤 / 统计 / 设置…），复制一份必然走样。
+ */
+@Composable
+internal fun MoreEntryList(entries: List<MoreEntry>, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column {
+            entries.forEachIndexed { i, e ->
+                // 统一走 QkAppear（全项目唯一一套入场）。
+                // 原来这里是内联的 AnimatedVisibility + qkListItemEnter，
+                // 和实例列表/首页是另外两套实现（时长、曲线、错开间隔都不同）。
+                QkAppear(index = i, scope = "more") {
+                    MoreRow(e)
+                }
+                if (i != entries.lastIndex) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
                 }
             }
         }
     }
 }
 
-private data class MoreEntry(
+internal data class MoreEntry(
     val name: String,
     @StringRes val labelRes: Int,
     val icon: ImageVector,
