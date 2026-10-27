@@ -162,47 +162,63 @@ fun LauncherShell(
     val topBar: @Composable () -> Unit = {
         TopAppBar(
             navigationIcon = {
-                if (onBack != null) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.shell_action_back))
+                // 返回键**从右侧滑进来**（原来是"啪"一下出现，进详情页时很生硬）
+                androidx.compose.animation.AnimatedContent(
+                    targetState = onBack != null,
+                    transitionSpec = {
+                        (androidx.compose.animation.slideInHorizontally { it } +
+                            androidx.compose.animation.fadeIn()) togetherWith
+                            (androidx.compose.animation.slideOutHorizontally { -it } +
+                                androidx.compose.animation.fadeOut())
+                    },
+                    label = "barIcon",
+                ) { hasBack ->
+                    if (hasBack) {
+                        IconButton(onClick = { onBack?.invoke() }) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.shell_action_back))
+                        }
+                    } else {
+                        Spacer(Modifier.width(4.dp))
                     }
                 }
             },
             title = {
-                if (titleContent != null) {
-                    titleContent()
-                } else {
-                    // ⚠️ 2026-10-17 修「标题闪一下」：
-                    //
-                    // 详情页（实例/服务器）第一帧时 titleContent 还是 null
-                    //（它要等 SideEffect 跑完才注册上来），于是这里 fallback 到
-                    // `titleFor(current)` 显示「实例详情」/「服务器详情」，
-                    // 下一帧才变成实例名 —— 用户看到的就是标题**闪一下**。
-                    //
-                    // 修法：`title` 显式传空串时**不渲染任何文字**（而不是 fallback），
-                    // 详情页用这个表示「我的标题马上由 titleContent 提供，别填默认值」。
-                    val t = title ?: titleFor(current)
-                    if (t.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // 品牌名从侧栏移到顶栏（2026-10-27 布局重构）：
-                            // 顶栏现在贯穿全宽，左侧腾出位置放它；侧栏则只放导航。
-                            // 用 onSurface（亮）而不是灰色，让它是唯一"实在"的文字。
-                            Text(
-                                text = "QookiX",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(Modifier.width(QkSpacing.md))
-                            // 页面名用 titleMedium + 灰色：ZL2 的标题就是这个气质 ——
-                            // 故意退后，让内容当主角（原来是 24sp 白，抢焦点）。
-                            Text(
-                                text = t,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                // 标题区滑动替换：品牌名向左退场、页面标题从右进场。
+                androidx.compose.animation.AnimatedContent(
+                    targetState = titleContent != null,
+                    transitionSpec = {
+                        (androidx.compose.animation.slideInHorizontally { it / 4 } +
+                            androidx.compose.animation.fadeIn()) togetherWith
+                            (androidx.compose.animation.slideOutHorizontally { -it / 4 } +
+                                androidx.compose.animation.fadeOut())
+                    },
+                    label = "barTitle",
+                ) { custom ->
+                    val body = titleContent
+                    if (custom && body != null) {
+                        body()
+                    } else {
+                        // ⚠️ 详情页第一帧 titleContent 还没注册上来时**不**回退到
+                        // titleFor(current) —— 那会闪一下「实例详情」这四个字。
+                        // 有返回键就说明是二级页，等它的真实标题即可。
+                        val t = title ?: if (onBack != null) "" else titleFor(current)
+                        if (t.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "QookiX",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.width(QkSpacing.md))
+                                Text(
+                                    text = t,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
