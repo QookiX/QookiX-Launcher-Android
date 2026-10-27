@@ -43,30 +43,33 @@ val QookiXShapes = Shapes(
 private val Default = Typography()
 
 val QookiXTypography = Typography(
-    displayLarge = Default.displayLarge,
-    displayMedium = Default.displayMedium,
-    displaySmall = Default.displaySmall,
+    // ── 大标题：Expressive 的层级反差全靠这几档 ──────────────────────
+    // MD3 baseline 的 display/headline 只有 Regular，读起来"平"；
+    // Expressive 是「超粗大标题 + 细正文」——对比越大越有性格。
+    displayLarge = Default.displayLarge.copy(fontWeight = FontWeight.Bold),
+    displayMedium = Default.displayMedium.copy(fontWeight = FontWeight.Bold),
+    displaySmall = Default.displaySmall.copy(fontWeight = FontWeight.Bold),
 
-    headlineLarge = Default.headlineLarge,
-    headlineMedium = Default.headlineMedium,
+    headlineLarge = Default.headlineLarge.copy(fontWeight = FontWeight.Bold),
+    headlineMedium = Default.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
     headlineSmall = Default.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
 
-    // 顶栏标题：MD3 用 titleLarge，Medium 字重
+    // 顶栏标题：24sp SemiBold（原 22sp Medium —— 小一号、也软一号）
     titleLarge = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
         letterSpacing = 0.sp,
     ),
-    titleMedium = Default.titleMedium.copy(fontWeight = FontWeight.Medium),
+    titleMedium = Default.titleMedium.copy(fontWeight = FontWeight.SemiBold),
     titleSmall = Default.titleSmall.copy(fontWeight = FontWeight.Medium),
 
     bodyLarge = Default.bodyLarge,
     bodyMedium = Default.bodyMedium,
     bodySmall = Default.bodySmall,
 
-    labelLarge = Default.labelLarge.copy(fontWeight = FontWeight.Medium),
+    labelLarge = Default.labelLarge.copy(fontWeight = FontWeight.SemiBold),
     // 底部导航栏文字：MD3 规定 labelMedium + Medium 字重
     labelMedium = Default.labelMedium.copy(fontWeight = FontWeight.Medium),
     labelSmall = Default.labelSmall,

@@ -158,6 +158,30 @@ object QookiX {
 
     /** 按下时的缩放比例。 */
     const val PRESS_SCALE = 0.97f
+
+    // ── Expressive 的四组 spring ───────────────────────────────────────
+    //
+    // 官方 `MotionScheme.expressive()` 提供的本质就是这几组参数 ——
+    // material3 1.4 里它是 internal（实测 `@Suppress("INVISIBLE_MEMBER")` 能绕过），
+    // 但**参数本身是公开的设计规范**，手写等价且升级安全。
+    //
+    // 用 spring 而不是 tween，是 Expressive 和 baseline 最大的手感差别：
+    // tween 是「按时长匀速走完」，spring 是「按物理收敛」——按下去会先加速、
+    // 到位时轻微回弹，看起来有重量。ZL2 的全部动效就建立在这套参数上。
+
+    /** 位移（卡片滑入、列表项移动）：有轻微弹性。 */
+    fun <T> spatialSpec(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
+
+    /**
+     * 透明度 / 颜色：无弹性、收敛快。
+     *
+     * ⚠️ 千万别拿 [SoftBounce] 或 `spatialSpec` 驱动 alpha —— 回弹曲线在 t=0.1
+     * 就冲到终值，淡入会被压缩成一瞬，看起来「没有动画」（已踩过两次）。
+     */
+    fun <T> effectsSpec(): SpringSpec<T> = spring(dampingRatio = 1f, stiffness = 1600f)
+
+    /** 大范围转场（整页切换、弹层出现）：慢一点才有分量。 */
+    fun <T> slowSpatialSpec(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 200f)
 }
 
 /** 页面转场的位移规格（IntOffset 专用，用于 AnimatedContent 的 slideIntoContainer）。 */

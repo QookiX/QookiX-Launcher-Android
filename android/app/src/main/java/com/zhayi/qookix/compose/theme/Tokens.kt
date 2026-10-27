@@ -65,20 +65,28 @@ object QkRadius {
     /** 4dp —— 小徽标、标签 */
     val badge: Dp = 4.dp
 
-    /** 8dp —— 小控件（输入框里的小块、图片缩略图） */
-    val small: Dp = 8.dp
+    /** 12dp —— 小控件（输入框里的小块、图片缩略图） */
+    val small: Dp = 12.dp
 
-    /** 12dp —— 列表项、输入框、按钮（常规） */
-    val medium: Dp = 12.dp
+    /** 16dp —— 列表项、输入框、按钮（常规） */
+    val medium: Dp = 16.dp
 
-    /** 16dp —— 大卡片 */
-    val large: Dp = 16.dp
+    /** 20dp —— 大卡片 */
+    val large: Dp = 20.dp
 
-    /** 20dp —— 卡片（QookiX 的主用值，比 MD3 略大一点，观感更"现代"） */
-    val card: Dp = 20.dp
+    /**
+     * 28dp —— 卡片（QookiX 的主用值）。
+     *
+     * ⚠️ 2026-10-27：20 → 28。这是**整套观感升级的起点** ——
+     * MD3 baseline 的卡片是 12–16dp，看起来"很规矩但没性格"；
+     * M3 Expressive 把形状本身当表达手段，主体卡片直接用 28dp。
+     *
+     * 因为所有页面都走 `MaterialTheme.shapes`，改这一处全站生效。
+     */
+    val card: Dp = 28.dp
 
-    /** 28dp —— 底部弹层 / 大容器（MD3 标志性大圆角） */
-    val sheet: Dp = 28.dp
+    /** 32dp —— 底部弹层 / 大容器 */
+    val sheet: Dp = 32.dp
 
     /** 999dp —— 胶囊（按钮、chips、Tab 指示条） */
     val pill: Dp = 999.dp
