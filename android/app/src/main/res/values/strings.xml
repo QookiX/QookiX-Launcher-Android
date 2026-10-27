@@ -179,7 +179,8 @@
     <!-- ── 实例详情 ── -->
 <string name="instance_detail_task_installing">安装中…</string>
     <string name="instance_detail_cancel">取消</string>
-<string name="instance_detail_files_incomplete">游戏文件不完整（已就绪 %1$d/%2$d）</string>
+    <string name="instance_detail_files_incomplete">游戏文件不完整（已就绪 %1$d/%2$d）</string>
+    <string name="instance_detail_files_incomplete_short">缺 %1$d 项 · 补全</string>
     <string name="instance_detail_needs_manual">（需要手动处理）</string>
 <string name="instance_detail_repairing">正在补全游戏文件…</string>
 <string name="instance_detail_repair_files">补全游戏文件</string>

@@ -308,6 +308,22 @@ fun InstanceDetailPage(
                     )
                 }
             }
+            // 缺文件时的**唯一常驻入口**：hero 行末尾一个小红按钮。
+            // 原来是页面顶上一整块红卡，横屏能吃掉半个屏幕（用户报「看不到下面」）。
+            val fr = fileReport
+            if (fr != null && !repairing && onRepair != null) {
+                Spacer(Modifier.width(QkSpacing.sm))
+                TextButton(onClick = onRepair) {
+                    Text(
+                        text = stringResource(
+                            R.string.instance_detail_files_incomplete_short,
+                            (fr.total - fr.ok).coerceAtLeast(1),
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
         }
 
         // ── 顶栏已上移（2026-10-17）────────────────────────────────────
@@ -387,7 +403,7 @@ fun InstanceDetailPage(
                     }
                 }
             }
-        } else fileReport?.let { report ->
+        } else if (repairing) fileReport?.let { report ->
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
