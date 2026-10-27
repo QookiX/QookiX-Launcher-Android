@@ -150,14 +150,23 @@ object QookiX {
      */
     fun <T> pageSpec(): FiniteAnimationSpec<T> = tween(240, easing = EaseOut)
 
-    /** 按压缩放：阻尼 0.55、刚度 900（跟手、略回弹）。 */
+    /**
+     * 按压缩放：阻尼 0.45、刚度 900（明显回弹，ZL2 那种"按下去弹一下"）。
+     *
+     * 原来是 0.55 —— 回弹几乎看不出，手感偏"软"。0.45 会多冲一点，
+     * 松手时能感到卡片"弹回来"。
+     */
     fun <T> pressSpec(): FiniteAnimationSpec<T> = spring(
-        dampingRatio = 0.55f,
+        dampingRatio = 0.45f,
         stiffness = 900f,
     )
 
-    /** 按下时的缩放比例。 */
-    const val PRESS_SCALE = 0.97f
+    /**
+     * 按下时的缩放比例。
+     *
+     * 0.97 → 0.95：3% 的缩放要盯着看才察觉，5% 才是"按下去"的感觉。
+     */
+    const val PRESS_SCALE = 0.95f
 
     // ── Expressive 的四组 spring ───────────────────────────────────────
     //

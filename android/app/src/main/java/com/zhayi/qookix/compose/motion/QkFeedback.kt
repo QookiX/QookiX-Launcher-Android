@@ -29,8 +29,10 @@ import androidx.compose.ui.draw.alpha
  * 不是展示动画 —— 幅度大了每一下都晃眼。
  */
 
-private const val PRESSED_SCALE = 0.97f
-private const val PRESSED_SCALE_SMALL = 0.92f
+// 引用 QookiX 的唯一真源，别再各写一份（原来这里硬编码 0.97，
+// 而 QookiX.PRESS_SCALE 也是 0.97 —— 两处独立维护，改一处另一处不生效）。
+private const val PRESSED_SCALE = QookiX.PRESS_SCALE
+private const val PRESSED_SCALE_SMALL = 0.90f
 private const val PRESSED_ALPHA = 0.75f
 
 /**
