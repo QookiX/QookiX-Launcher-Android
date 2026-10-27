@@ -226,10 +226,17 @@ fun LauncherShell(
         // 默认收起成 88dp 的图标 rail（省出 80dp 给内容），**长按任一导航项**切换。
         // 宽度用 spatialSpec（spring，dampingRatio 0.8）—— 会轻微冲过目标再回来，
         // 就是用户要的那种「Q 弹」。
-        var sidebarExpanded by remember { mutableStateOf(false) }
+        // 默认**展开**（用户要求）；长按任一导航项收起成纯图标 rail。
+        var sidebarExpanded by remember { mutableStateOf(true) }
         val sidebarW by animateDpAsState(
             targetValue = if (sidebarExpanded) 168.dp else 88.dp,
-            animationSpec = QookiX.spatialSpec(),
+            // ⚠️ 宽度**不能**用 spatialSpec（带过冲）：
+            // 宽度每帧变化都会触发整个 Row（侧栏 + 内容区）重新测量布局，
+            // 而 spring 的过冲会让它「冲过 168 → 弹回 162 → 再到 168」，
+            // 触发三四轮重排 —— 视觉上就是卡顿。
+            // 会引起布局变化的属性（width / height / padding）只能走单调曲线；
+            // 弹性的爽感留给 scale / translation（它们只走绘制，不重排）。
+            animationSpec = tween(240, easing = QookiX.EaseOut),
             label = "sidebarW",
         )
         // ── 横屏 / 平板：常驻侧栏（图标+文字横排）────────────────────────
@@ -417,20 +424,18 @@ private fun QkRailItem(
             )
         }
     } else {
-        Column(
-            // vertical padding 8 → 5：横屏可用高度只有 320dp 左右，
-            // 6 项 × 56dp 会超，最后一项（"更多"）的文字被裁掉。
-            // 5dp 让每项落到约 46dp，6 项刚好放得下。
-            modifier = base.padding(vertical = 5.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        // 收起态：**只显示图标**（用户要求），图标居中、整项 48dp 高。
+        // 不显示文字后每项从 56dp 降到 48dp，6 项在横屏下也不会超。
+        // contentDescription 仍传标签 —— 收起只是视觉上省空间，无障碍不能丢。
+        Box(
+            modifier = base.height(48.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = stringResource(dest.labelRes),
-                style = MaterialTheme.typography.labelSmall,
-                color = fg,
-                maxLines = 1,
+            Icon(
+                imageVector = icon,
+                contentDescription = stringResource(dest.labelRes),
+                tint = fg,
+                modifier = Modifier.size(24.dp),
             )
         }
     }
