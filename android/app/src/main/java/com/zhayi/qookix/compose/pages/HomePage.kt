@@ -516,7 +516,14 @@ private fun RecentInstanceCard(inst: InstanceUi, onClick: () -> Unit) {
             }
             Spacer(Modifier.height(QkSpacing.sm))
             Text(
-                text = inst.name,
+                // ⚠️ 不能直接用 inst.name：它带着「（1.21.1）3.1.2」这类版本后缀，
+                // 而这张卡只有 150dp 宽 —— 表现是「月落花野（1.21.1…」永远被截断。
+                // 版本信息下面 subtitle 已经有一份（NeoForge 21.1.251），这里只取实例名。
+                text = inst.name
+                    .substringBefore("（")
+                    .substringBefore("(")
+                    .trim()
+                    .ifBlank { inst.name },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
