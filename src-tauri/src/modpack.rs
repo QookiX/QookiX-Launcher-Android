@@ -597,6 +597,11 @@ pub async fn import_modpack(file_path: &str) -> Result<ModpackImportResult> {
                     }
                     Err(e) => {
                         tracing::warn!("整合包文件下载失败 {rel}: {e}");
+                        // ⚠️ 2026-10-27：用户报「导入后少了 21 个模组，且没有任何提示」。
+                        // 光靠 tracing 用户拿不到（导出日志里没有），所以同时写进
+                        // 可导出的诊断日志 —— 只有文件名 + 原因才能判断是
+                        // URL 失效、镜像抽风还是磁盘写不进去。
+                        crate::util::log_line(&format!("[modpack] 下载失败 {rel}: {e}"));
                         bad.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
