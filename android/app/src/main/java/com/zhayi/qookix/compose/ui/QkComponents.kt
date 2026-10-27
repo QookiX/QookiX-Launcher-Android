@@ -229,24 +229,27 @@ fun QkBusy(
  * @param maxStagger 最多错开几档 —— 长列表末尾不该等几秒才出现
  */
 /**
- * 列表入场是否已经播过（进程内有效）。
+ * 已经播过入场的**分组**（进程内有效）。
  *
- * 为什么要这个：`PageHost` 用 `when (dest)` 切页，每次回来 `InstancesPage`
- * 都会**重新组合**，于是整列卡片又播一遍入场 —— 既多跑一轮动画（掉帧），
- * 又显得"每次进列表都在加载"。真实需求是：**本次运行第一次看到列表时播**。
+ * 为什么要按组而不是一个全局开关：
+ *   · `PageHost` 用 `when (dest)` 切页，每次回来页面都会**重新组合**，
+ *     整列卡片又播一遍 —— 既多跑一轮动画（掉帧），又像"每次进列表都在加载"；
+ *   · 但首页播过之后，实例列表不该跟着跳过（两个页面是独立的）。
  *
- * 用普通的顶层 var 而不是 State：它只在组合期被读一次（`remember { … }`），
+ * 用普通 Set 而不是 State：它只在组合期被读一次（`remember { … }`），
  * 不需要触发重组。
  */
-private var introPlayed = false
+private val playedScopes = mutableSetOf<String>()
 
 @Composable
 fun QkAppear(
     index: Int = 0,
+    /** 分组名：同一个分组的卡片共用一个"是否已播"标记（如 `"home"` / `"instances"`）。 */
+    scope: String = "default",
     maxStagger: Int = 5,
     content: @Composable () -> Unit,
 ) {
-    val alreadyPlayed = remember { introPlayed }
+    val alreadyPlayed = remember { playedScopes.contains(scope) }
     var visible by remember { mutableStateOf(alreadyPlayed) }
     LaunchedEffect(Unit) {
         if (!alreadyPlayed) {
@@ -256,9 +259,9 @@ fun QkAppear(
             if (d > 0) delay(d)
             visible = true
         }
-        // 无论是否播过，都标记「本进程已播」—— 滚动时新组合出来的 item
+        // 无论是否播过，都标记「本分组已播」—— 滚动时新组合出来的 item
         // 会读到 true，直接显示，不会在滚动中途闪一下。
-        introPlayed = true
+        playedScopes.add(scope)
     }
     // ⚠️ 只动 alpha，不做位移。
     //

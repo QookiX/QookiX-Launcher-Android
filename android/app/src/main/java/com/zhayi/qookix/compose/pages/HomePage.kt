@@ -59,6 +59,7 @@ import com.zhayi.qookix.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.zhayi.qookix.compose.ui.QkAppear
 
 /**
  * 首页（门面）。
@@ -113,15 +114,17 @@ fun HomePage(
                     .verticalScroll(rememberScrollState())
                     .padding(QkSpacing.lg),
             ) {
-                CurrentInstanceCard(
-                    inst = state.current,
-                    launching = state.launching,
-                    launchStage = launchStage,
-                    launchProgress = launchProgress,
-                    running = state.current?.id == state.runningInstanceId,
-                    onLaunch = onLaunch,
-                    onSwitch = onSwitchInstance,
-                )
+                QkAppear(scope = "home", index = 0) {
+                    CurrentInstanceCard(
+                        inst = state.current,
+                        launching = state.launching,
+                        launchStage = launchStage,
+                        launchProgress = launchProgress,
+                        running = state.current?.id == state.runningInstanceId,
+                        onLaunch = onLaunch,
+                        onSwitch = onSwitchInstance,
+                    )
+                }
             }
 
             // ── 右栏：次要信息 ───────────────────────────────────────────
@@ -140,7 +143,9 @@ fun HomePage(
                     SectionTitle(stringResource(R.string.home_pinned))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
                         itemsIndexed(state.pinned, key = { _, it -> it.id }) { index, inst ->
-                            RecentInstanceCard(inst) { onOpenInstance(inst.id) }
+                            QkAppear(scope = "home", index = index) {
+                                RecentInstanceCard(inst) { onOpenInstance(inst.id) }
+                            }
                         }
                     }
                 }
@@ -197,15 +202,17 @@ fun HomePage(
                 .verticalScroll(rememberScrollState())
                 .padding(QkSpacing.md),
         ) {
-            CurrentInstanceCard(
-                inst = state.current,
-                launching = state.launching,
-                    launchStage = launchStage,
-                    launchProgress = launchProgress,
-                running = state.current?.id == state.runningInstanceId,
-                onLaunch = onLaunch,
-                onSwitch = onSwitchInstance,
-            )
+            QkAppear(scope = "home", index = 0) {
+                CurrentInstanceCard(
+                    inst = state.current,
+                    launching = state.launching,
+                        launchStage = launchStage,
+                        launchProgress = launchProgress,
+                    running = state.current?.id == state.runningInstanceId,
+                    onLaunch = onLaunch,
+                    onSwitch = onSwitchInstance,
+                )
+            }
 
             Spacer(Modifier.height(QkSpacing.lg))
             HomeSecondaryContent(state, onOpenInstance, onOpenNews, onCancelTask)

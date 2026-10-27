@@ -208,7 +208,7 @@ fun InstancesPage(
                 }
                 itemsIndexed(section.items, key = { _, it -> it.id }) { idx, inst ->
                     // 入场动画：按位置错开 40ms（只在首次组合时播）
-                    QkAppear(index = idx) {
+                    QkAppear(index = idx, scope = "instances") {
                         InstanceCard(
                             inst = inst,
                             onClick = { onOpen(inst.id) },
