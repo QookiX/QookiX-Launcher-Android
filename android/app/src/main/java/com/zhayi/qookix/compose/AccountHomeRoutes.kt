@@ -143,6 +143,7 @@ import com.zhayi.qookix.compose.pages.Skin3dHost
 import com.zhayi.qookix.compose.pages.SkinPage
 import com.zhayi.qookix.compose.pages.SkinRepo
 import com.zhayi.qookix.compose.pages.SkinUiState
+import com.zhayi.qookix.compose.pages.NewsCache
 import com.zhayi.qookix.compose.pages.NewsItemUi
 import com.zhayi.qookix.compose.pages.NewsPage
 import com.zhayi.qookix.compose.pages.NewsUiState
@@ -377,7 +378,8 @@ internal fun HomeRoute(
 ) {
     // i18n（2026-10-17）：本函数内的错误消息需要 Context
     val context = androidx.compose.ui.platform.LocalContext.current
-    var news by remember { mutableStateOf<List<NewsItemUi>>(emptyList()) }
+    // 初始值直接取缓存：切回首页时新闻立刻在，不再「先空着再出现」。
+    var news by remember { mutableStateOf(NewsCache.items) }
     val api = remember(bridge) { QookixApi(bridge) }
 
     // 启动状态：正在启动的实例 id（按钮转圈用）、提示消息
@@ -397,9 +399,20 @@ internal fun HomeRoute(
 
     LaunchedEffect(bridgeReady) {
         if (bridgeReady) {
-            bridge.invoke("fetch_news", "{}") { r ->
-                r.onSuccess { news = parseNews(it) }
-                // 失败静默：新闻不该影响首页可用性
+            // 有缓存且没过 TTL 就跳过 —— 否则每次进首页都打一次接口，
+            // 既慢又浪费（用户感知到的就是「新闻晚一步出现」）。
+            if (NewsCache.shouldRefresh()) {
+                bridge.invoke("fetch_news", "{}") { r ->
+                    r.onSuccess {
+                        val list = parseNews(it)
+                        NewsCache.update(list)
+                        news = list
+                    }
+                    // 失败静默：新闻不该影响首页可用性（缓存里的旧内容继续显示）
+                }
+            } else {
+                // 缓存可能比初始值新（并发情况），同步一次
+                news = NewsCache.items
             }
             api.playtimeStats { r ->
                 r.onSuccess { o -> playtimeSeconds = o.optLong("totalSeconds", 0L) }
