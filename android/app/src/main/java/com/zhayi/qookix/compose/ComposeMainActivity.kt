@@ -1375,6 +1375,15 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             color = androidx.compose.material3.MaterialTheme.colorScheme.background,
         ) {
             var current by remember { mutableStateOf(NavDestination.Home) }
+            // ⚠️ 换页时**同步**清掉上一页注册的顶栏槽位。上一页的按钮要等
+            // DisposableEffect 的 onDispose 才注销，而那是本次组合之后 —— 中间会
+            // 有一帧「旧按钮（校验/换图标/启动）+ 新页按钮（新建实例）」排在同一行，
+            // 宽度被挤变，用户看到的就是「退出来时闪一下」。
+            var lastDest by remember { mutableStateOf(NavDestination.Home) }
+            if (lastDest != current) {
+                lastDest = current
+                toolbarContent = null
+            }
     // 选中的实例 / 服务器 id —— **必须放在这一层**（2026-10-17）。
     // LauncherShell 在横屏用侧栏、竖屏用底部导航，是两个不同的组合分支；
     // 旋转时 PageHost 子树会被销毁重建，放在里面的 remember 全丢 ——
