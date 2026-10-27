@@ -154,8 +154,16 @@ dependencies {
     // Compose 编译器随 Kotlin 版本走（本工程 = 2.0.21，由 plugin.compose 提供）。
     // 2026-10-23：随 Kotlin 一起退回 2025.04.01（原因见根 build.gradle.kts 的注释：
     // Kotlin 2.2 编出的代码需要新版 coroutines，运行时是旧版 → 切页面闪退）。
-    // 试过的结论：BOM 2025.09.01 的 material3 1.4.0 里 `MaterialExpressiveTheme` 是 internal，
-    // 拿不到 Expressive；要它只能上 compileSdk 37 + AGP 9，已放弃。
+    // ⚠️ 2026-10-27 更正：这里原来写「material3 1.4.0 要 compileSdk 37 + AGP 9」是**误判**。
+    // 实测：BOM 2025.09.01（material3 1.4.0）在本项目的 compileSdk 36 + 现有 AGP 下
+    // 全量编译**零错误**，不需要动工具链。
+    //
+    // 那条注释想说的其实是另一件事：`MaterialExpressiveTheme` / `MotionScheme` /
+    // `ExperimentalMaterial3ExpressiveApi` 在 1.4.0 里确实是 `internal`
+    //（`@Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")` 能强行引用，但那是绑
+    // internal API，每次升 material3 都可能断），而 `MaterialShapes` 根本不存在。
+    //
+    // 结论：Expressive 的动效自己写 4 组 SpringSpec 就行（几十行），别绑 internal。
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
