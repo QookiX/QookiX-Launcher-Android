@@ -169,6 +169,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    // 从种子色生成整套 M3 色板（MIT 许可，纯算法无 UI）。
+    // 只调它的 dynamicColorScheme()，不复制它的实现 —— ZL2 用的是同一个库。
+    implementation("com.materialkolor:material-kolor:2.1.1")
     implementation("androidx.compose.material3:material3-window-size-class")
     implementation("androidx.compose.material:material-icons-extended")
     // 自适应布局：ListDetailPaneScaffold 等（横屏/平板分栏用）

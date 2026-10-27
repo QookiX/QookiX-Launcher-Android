@@ -31,6 +31,14 @@ import androidx.compose.ui.platform.LocalContext
  * 底色沿用 QookiX 既有的深色一系（对齐 src/styles.css 的 --bg-0: #0B0D12），
  * 保证旧设备上仍是「同一个应用」而不是换了个 App。
  */
+/**
+ * 品牌种子色：曲奇金。
+ *
+ * 用户没选主题色、也没开动态取色时用它 —— 这是 QookiX 的「出厂观感」。
+ * 只定义种子，具体每个槽位的颜色由 HCT 色板算法生成（见 [seedToScheme]）。
+ */
+val QookiXGold = Color(0xFFE89A4B)
+
 private val FallbackDark = darkColorScheme(
     primary = Color(0xFFE8B48B),
     onPrimary = Color(0xFF442B10),
@@ -129,72 +137,23 @@ val dynamicColorAvailable: Boolean
  * 但那是一个不小的库；这里用 HSL 近似，视觉上已经能体现"换了主题色"。
  */
 private fun seedToScheme(seed: Color, dark: Boolean): androidx.compose.material3.ColorScheme {
-    val (h, s, l) = rgbToHsl(seed)
-
-    return if (dark) {
-        darkColorScheme(
-            // 深色底 → primary 用高明度版本，保证对比度
-            primary = hslColor(h, (s * 0.75f).coerceIn(0.25f, 0.6f), 0.78f),
-            onPrimary = hslColor(h, 0.6f, 0.16f),
-            primaryContainer = hslColor(h, 0.5f, 0.32f),
-            onPrimaryContainer = hslColor(h, 0.7f, 0.90f),
-
-            secondary = hslColor(h, 0.18f, 0.78f),
-            onSecondary = hslColor(h, 0.15f, 0.20f),
-            secondaryContainer = hslColor(h, 0.16f, 0.32f),
-            onSecondaryContainer = hslColor(h, 0.20f, 0.90f),
-
-            tertiary = hslColor((h + 60f) % 360f, 0.30f, 0.75f),
-            onTertiary = hslColor((h + 60f) % 360f, 0.30f, 0.20f),
-
-            // surface 带一点点 seed 色相（chroma 极低）→ 整套 UI 有统一色调
-            background = hslColor(h, 0.10f, 0.07f),
-            onBackground = hslColor(h, 0.05f, 0.92f),
-            surface = hslColor(h, 0.10f, 0.10f),
-            onSurface = hslColor(h, 0.05f, 0.92f),
-            surfaceVariant = hslColor(h, 0.08f, 0.30f),
-            onSurfaceVariant = hslColor(h, 0.06f, 0.80f),
-            surfaceContainerLowest = hslColor(h, 0.10f, 0.06f),
-            surfaceContainerLow = hslColor(h, 0.10f, 0.12f),
-            surfaceContainer = hslColor(h, 0.10f, 0.15f),
-            surfaceContainerHigh = hslColor(h, 0.09f, 0.20f),
-            surfaceContainerHighest = hslColor(h, 0.08f, 0.25f),
-
-            outline = hslColor(h, 0.06f, 0.60f),
-            outlineVariant = hslColor(h, 0.07f, 0.30f),
-        )
-    } else {
-        lightColorScheme(
-            // 浅色底 → primary 用低明度版本
-            primary = hslColor(h, (s * 0.85f).coerceIn(0.35f, 0.7f), 0.34f),
-            onPrimary = Color.White,
-            primaryContainer = hslColor(h, 0.55f, 0.88f),
-            onPrimaryContainer = hslColor(h, 0.6f, 0.14f),
-
-            secondary = hslColor(h, 0.16f, 0.36f),
-            onSecondary = Color.White,
-            secondaryContainer = hslColor(h, 0.18f, 0.90f),
-            onSecondaryContainer = hslColor(h, 0.20f, 0.14f),
-
-            tertiary = hslColor((h + 60f) % 360f, 0.28f, 0.34f),
-            onTertiary = Color.White,
-
-            background = hslColor(h, 0.30f, 0.98f),
-            onBackground = hslColor(h, 0.10f, 0.12f),
-            surface = hslColor(h, 0.30f, 0.98f),
-            onSurface = hslColor(h, 0.10f, 0.12f),
-            surfaceVariant = hslColor(h, 0.14f, 0.90f),
-            onSurfaceVariant = hslColor(h, 0.08f, 0.32f),
-            surfaceContainerLowest = Color.White,
-            surfaceContainerLow = hslColor(h, 0.28f, 0.96f),
-            surfaceContainer = hslColor(h, 0.24f, 0.94f),
-            surfaceContainerHigh = hslColor(h, 0.20f, 0.92f),
-            surfaceContainerHighest = hslColor(h, 0.18f, 0.89f),
-
-            outline = hslColor(h, 0.08f, 0.50f),
-            outlineVariant = hslColor(h, 0.12f, 0.80f),
-        )
-    }
+    // 用 Material Color Utilities 的 HCT 算法生成整套色板（materialkolor 封装）。
+    //
+    // ⚠️ 2026-10-27：这里原来是**手写的 HSL 近似** —— hslColor(h, s*0.75f, 0.78f)
+    // 那一套。HSL 的明度/饱和度和 M3 的 HCT 不是一回事：手动算出来的 primary
+    // 对比度不稳、surface 容易发脏（色相带进去却压不住彩度），这正是一眼看上去
+    // 「配色不像 MD3」的根源。换成 HCT 后，同一颗种子生成的每一档都在标准
+    // tone 上，层次和对比度天然成立。
+    //
+    // TonalSpot 是 M3 默认风格（色相不跑偏、够克制）；想更鲜艳可以换 Vibrant。
+    return com.materialkolor.dynamicColorScheme(
+        primary = seed,
+        isDark = dark,
+        // 纯黑底：OLED 省电，但深色层次会消失（surface 全黑，卡片分不出来）。
+        // 我们要 ZL2 那种「一档亮度分层」，所以不开。
+        isAmoled = false,
+        style = com.materialkolor.PaletteStyle.TonalSpot,
+    )
 }
 
 /** RGB → HSL（h 角度、s/l 都是 0–1）。 */
