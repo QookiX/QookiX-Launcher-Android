@@ -931,6 +931,8 @@
     <string name="content_detail_versions_loading">正在加载版本…</string>
     <string name="content_detail_versions_failed">版本加载失败：%1$s</string>
     <string name="content_detail_versions_empty">没有可用版本</string>
+    <string name="content_detail_show_original">显示原文</string>
+    <string name="content_detail_show_translation">显示译文</string>
     <string name="content_detail_tasks">进行中的任务</string>
     <string name="browse_type_plugin">插件</string>
     <string name="browse_loader_all">全部</string>
