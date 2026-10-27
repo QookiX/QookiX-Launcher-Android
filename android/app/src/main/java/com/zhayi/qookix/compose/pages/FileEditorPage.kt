@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -185,22 +186,45 @@ fun FileEditorPage(
                             modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp),
                         )
                     }
-                    BasicTextField(
-                        value = state.content,
-                        onValueChange = onContentChange,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                            .padding(QkSpacing.md),
-                        textStyle = TextStyle(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    )
+                    // 行号槽与正文**共用同一个 ScrollState**，滚动天然同步
+                    // （各自 rememberScrollState 会各滚各的，行号立刻对不上）。
+                    val scroll = rememberScrollState()
+                    val lineCount = remember(state.content) {
+                        state.content.count { it == '\n' } + 1
+                    }
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = (1..lineCount).joinToString("\n"),
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                color = MaterialTheme.colorScheme.outline,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                            ),
+                            modifier = Modifier
+                                .verticalScroll(scroll)
+                                .padding(start = 8.dp, top = QkSpacing.md, end = 6.dp),
+                        )
+                        BasicTextField(
+                            value = state.content,
+                            onValueChange = onContentChange,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .verticalScroll(scroll)
+                                .padding(QkSpacing.md),
+                            textStyle = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        )
+                    }
                 }
             }
         }
