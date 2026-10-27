@@ -870,6 +870,10 @@
     <!-- ── 安装内容对话框（InstallDialog.kt）── -->
     <string name="install_translating">翻译中…</string>
     <string name="install_translate">翻译正文</string>
+    <string name="install_target">安装到</string>
+    <string name="install_target_server_value">安装到服务器：%1$s</string>
+    <string name="install_version_type">版本类型</string>
+    <string name="install_game_version">游戏版本</string>
     <string name="install_target_server">安装到服务器</string>
     <string name="install_no_server">还没有服务器，先去「更多 → 多人」创建一台</string>
     <string name="install_target_instance">安装到实例</string>

@@ -3,6 +3,7 @@ package com.zhayi.qookix.compose.pages
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.theme.QkSpacing
+import com.zhayi.qookix.compose.ui.QkSelectField
+import com.zhayi.qookix.compose.ui.QkSelectOption
 
 /**
  * 详情页左栏的常驻安装面板。
@@ -129,14 +132,14 @@ internal fun InstallIntro(
 }
 
 /**
- * 安装目标。
+ * 安装目标（一个下拉）。
  *
  * 插件 → 服务器（`plugins/`）；模组 → 支持模组的服务器（`mods/`）**或**实例；
  * 其他（资源包/光影）→ 只能实例，且只列非 vanilla 实例
  * （原版实例没有加载器，装了模组也不会被加载）。
  *
  * 2026-10-27：服务器只看「能装模组的核心」—— 纯插件服（paper）根本加载不了
- * mods，列出来点了也会失败。
+ * mods，列出来点了也会失败。实例和服务器合成一个下拉，选项带「（服务器）」后缀。
  */
 @Composable
 internal fun InstallTargets(
@@ -146,64 +149,81 @@ internal fun InstallTargets(
     onCreateTargetInstance: (() -> Unit)?,
 ) {
     Column {
-        if (state.serverTargets && state.servers.isNotEmpty()) {
-            InstallSectionLabel(stringResource(R.string.install_target_server))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-            ) {
-                state.servers.forEach { s ->
-                    FilterChip(
-                        selected = state.selectedServerId == s.id,
-                        onClick = { onSelectServer(s.id) },
-                        label = { Text(s.name) },
-                    )
+        val noInstance = !state.isPlugin &&
+            state.instances.none { it.loader != "vanilla" } &&
+            state.servers.isEmpty()
+        if (noInstance) {
+            Text(
+                stringResource(R.string.install_no_instance),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            // ⚠️ 2026-10-17 加：新用户路径断点修复。
+            // 原来只有一句红字，没有任何可点的东西 —— 新用户只能退出对话框、
+            // 去实例页、新建、选 Fabric、等下载、再回来重新找这个模组。
+            if (onCreateTargetInstance != null) {
+                Spacer(Modifier.height(QkSpacing.xs))
+                OutlinedButton(onClick = onCreateTargetInstance) {
+                    Text(stringResource(R.string.install_create_fabric_instance))
                 }
             }
-            Spacer(Modifier.height(QkSpacing.xs))
+            Spacer(Modifier.height(QkSpacing.sm))
+            return@Column
         }
 
-        if (!state.isPlugin) {
-            InstallSectionLabel(stringResource(R.string.install_target_instance))
-            val candidates = state.instances.filter { it.loader != "vanilla" }
-            if (candidates.isEmpty()) {
-                Text(
-                    stringResource(R.string.install_no_instance),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                // ⚠️ 2026-10-17 加：新用户路径断点修复。
-                // 原来只有一句红字，没有任何可点的东西 —— 新用户只能退出对话框、
-                // 去实例页、新建、选 Fabric、等下载、再回来重新找这个模组。
-                if (onCreateTargetInstance != null) {
-                    Spacer(Modifier.height(QkSpacing.xs))
-                    OutlinedButton(onClick = onCreateTargetInstance) {
-                        Text(stringResource(R.string.install_create_fabric_instance))
-                    }
+        if (state.isPlugin) {
+            // 插件只能进服务器，没有第二个目标，没必要给下拉
+            val selected = state.servers.firstOrNull { it.id == state.selectedServerId }?.name
+                ?: state.servers.firstOrNull()?.name.orEmpty()
+            if (state.servers.size <= 1) {
+                if (selected.isNotBlank()) {
+                    Text(
+                        stringResource(R.string.install_target_server_value, selected),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             } else {
-                // ⚠️ 必须包一层 FlowRow（2026-10-17 修）。
-                // 原来 FilterChip 和 Spacer 直接铺在 Column 里：选项竖排成一长串，
-                // 且 Spacer(width) 在 Column 里完全无效（Column 的间距走 height）。
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                    verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                ) {
-                    candidates.forEach { i ->
-                        FilterChip(
-                            selected = state.selectedInstanceId == i.id,
-                            onClick = { onSelectInstance(i.id) },
-                            label = { Text(i.name) },
-                        )
-                    }
+                QkSelectField(
+                    label = stringResource(R.string.install_target),
+                    value = selected,
+                    options = state.servers.map { QkSelectOption("s:${it.id}", it.name) },
+                    onSelect = { onSelectServer(it.removePrefix("s:")) },
+                )
+            }
+            Spacer(Modifier.height(QkSpacing.sm))
+            return@Column
+        }
+
+        val options = buildList {
+            state.instances.filter { it.loader != "vanilla" }.forEach { i ->
+                // 实例名里通常已经带版本（「月落花野（1.21.1）3.1.2」），别再拼一个括号
+                val label = if (i.mcVersion.isBlank() || i.name.contains(i.mcVersion)) {
+                    i.name
+                } else {
+                    "${i.name}（${i.mcVersion}）"
                 }
+                add(QkSelectOption("i:${i.id}", label))
+            }
+            if (state.serverTargets) {
+                state.servers.forEach { s -> add(QkSelectOption("s:${s.id}", "${s.name}（服务器）")) }
             }
         }
+        val selectedKey = state.selectedInstanceId?.let { "i:$it" }
+            ?: state.selectedServerId?.let { "s:$it" }
+        QkSelectField(
+            label = stringResource(R.string.install_target),
+            value = options.firstOrNull { it.key == selectedKey }?.label.orEmpty(),
+            options = options,
+            onSelect = { key ->
+                if (key.startsWith("s:")) onSelectServer(key.removePrefix("s:"))
+                else onSelectInstance(key.removePrefix("i:"))
+            },
+        )
         Spacer(Modifier.height(QkSpacing.sm))
     }
 }
 
-/** 版本筛选：类型（正式/测试/先行）+ 游戏版本（来自版本数据本身）。 */
+/** 版本筛选：类型（正式/测试/先行）+ 游戏版本（来自版本数据本身），两个下拉。 */
 @Composable
 internal fun InstallFilters(
     state: InstallUiState,
@@ -212,52 +232,38 @@ internal fun InstallFilters(
 ) {
     Column {
         if (state.isPlugin) return@Column
-        InstallSectionLabel(stringResource(R.string.install_select_version))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-        ) {
-            FilterChip(
-                selected = state.typeFilter == "all",
-                onClick = { onTypeFilterChange("all") },
-                label = { Text(stringResource(R.string.install_type_all)) },
-            )
-            FilterChip(
-                selected = state.typeFilter == "release",
-                onClick = { onTypeFilterChange("release") },
-                label = { Text(stringResource(R.string.install_type_release)) },
-            )
-            FilterChip(
-                selected = state.typeFilter == "beta",
-                onClick = { onTypeFilterChange("beta") },
-                label = { Text(stringResource(R.string.install_type_beta)) },
-            )
-            FilterChip(
-                selected = state.typeFilter == "alpha",
-                onClick = { onTypeFilterChange("alpha") },
-                label = { Text(stringResource(R.string.install_type_alpha)) },
-            )
-        }
+        val typeOptions = listOf(
+            QkSelectOption("all", stringResource(R.string.install_type_all)),
+            QkSelectOption("release", stringResource(R.string.install_type_release)),
+            QkSelectOption("beta", stringResource(R.string.install_type_beta)),
+            QkSelectOption("alpha", stringResource(R.string.install_type_alpha)),
+        )
         // 游戏版本筛选（2026-10-27 加，用户要求「按版本筛选」）：
         // 选项来自版本列表本身，不猜也不写死。
-        if (state.gameVersions.isNotEmpty()) {
-            Spacer(Modifier.height(QkSpacing.xxs))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-            ) {
-                FilterChip(
-                    selected = state.gameFilter == "all",
-                    onClick = { onGameFilterChange("all") },
-                    label = { Text(stringResource(R.string.install_type_all)) },
+        val gameOptions = if (state.gameVersions.isEmpty()) {
+            emptyList()
+        } else {
+            listOf(QkSelectOption("all", stringResource(R.string.install_type_all))) +
+                state.gameVersions.map { QkSelectOption(it, it) }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
+            QkSelectField(
+                label = stringResource(R.string.install_version_type),
+                value = typeOptions.firstOrNull { it.key == state.typeFilter }?.label.orEmpty(),
+                options = typeOptions,
+                onSelect = onTypeFilterChange,
+                modifier = Modifier.weight(1f),
+            )
+            if (gameOptions.isNotEmpty()) {
+                QkSelectField(
+                    label = stringResource(R.string.install_game_version),
+                    value = gameOptions.firstOrNull { it.key == state.gameFilter }?.label
+                        ?: stringResource(R.string.install_type_all),
+                    options = gameOptions,
+                    onSelect = onGameFilterChange,
+                    modifier = Modifier.weight(1f),
                 )
-                state.gameVersions.forEach { gv ->
-                    FilterChip(
-                        selected = state.gameFilter == gv,
-                        onClick = { onGameFilterChange(gv) },
-                        label = { Text(gv) },
-                    )
-                }
             }
         }
         Spacer(Modifier.height(QkSpacing.xs))

@@ -190,6 +190,46 @@ pub fn map(base: &str, url: &str) -> String {
     url.to_string()
 }
 
+/// 一次下载的候选地址列表（按顺序尝试）。
+///
+/// 顺序：镜像（用户选了才有）→ 官方 → BMCLAPI 兜底 → Maven Central 兜底。
+///
+/// ## 为什么要有后两个兜底
+///
+/// 真机实测（默认「官方源」）：
+/// * `maven.neoforged.net` 一条请求都出不去 → NeoForge installer 的 31 个依赖
+///   全部失败，加载器永远装不完（界面停在「正在安装加载器…」）。
+/// * 就算 BMCLAPI 能连，它也没有 `noexception` / `guava:20.0` 这类第三方包 →
+///   installer 报 `These libraries failed to download` 后直接失败退出。
+///
+/// 这两类地址的包在 Maven Central 上都有，所以最后再挂一条 Central。
+pub fn candidate_urls(mirror_base: &str, url: &str) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    if !mirror_base.is_empty() {
+        let mapped = map(mirror_base, url);
+        if mapped != url {
+            urls.push(mapped);
+        }
+    }
+    urls.push(url.to_string());
+    if mirror_base.is_empty() {
+        let mapped = map(BMCLAPI_BASE, url);
+        if mapped != url {
+            urls.push(mapped);
+        }
+    }
+    for prefix in [
+        "https://maven.neoforged.net/releases/",
+        "https://maven.minecraftforge.net/",
+    ] {
+        if let Some(rest) = url.strip_prefix(prefix) {
+            urls.push(format!("https://repo1.maven.org/maven2/{rest}"));
+            break;
+        }
+    }
+    urls
+}
+
 /// 版本清单地址
 pub fn manifest_url(base: &str) -> String {
     if base.is_empty() {

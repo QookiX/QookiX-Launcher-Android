@@ -195,20 +195,13 @@ pub async fn download_file_with_cancel(
     let task_id = format!("dl_{}", Uuid::new_v4());
 
     // Apply the user's mirror setting to the download URL.
-    // 组装候选地址：镜像 → 官方。镜像下载失败/被中断时回退官方源，避免镜像故障导致永久卡住。
+    // 候选顺序（镜像 → 官方 → BMCLAPI → Maven Central）见 mirror::candidate_urls。
     let settings = crate::settings::get_settings().await?;
     let mirror_base = crate::mirror::resolve_from(
         &settings.mirror,
         settings.mirror_custom.as_deref().unwrap_or(""),
     );
-    let mut urls: Vec<String> = Vec::new();
-    if !mirror_base.is_empty() {
-        let mapped = crate::mirror::map(&mirror_base, url);
-        if mapped != url {
-            urls.push(mapped);
-        }
-    }
-    urls.push(url.to_string());
+    let urls = crate::mirror::candidate_urls(&mirror_base, url);
 
     // Check if file already exists and matches SHA1
     // （空 sha1 = 没有校验和，跳过「已存在且校验通过」的快速路径，
