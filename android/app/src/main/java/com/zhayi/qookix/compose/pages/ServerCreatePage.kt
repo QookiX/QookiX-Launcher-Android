@@ -154,7 +154,11 @@ fun ServerCreatePage(
             }
             Text(
                 // 把「为什么只有三个」说清楚，避免用户以为是漏做了
-                text = stringResource(ServerCore.entries.first { it.id == state.core }.hintRes),
+                // 同 InstanceSettingsTab 的坑：core 若是空串/旧值，first{} 会抛
+                // NoSuchElementException 把整页干掉。firstOrNull 兜底到第一个核心。
+                text = stringResource(
+                    (ServerCore.entries.firstOrNull { it.id == state.core } ?: ServerCore.entries.first()).hintRes,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )

@@ -116,8 +116,17 @@ fun InstanceSettingsTab(
                     )
                 }
             }
+            // ⚠️ 必须 firstOrNull 兜底。
+            //
+            // 2026-10-27 真机（用户报「点设置直接闪退」）：
+            // 老实例的 `instance.json` 里 `memory_mode` 可能是 `{}`（空对象）或空串，
+            // Kotlin 侧解析成 ""，于是 `first { it.id == "" }` 找不到匹配项 →
+            // NoSuchElementException → **整个实例详情页崩掉**。
+            // 只有点进「设置」tab 才会执行到这里，所以表现是「别的都正常，就设置闪退」。
+            val memoryMode = MemoryMode2.entries.firstOrNull { it.id == state.memoryMode }
+                ?: MemoryMode2.Global
             Text(
-                text = stringResource(MemoryMode2.entries.first { it.id == state.memoryMode }.hintRes),
+                text = stringResource(memoryMode.hintRes),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
