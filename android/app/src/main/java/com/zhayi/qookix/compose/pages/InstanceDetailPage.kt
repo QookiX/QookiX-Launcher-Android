@@ -549,7 +549,10 @@ fun InstanceDetailPage(
                 InstanceTab.Files -> FilesTab(
                     ops = fileOps,
                     onOpenSystemFiles = onOpenFiles,
-                    usage = sharedUsage,
+                    // ⚠️ 2026-10-27 按用户要求移除：文件页顶部那张「共享游戏文件」
+                    // 占用卡（版本/Java/库/素材）太占地方，把下面的文件列表挤没了。
+                    // 传 null 即不渲染该卡；这块信息后面要挪到设置页再看。
+                    usage = null,
                 )
                 InstanceTab.Logs -> LogsTab(state, onLoadLog, onExportLog, onSaveLog)
                 InstanceTab.Crash -> CrashTab(state, onLoadCrashes, onAnalyzeCrash, onCopyCrashText, onViewCrashRaw)
