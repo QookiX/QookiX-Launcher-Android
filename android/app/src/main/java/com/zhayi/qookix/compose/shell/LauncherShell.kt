@@ -289,7 +289,14 @@ fun LauncherShell(
                     launch { ih.animateTo(r.height, QookiX.spatialSpec()) }
                 }
 
-                Box {
+                // ⚠️ padding 必须放在这个 Box 上，不能放在里面的 Column 上。
+                //
+                // `boundsInParent()` 报的是**相对直接父容器**的坐标：
+                //   · 项挂在 Column 上 → 坐标相对 Column（不含 Column 自身的 padding）
+                //   · 指示器挂在 Box 上 → 坐标相对 Box（含 Box 的 padding）
+                // 两边差一个 (8dp, 6dp)，表现就是「橙色选中框和图标/文字错位」。
+                // 把 padding 挪到 Box 上，Column 不再有 padding，两个坐标系就对齐了。
+                Box(modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 6.dp)) {
                     if (iw.value > 1f) {
                         Box(
                             modifier = Modifier
@@ -307,7 +314,7 @@ fun LauncherShell(
                     Column(
                         // 去掉了 verticalScroll：指示器需要稳定的坐标系，
                         // 而且收起态 6 × 48dp = 288dp，横屏 320dp 放得下。
-                        modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 6.dp),
+                        modifier = Modifier,
                     ) {
                         NavDestination.bottomBar.forEach { dest ->
                             QkRailItem(
