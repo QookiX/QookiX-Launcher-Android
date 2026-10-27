@@ -115,8 +115,20 @@ object SharedHero {
      * @param onArrive 落地回调（置 landed=true，让目标页 hero 现身）
      */
     suspend fun flyLoop(onArrive: () -> Unit) {
+        // 兜底：目标页万一没上报落点（页面异常/被销毁），最多飞 90 帧
+        // （约 1.5s）就必须收尾，绝不能让浮层永远挂在屏幕上。
+        var frames = 0
         while (pending != null) {
             withFrameNanos { }                       // 等下一帧
+            frames++
+            if (frames > 90 && !targetReal) {
+                target = current.value
+                targetReal = true
+            }
+            if (frames > 120) {
+                onArrive()
+                return
+            }
             val t = target ?: continue
             val c = current.value ?: continue
             val k = 0.22f                            // 每帧趋近 22%（指数趋近，永不超调）
@@ -168,7 +180,15 @@ fun estimatedLanding(density: Density): Rect {
  */
 @Composable
 fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
-    val launch = SharedHero.pending ?: return
+    val launch = SharedHero.pending
+    // ⚠️ 飞行循环必须由**浮层**驱动，不能由卡片启动：
+    // 卡片在切页时被销毁，它的 `rememberCoroutineScope` 随之取消 → 循环死掉、
+    // `current` 冻在原位，图标就永远卡在屏幕上（真机复现：「点实例图标不动了」）。
+    // 浮层挂在 PageHost 上，跨页存活。
+    androidx.compose.runtime.LaunchedEffect(launch) {
+        if (launch != null) SharedHero.flyLoop { SharedHero.finish() }
+    }
+    if (launch == null) return
     val rect = SharedHero.current.value ?: return
     val density = LocalDensity.current
 

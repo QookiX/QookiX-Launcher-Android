@@ -444,9 +444,6 @@ private fun InstanceCard(
     var iconRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     // LocalDensity.current 是 @Composable 的读取，不能写在点击回调里 —— 先取好。
     val density = LocalDensity.current
-    // 飞行动画的驱动作用域：rememberCoroutineScope 自带 Compose 的帧时钟
-    //（全局 CoroutineScope 没有 MonotonicFrameClock，实测抛 IllegalStateException）。
-    val flightScope = rememberCoroutineScope()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -471,8 +468,9 @@ private fun InstanceCard(
                             foreground = iconFg,
                             estimate = estimatedLanding(density),
                         )
-                        // 立即启动飞行循环：不等详情页组合完成 —— 点击与起飞同帧。
-                        flightScope.launch { SharedHero.flyLoop { SharedHero.finish() } }
+                        // ⚠️ 不要在这里启动飞行循环：卡片马上会被切页销毁，
+                        // `rememberCoroutineScope` 一取消循环就死，图标会永远卡住。
+                        // 循环由 SharedHeroOverlay（挂在 PageHost 上）驱动。
                     }
                     onClick()
                 },
