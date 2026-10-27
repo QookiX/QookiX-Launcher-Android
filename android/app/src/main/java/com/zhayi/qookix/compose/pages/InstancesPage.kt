@@ -58,6 +58,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.zhayi.qookix.compose.ui.QkAppear
 
 /**
  * 实例列表页。
@@ -204,14 +206,17 @@ fun InstancesPage(
                         onMoveDown = { onMoveGroup(sIdx, sIdx + 1) },
                     )
                 }
-                items(section.items, key = { it.id }) { inst ->
-                    InstanceCard(
-                        inst = inst,
-                        onClick = { onOpen(inst.id) },
-                        onLongClick = { menuTarget = inst },
-                        onLaunch = { onLaunch(inst.id) },
-                        busy = inst.id in pendingIds,
-                    )
+                itemsIndexed(section.items, key = { _, it -> it.id }) { idx, inst ->
+                    // 入场动画：按位置错开 40ms（只在首次组合时播）
+                    QkAppear(index = idx) {
+                        InstanceCard(
+                            inst = inst,
+                            onClick = { onOpen(inst.id) },
+                            onLongClick = { menuTarget = inst },
+                            onLaunch = { onLaunch(inst.id) },
+                            busy = inst.id in pendingIds,
+                        )
+                    }
                 }
                 item(key = "s-${section.key}") { Spacer(Modifier.height(QkSpacing.xxs)) }
             }

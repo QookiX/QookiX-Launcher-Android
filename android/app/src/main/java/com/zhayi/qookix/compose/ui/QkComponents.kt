@@ -26,6 +26,18 @@ import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.compose.theme.QkRadius
 import com.zhayi.qookix.compose.theme.QkSpacing
 import com.zhayi.qookix.compose.theme.qkPressable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import com.zhayi.qookix.compose.theme.QkEasing
+import kotlinx.coroutines.delay
 
 /**
  * 通用组件层（配合 `theme/Tokens.kt` 使用）。
@@ -200,5 +212,51 @@ fun QkBusy(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * 列表项入场：淡入 + 上浮 12dp，按位置依次错开。
+ *
+ * 为什么需要：`LazyColumn` 会一次性把所有可见 item 画出来，视觉上是「啪一下
+ * 全出现」，没有「内容正在进来」的过程 —— 列表再好看也会显得生硬。
+ * 按 index 错开 40ms 之后才有层次。
+ *
+ * 刻意**不用**回弹曲线：列表是高频出现的，回弹会变成噪音。这里用 [QkEasing.Standard]
+ *（单调减速），只在页面转场/弹层这种「一次性」动作上用 SoftBounce/Jelly。
+ *
+ * @param index 在列表中的位置（算延迟用）
+ * @param maxStagger 最多错开几档 —— 长列表末尾不该等几秒才出现
+ */
+@Composable
+fun QkAppear(
+    index: Int = 0,
+    maxStagger: Int = 8,
+    content: @Composable () -> Unit,
+) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val d = index.coerceIn(0, maxStagger) * 40L
+        if (d > 0) delay(d)
+        visible = true
+    }
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 240, easing = QkEasing.Standard),
+        label = "qkAppearAlpha",
+    )
+    val shift by animateDpAsState(
+        targetValue = if (visible) 0.dp else 12.dp,
+        animationSpec = tween(durationMillis = 300, easing = QkEasing.Standard),
+        label = "qkAppearShift",
+    )
+    Box(
+        Modifier
+            .graphicsLayer {
+                this.alpha = alpha
+                translationY = shift.toPx()
+            },
+    ) {
+        content()
     }
 }
