@@ -198,10 +198,18 @@ fun LauncherShell(
                     if (custom && body != null) {
                         body()
                     } else {
-                        // ⚠️ 详情页第一帧 titleContent 还没注册上来时**不**回退到
-                        // titleFor(current) —— 那会闪一下「实例详情」这四个字。
-                        // 有返回键就说明是二级页，等它的真实标题即可。
-                        val t = title ?: if (onBack != null) "" else titleFor(current)
+                        // ⚠️ 只有「实例详情 / 服务器详情」这两页才**不**回退默认标题：
+                        // 它们第一帧 titleContent 还没注册上来，回退会闪一下「实例详情」。
+                        //
+                        // 但别的二级页（设置 / 皮肤 / 新闻 / 统计 / FRP…）根本不注册
+                        // titleContent，靠的就是这个默认标题 —— 之前一刀切成「有返回键
+                        // 就不填」，结果进设置页标题直接空白（用户报的大问题）。
+                        val t = title ?: when {
+                            onBack != null &&
+                                (current == NavDestination.InstanceDetail ||
+                                    current == NavDestination.ServerDetail) -> ""
+                            else -> titleFor(current)
+                        }
                         if (t.isNotEmpty()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
