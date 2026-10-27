@@ -139,12 +139,16 @@ object QookiX {
     fun <T> exitSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = EaseIn)
 
     /**
-     * 整页切换：MEDIUM + [SoftBounce]（唯一允许有回弹的常规场景）。
+     * 整页切换：MEDIUM + [EaseOut]。
      *
-     * 用 MEDIUM 而不是 LONG：420ms 在页面上会被读成「卡了一下」，
-     * 因为我们的转场只有进入（没有旧内容淡出），时长越长越像延迟。
+     * ⚠️ 这里**不能用 [SoftBounce]**（踩过）：
+     * 阻尼余弦在 t=0.1 时就已经接近 1（0.65 → 1 只用了 10% 的时间），
+     * 拿它驱动 alpha 时，300ms 的淡入实际只有 30ms 可见 —— 看起来就是「没有动画」。
+     *
+     * 回弹曲线只适合**位移/缩放**（冲过头再收回来才有弹性感）；
+     * 透明度必须用单调曲线，否则「淡入」会被压缩到肉眼看不见的一瞬。
      */
-    fun <T> pageSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = SoftBounce)
+    fun <T> pageSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = EaseOut)
 
     /** 按压缩放：阻尼 0.55、刚度 900（跟手、略回弹）。 */
     fun <T> pressSpec(): FiniteAnimationSpec<T> = spring(
