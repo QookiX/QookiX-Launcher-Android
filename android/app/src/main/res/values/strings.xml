@@ -917,6 +917,21 @@
     <string name="browse_type_modpack">整合包</string>
     <string name="browse_type_resourcepack">资源包</string>
     <string name="browse_type_shader">光影</string>
+
+    <!-- ── 内容详情页（ContentDetailPage.kt）──────────────────────────── -->
+    <string name="nav_content_detail">内容详情</string>
+    <string name="common_retry">重试</string>
+    <string name="content_detail_author">作者：%1$s</string>
+    <string name="content_detail_downloads">%1$s 次下载</string>
+    <string name="content_detail_body">介绍</string>
+    <string name="content_detail_body_loading">正在加载介绍…</string>
+    <string name="content_detail_body_failed">介绍加载失败：%1$s</string>
+    <string name="content_detail_body_empty">这个项目没有提供介绍正文</string>
+    <string name="content_detail_versions">版本</string>
+    <string name="content_detail_versions_loading">正在加载版本…</string>
+    <string name="content_detail_versions_failed">版本加载失败：%1$s</string>
+    <string name="content_detail_versions_empty">没有可用版本</string>
+    <string name="content_detail_tasks">进行中的任务</string>
     <string name="browse_type_plugin">插件</string>
     <string name="browse_loader_all">全部</string>
     <string name="browse_loader_vanilla">Vanilla</string>

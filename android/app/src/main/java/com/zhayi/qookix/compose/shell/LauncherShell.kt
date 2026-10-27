@@ -412,6 +412,8 @@ private fun titleFor(d: NavDestination): String = stringResource(
         NavDestination.Home -> R.string.shell_title_home
         NavDestination.Instances -> R.string.shell_title_instances
         NavDestination.Browse -> R.string.shell_title_browse
+        // 详情页会通过 onTitleChange 覆盖成资源名，这里只是兜底
+        NavDestination.ContentDetail -> R.string.nav_content_detail
         NavDestination.Multiplayer -> R.string.shell_title_multiplayer
         NavDestination.Downloads -> R.string.shell_title_downloads
         NavDestination.More -> R.string.shell_title_more

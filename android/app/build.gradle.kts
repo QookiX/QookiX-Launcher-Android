@@ -206,6 +206,9 @@ dependencies {
     // Markdown 渲染（内容详情的简介就是 Markdown）：表格/代码块/图片/链接都齐，
     // 免去自己写解析器再把表格图片退化成纯文本。MIT。
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.29.0")
+    // Markdown 里的图片：默认 transformer 是 NoOp（图片直接不显示），
+    // 用 Coil3 那份实现 —— 与本工程已有的 coil3 3.0.4 同版本，不额外拉依赖。
+    implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:0.29.0")
 
     debugImplementation(platform("androidx.compose:compose-bom:2025.04.01"))
     debugImplementation("androidx.compose.ui:ui-tooling")

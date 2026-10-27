@@ -103,6 +103,9 @@ import com.zhayi.qookix.compose.pages.rememberInstanceSettings
 import com.zhayi.qookix.compose.pages.InstanceTab
 import com.zhayi.qookix.compose.pages.InstanceSection
 import com.zhayi.qookix.compose.pages.ProjectUi
+import com.zhayi.qookix.compose.pages.ContentDetailRoute
+import com.zhayi.qookix.compose.pages.ContentSelection
+import com.zhayi.qookix.compose.pages.ContentInstallHost
 import com.zhayi.qookix.compose.pages.ContentVersionUi
 import com.zhayi.qookix.compose.pages.DependencyUi
 import com.zhayi.qookix.compose.pages.ExportPlanUi
@@ -820,18 +823,32 @@ internal fun BrowseRoute(
     onRegisterToolbar: ((@Composable () -> Unit)?) -> Unit = {},
     /** 宿主 Activity（读写内容中心的紧凑模式偏好）。 */
     activity: ComposeMainActivity? = null,
+    /**
+     * 点条目 → 打开内容详情（2026-10-27：从弹窗改成独立页面）。
+     *
+     * 第二个参数是内容类型（mod / resourcepack / …），详情页安装时要它。
+     */
+    onOpenContent: (ProjectUi, String) -> Unit = { _, _ -> },
+    /**
+     * 当前打开的内容详情（null = 显示列表）。
+     *
+     * ⚠️ 详情页**画在本函数内部**：列表的 items / 分页 / 滚动位置都在这里，
+     * 若交给 PageHost 的另一个 when 分支，返回时整个内容中心会重建，
+     * 列表要重新拉、滚动位置也回到顶部。
+     */
+    selection: ContentSelection? = null,
+    /** 详情页把资源名报到顶栏。 */
+    onTitleChange: (String?) -> Unit = {},
+    /** 进行中的任务快照（详情页显示安装进度，复用外层 TasksRepo）。 */
+    tasks: DownloadsUiState = DownloadsUiState(),
+    onCancelTask: (Long) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
     val repo = remember(api) { BrowseRepo(api) }
 
-    // 项目详情对话框（2026-10-21 补：projectInfo 一直没 UI，原来只跳浏览器）
-    var projectDetail by remember { mutableStateOf<org.json.JSONObject?>(null) }
-    var projectDetailLoading by remember { mutableStateOf(false) }
-    // 正文翻译（D1）：`translate_project_body` 一直没 UI —— 详情页正文只能是原文。
-    var projectBodyZh by remember { mutableStateOf<String?>(null) }
-    var projectBodyTranslating by remember { mutableStateOf(false) }
-    var projectBodyError by remember { mutableStateOf<String?>(null) }
+    // 列表网格的滚动状态：提到这里才能在「进详情 → 返回」之间存活
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
 
     // 初始化时读上次的紧凑模式偏好（2026-10-17：记住用户选择）
     var state by remember {
@@ -847,118 +864,12 @@ internal fun BrowseRoute(
     /** 整页翻译进行中（B1）。 */
     var translatingPage by remember { mutableStateOf(false) }
 
-    // ── 安装对话框状态（对应旧 UI InstallDialog.vue）────────────────────
+    // ── 安装对话框 ──────────────────────────────────────────────────────
+    //
+    // 只记「要装哪个项目」。版本筛选 / 依赖 / 目标实例与服务器、安装请求
+    // 全部在 ContentInstallHost 里 —— 详情页用的是同一个宿主，
+    // 两处各维护一份的话必然改一处漏一处。
     var installTarget by remember { mutableStateOf<ProjectUi?>(null) }
-    var installVersions by remember { mutableStateOf<List<ContentVersionUi>>(emptyList()) }
-    var installLoadingVersions by remember { mutableStateOf(false) }
-    var installVersion by remember { mutableStateOf<String?>(null) }
-    var installInstanceId by remember { mutableStateOf<String?>(null) }
-    var installServerId by remember { mutableStateOf<String?>(null) }
-    var installTypeFilter by remember { mutableStateOf("all") }
-    var installDeps by remember { mutableStateOf<List<DependencyUi>>(emptyList()) }
-    var installDescZh by remember { mutableStateOf<String?>(null) }
-    var installDescLoading by remember { mutableStateOf(false) }
-    var installing by remember { mutableStateOf(false) }
-    var installError by remember { mutableStateOf<String?>(null) }
-    // 版本请求序号：并发只认最后一次，避免"选好了又跳回默认"
-    var installVersionsSeq by remember { mutableStateOf(0) }
-    // 目标候选（实例 / 服务器列表，打开对话框时拉一次）
-    var installInstances by remember { mutableStateOf<List<InstallTargetUi>>(emptyList()) }
-    var installServers by remember { mutableStateOf<List<ServerUi>>(emptyList()) }
-
-    /** 解析版本列表的接口返回。 */
-    fun parseVersions(json: org.json.JSONObject): List<ContentVersionUi> {
-        val arr = json.optJSONArray("versions") ?: return emptyList()
-        return (0 until arr.length()).mapNotNull { i ->
-            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            val id = o.optString("id")
-            if (id.isBlank()) return@mapNotNull null
-            val type = o.optString("version_type")
-                .ifBlank { o.optString("release_type") }
-            ContentVersionUi(
-                id = id,
-                versionNumber = o.optString("version_number").ifBlank { o.optString("name") },
-                type = type,
-                typeLabel = when (type) {
-                    "beta" -> context.getString(R.string.version_type_beta)
-                    "alpha" -> context.getString(R.string.version_type_alpha)
-                    else -> context.getString(R.string.version_type_release)
-                },
-                gameVersions = o.optJSONArray("game_versions")?.let { gv ->
-                    (0 until gv.length()).mapNotNull { gv.optString(it) }
-                        .takeLast(2).joinToString(", ")
-                }.orEmpty(),
-                datePublished = o.optString("date_published"),
-            )
-        }
-    }
-
-    /** 拉版本列表（按目标实例筛选，无结果回退全量）。 */
-    fun loadInstallVersions(p: ProjectUi) {
-        val seq = ++installVersionsSeq
-        installLoadingVersions = true
-        installVersion = null
-        installDeps = emptyList()
-        val inst = installInstances.firstOrNull { it.id == installInstanceId }
-        val mc = inst?.mcVersion ?: ""
-        val loader = inst?.loader?.takeUnless { it == "vanilla" } ?: ""
-        api.projectVersions(p.provider, p.id, mc, loader) { r ->
-            if (seq != installVersionsSeq) return@projectVersions
-            r.fold(
-                onSuccess = { json ->
-                    var list = parseVersions(json)
-                    // 上游按实例筛选无结果时，回退拉全部版本供选择
-                    if (list.isEmpty() && (mc.isNotBlank() || loader.isNotBlank())) {
-                        api.projectVersions(p.provider, p.id, "", "") { r2 ->
-                            if (seq != installVersionsSeq) return@projectVersions
-                            r2.onSuccess { all ->
-                                list = parseVersions(all)
-                                installVersions = list
-                                installVersion = list.firstOrNull { it.type == "release" }?.id
-                                    ?: list.firstOrNull()?.id
-                            }
-                            installLoadingVersions = false
-                        }
-                        return@fold
-                    }
-                    installVersions = list
-                    installVersion = list.firstOrNull { it.type == "release" }?.id
-                        ?: list.firstOrNull()?.id
-                    installLoadingVersions = false
-                    // 拉依赖
-                    installVersion?.let { vid ->
-                        api.projectDependencies(p.provider, p.id, vid) { dr ->
-                            dr.onSuccess { arr ->
-                                installDeps = (0 until arr.length()).mapNotNull { i ->
-                                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                                    val dt = o.optString("dependencyType")
-                                        .ifBlank { o.optString("dependency_type") }
-                                    DependencyUi(
-                                        projectId = o.optString("projectId")
-                                            .ifBlank { o.optString("project_id") },
-                                        title = o.optString("title").ifBlank { o.optString("name") },
-                                        type = dt,
-                                        typeLabel = when (dt) {
-                                            "required" -> context.getString(R.string.dep_required)
-                                            "optional" -> context.getString(R.string.dep_optional)
-                                            "incompatible" -> context.getString(R.string.dep_incompatible)
-                                            "embedded" -> context.getString(R.string.dep_embedded)
-                                            else -> dt
-                                        },
-                                        provider = o.optString("provider").ifBlank { p.provider },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                },
-                onFailure = { e ->
-                    installLoadingVersions = false
-                    installError = context.getString(R.string.version_load_failed, e.message)
-                },
-            )
-        }
-    }
 
     fun doSearch() {
         if (!ready) return
@@ -1001,7 +912,11 @@ internal fun BrowseRoute(
     //     这里只是给外层赋一个 lambda 引用，代价极低。
     var filterOpen by remember { mutableStateOf(false) }
     SideEffect {
-        onRegisterToolbar {
+        // 详情页开着时顶栏要让位（否则「内容」标题 + 搜索框会盖在资源名上）
+        if (selection != null) {
+            onRegisterToolbar(null)
+        } else {
+            onRegisterToolbar {
             com.zhayi.qookix.compose.pages.BrowseToolbar(
                 title = context.getString(R.string.browse_title),
                 query = state.query,
@@ -1022,6 +937,7 @@ internal fun BrowseRoute(
                     activity?.setBrowseCompactPref(it)
                 },
             )
+            }
         }
     }
     // 离开内容页时清空顶栏（否则切到别的页面顶栏还挂着搜索框）
@@ -1073,8 +989,28 @@ internal fun BrowseRoute(
         doSearch()
     }
 
+    // ── 内容详情（2026-10-27：从弹窗改成独立页面）────────────────────────
+    //
+    // ⚠️ 详情页画在**本函数内部**，而不是 PageHost 的另一个 when 分支：
+    // 列表 items / 分页 / gridState 都声明在这里，只有保持同一份组合，
+    // 「返回内容中心」时列表和滚动位置才原样还在。
+    if (selection != null) {
+        ContentDetailRoute(
+            bridge = bridge,
+            selection = selection,
+            activity = activity,
+            tasks = tasks.active,
+            onCancelTask = onCancelTask,
+            onTitleChange = onTitleChange,
+            onRequestCreateInstance = onRequestCreateInstance,
+        )
+        return
+    }
+
     BrowsePage(
         state = state,
+        // 滚动状态由本函数持有，进详情再返回不会回到顶部
+        gridState = gridState,
         onQueryChange = { state = state.copy(query = it) },
         onSearch = { doSearch() },
         onTypeChange = {
@@ -1094,71 +1030,10 @@ internal fun BrowseRoute(
         },
         // 紧凑模式切换：只改 UI，不重新请求（同一批数据换种排布）
         onCompactChange = { state = state.copy(compact = it) },
-        onOpenProject = { p ->
-            // 应用内项目详情（2026-10-21 补：projectInfo 一直没 UI，原来只跳浏览器）
-            projectDetailLoading = true
-            projectDetail = null
-            QookixApi(bridge).projectInfo(p.provider, p.id) { r ->
-                projectDetailLoading = false
-                r.onSuccess { projectDetail = it }
-            }
-        },
-        onInstall = { p ->
-            // ── 打开安装对话框 ────────────────────────────────────────
-            //
-            // 这是「装模组」的唯一路径（之前完全缺失：卡片只能打开浏览器，
-            // 而 install_content 这条命令连 API 层都没有）。
-            installTarget = p
-            installError = null
-            installDescZh = null
-            installVersion = null
-            installTypeFilter = "all"
-            installVersions = emptyList()
-            // 拉目标候选。
-            //
-            // ⚠️ 2026-10-18 改：原来只有插件才拉服务器列表，模组只拉实例。
-            // 但模组装到服务器是支持的（`servers/<id>/mods/`），
-            // 不拉服务器列表 → 对话框永远显示「还没有服务器」→ 选了也没用。
-            val canTargetServer = state.type == "plugin" || state.type == "mod"
-            if (canTargetServer) {
-                api.listHostedServers { r ->
-                    r.onSuccess { arr ->
-                        // 复用 MultiplayerRepo 的解析（原来这里抄了一份内联版）
-                        installServers = MultiplayerRepo.parseServers(arr)
-                        installServerId = installServers.firstOrNull()?.id
-                    }
-                }
-            }
-            // 模组和「其它」都要拉实例列表（模组两个目标都能选）
-            if (state.type != "plugin") {
-                api.listInstances { r ->
-                    r.onSuccess { arr ->
-                        installInstances = (0 until arr.length()).mapNotNull { i ->
-                            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                            InstallTargetUi(
-                                id = o.optString("id"),
-                                name = o.optString("name").ifBlank { o.optString("version_id") },
-                                loader = o.optString("loader"),
-                                mcVersion = o.optString("version_id"),
-                            )
-                        }
-                        // 默认选第一个可用的（非 vanilla）
-                        installInstanceId = installInstances
-                            .firstOrNull { it.loader != "vanilla" }?.id
-                        loadInstallVersions(p)
-                    }
-                }
-            }
-            // 顺带拉译文（用 slug，不用 id）
-            installDescLoading = true
-            api.translateModDescriptions(p.provider, listOf(p.id)) { r ->
-                installDescLoading = false
-                r.onSuccess { o ->
-                    val t = o.optJSONObject("translations")
-                    installDescZh = t?.optString(p.id)?.takeIf { it.isNotBlank() }
-                }
-            }
-        },
+        // 点条目 → 独立详情页（2026-10-27：原来是一个正文只显示 500 字的弹窗）
+        onOpenProject = { p -> onOpenContent(p, state.type) },
+        // 卡片上的「安装」：直接弹安装对话框，不走详情页
+        onInstall = { p -> installTarget = p },
         onLoadMore = { loadMore() },
         loadingMore = loadingMore,
         hasMore = hasMore,
@@ -1191,137 +1066,24 @@ internal fun BrowseRoute(
     )
 
     // ── 安装对话框 ──────────────────────────────────────────────────────
-    installTarget?.let { p ->
-        val isPlugin = state.type == "plugin"
-        InstallDialog(
-            project = p,
-            kind = state.type,
-            isPlugin = isPlugin,
-            versions = installVersions.filter { installTypeFilter == "all" || it.type == installTypeFilter },
-            loadingVersions = installLoadingVersions,
-            selectedVersion = installVersion,
-            instances = installInstances,
-            servers = installServers,
-            selectedInstanceId = installInstanceId,
-            selectedServerId = installServerId,
-            typeFilter = installTypeFilter,
-            deps = installDeps,
-            descZh = installDescZh,
-            descLoading = installDescLoading,
-            installing = installing,
-            error = installError,
-            onSelectVersion = { v ->
-                installVersion = v
-                // 换版本重拉依赖
-                api.projectDependencies(p.provider, p.id, v) { dr ->
-                    dr.onSuccess { arr ->
-                        installDeps = (0 until arr.length()).mapNotNull { i ->
-                            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                            DependencyUi(
-                                projectId = o.optString("projectId"),
-                                title = o.optString("title").ifBlank { o.optString("name") },
-                                type = o.optString("dependencyType"),
-                                typeLabel = context.getString(R.string.deps_title),
-                                provider = o.optString("provider").ifBlank { p.provider },
-                            )
-                        }
-                    }
-                }
-            },
-            // 目标二选一：不清掉另一侧的话，两个 id 同时非空 → 模组会被装进服务器目录
-            onSelectInstance = { id ->
-                installInstanceId = id
-                installServerId = null
-                loadInstallVersions(p)
-            },
-            onSelectServer = { installServerId = it; installInstanceId = null },
-            onTypeFilterChange = { installTypeFilter = it },
-            onOpenDependency = { d ->
-                // 切到那个依赖项目（在同一个对话框里）
-                installTarget = ProjectUi(
-                    id = d.projectId, provider = d.provider, title = d.title,
-                    description = "", author = "", iconUrl = "", downloads = 0,
-                )
-                loadInstallVersions(installTarget!!)
-            },
-            onTranslate = {
-                installDescLoading = true
-                api.translateModDescriptions(p.provider, listOf(p.id)) { r ->
-                    installDescLoading = false
-                    r.onSuccess { o ->
-                        val t = o.optJSONObject("translations")
-                        installDescZh = t?.optString(p.id)?.takeIf { it.isNotBlank() }
-                            ?: context.getString(R.string.translation_none)
-                    }
-                }
-            },
-            onCreateTargetInstance = onRequestCreateInstance?.let { cb ->
-                {
-                    // 先关掉安装对话框，再跳去新建实例页 ——
-                    // 否则回来时对话框还开着，用户会以为没生效。
-                    installTarget = null
-                    cb()
-                }
-            },
-            onInstall = {
-                if (installing) return@InstallDialog
-                val vid = installVersion
-                val iid = installInstanceId
-                // ── 装到服务器 ────────────────────────────────────────────
-                //
-                // 2026-10-18 改。原来只有「插件」走服务器分支（Hangar），
-                // 模组选了服务器也不生效 —— 会被下面的「请选择实例与版本」挡住。
-                //
-                // 用户问「fabric 服务器能直接在内容中心装 mod 吗」，查证：不能。
-                // 现在模组也走服务器分支，落到 `servers/<id>/mods/`。
-                val sid = installServerId
-                val wantsServer = sid != null && (isPlugin || state.type == "mod")
-                if (wantsServer) {
-                    if (isPlugin) {
-                        installing = true
-                        api.installServerPlugin(sid!!, p.id, p.title) { r ->
-                            installing = false
-                            r.fold(
-                                onSuccess = { installTarget = null },
-                                onFailure = { e -> installError = context.getString(R.string.install_failed, e.message) },
-                            )
-                        }
-                        return@InstallDialog
-                    }
-                    // 模组：需要版本号（插件那条路由 Hangar 自己挑版本）
-                    if (vid == null) {
-                        installError = context.getString(R.string.install_pick_server_version)
-                        return@InstallDialog
-                    }
-                    installing = true
-                    installError = null
-                    api.installServerContent(sid!!, p.provider, p.id, vid, state.type) { r ->
-                        installing = false
-                        r.fold(
-                            onSuccess = { installTarget = null },
-                            onFailure = { e -> installError = context.getString(R.string.install_failed, e.message) },
-                        )
-                    }
-                    return@InstallDialog
-                }
-                if (iid == null || vid == null) {
-                    installError = context.getString(R.string.install_pick_instance_version)
-                    return@InstallDialog
-                }
-                installing = true
-                installError = null
-                api.installContent(iid, p.provider, p.id, vid, state.type) { r ->
-                    installing = false
-                    r.fold(
-                        onSuccess = { installTarget = null },
-                        onFailure = { e -> installError = context.getString(R.string.install_failed, e.message) },
-                    )
-                }
-            },
-            onDismiss = { installTarget = null },
-        )
-    }
-    
+    //
+    // 版本筛选 / 依赖 / 目标实例与服务器 / 真正的安装请求都在
+    // ContentInstallHost 里 —— 内容详情页共用同一份，别再各写一套。
+    ContentInstallHost(
+        api = api,
+        project = installTarget,
+        kind = state.type,
+        onCreateTargetInstance = onRequestCreateInstance?.let { cb ->
+            {
+                // 先关掉安装对话框，再跳去新建实例页 ——
+                // 否则回来时对话框还开着，用户会以为没生效。
+                installTarget = null
+                cb()
+            }
+        },
+        onDismiss = { installTarget = null },
+    )
+
     // ── 筛选面板（2026-10-18 修：原来只设 filterOpen=true，没人读它，
     //    筛选图标点了没反应。组件早就写好了，就差这一处渲染）
     com.zhayi.qookix.compose.pages.BrowseFilterSheet(
@@ -1347,129 +1109,4 @@ internal fun BrowseRoute(
         hideLoader = state.type == BrowseType.Plugin.id,
     )
 
-    // 项目详情对话框（2026-10-21 补）
-    projectDetail?.let { info ->
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { projectDetail = null; projectBodyZh = null; projectBodyError = null },
-            title = { androidx.compose.material3.Text(info.optString("title")) },
-            text = {
-                androidx.compose.foundation.layout.Column {
-                    val author = info.optString("author")
-                    if (author.isNotBlank()) {
-                        androidx.compose.material3.Text("作者：$author", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                    }
-                    val downloads = info.optLong("downloads", 0)
-                    if (downloads > 0) {
-                        androidx.compose.material3.Text("下载量：$downloads", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                    }
-                    val desc = info.optString("description")
-                    if (desc.isNotBlank()) {
-                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
-                        androidx.compose.material3.Text(desc, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                    }
-                    val body = info.optString("body")
-                    val shown = projectBodyZh ?: body
-                    if (shown.isNotBlank()) {
-                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
-                        androidx.compose.material3.Text(
-                            shown.take(500) + if (shown.length > 500) "…" else "",
-                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                            maxLines = 10,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        )
-                    }
-                    if (projectBodyTranslating) {
-                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
-                        androidx.compose.material3.Text(
-                            context.getString(R.string.browse_body_translating),
-                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    projectBodyError?.let { err ->
-                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(8.dp))
-                        androidx.compose.material3.Text(
-                            err,
-                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                            color = androidx.compose.material3.MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { projectDetail = null; projectBodyZh = null; projectBodyError = null }) {
-                    androidx.compose.material3.Text(context.getString(R.string.instances_group_cancel))
-                }
-            },
-            dismissButton = {
-                // 正文翻译（D1）：只对能翻译的数据源显示按钮
-                val provider = info.optString("provider")
-                val slug = info.optString("slug")
-                androidx.compose.foundation.layout.Row {
-                    // MC 百科跳转（D7）：`mc_wiki_url` 一直没 UI
-                    val title = info.optString("title")
-                    if (title.isNotBlank()) {
-                        androidx.compose.material3.TextButton(onClick = {
-                            api.mcWikiUrl(title, slug.ifBlank { null }, provider.ifBlank { null }) { r ->
-                                r.onSuccess { url ->
-                                    if (url.isNotBlank()) activity?.openExternalUrl(url)
-                                }
-                            }
-                        }) {
-                            androidx.compose.material3.Text(context.getString(R.string.browse_open_wiki))
-                        }
-                    }
-                    // 翻译质量反馈（D1）：译文出来后给「翻译不准」入口
-                    if (projectBodyZh != null) {
-                        androidx.compose.foundation.layout.Row {
-                            androidx.compose.material3.TextButton(onClick = {
-                                api.reportTranslationQuality(provider, slug, "inaccurate") { }
-                                projectBodyError = context.getString(R.string.browse_body_report_thanks)
-                            }) {
-                                androidx.compose.material3.Text(context.getString(R.string.browse_body_report_bad))
-                            }
-                            // 「译文过时」是另一个后端能力（report_translation_stale）：
-                            // 服务端确认后会清掉本地译文缓存，下次重新翻。
-                            if (provider.isNotBlank() && slug.isNotBlank()) {
-                                androidx.compose.material3.TextButton(onClick = {
-                                    api.reportTranslationStale(provider, slug) { }
-                                    projectBodyError = context.getString(R.string.browse_body_report_stale_thanks)
-                                }) {
-                                    androidx.compose.material3.Text(context.getString(R.string.browse_body_report_stale))
-                                }
-                            }
-                        }
-                    } else if (provider.isNotBlank() && slug.isNotBlank()) {
-                        androidx.compose.material3.TextButton(
-                            enabled = !projectBodyTranslating,
-                            onClick = {
-                                projectBodyTranslating = true
-                                projectBodyError = null
-                                api.translateProjectBody(provider, slug, true) { r ->
-                                    projectBodyTranslating = false
-                                    r.fold(
-                                        onSuccess = { o ->
-                                            val supported = o.optBoolean("supported", false)
-                                            val zh = o.optString("body").takeIf { it.isNotBlank() }
-                                            val err = o.optText("error")
-                                            when {
-                                                zh != null -> projectBodyZh = zh
-                                                err != null -> projectBodyError = err
-                                                !supported -> projectBodyError = context.getString(R.string.browse_body_translate_unsupported)
-                                                else -> projectBodyError = context.getString(R.string.browse_body_translate_empty)
-                                            }
-                                        },
-                                        onFailure = { e ->
-                                            projectBodyError = context.getString(R.string.browse_translate_failed, e.message ?: "")
-                                        },
-                                    )
-                                }
-                            },
-                        ) {
-                            androidx.compose.material3.Text(context.getString(R.string.browse_body_translate))
-                        }
-                    }
-                }
-            },
-        )
-    }
 }

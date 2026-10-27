@@ -141,6 +141,15 @@ fun BrowsePage(
     onTranslatePage: () -> Unit = {},
     /** 整页翻译进行中（按钮转圈 + 防重入）。 */
     translatingPage: Boolean = false,
+    /**
+     * 网格滚动状态。
+     *
+     * ⚠️ 2026-10-27：由调用方（BrowseRoute）持有 —— 点进内容详情页时
+     * 列表这一层会从组合里暂时消失，`rememberLazyGridState()` 建在这里
+     * 会一起丢，返回后滚动位置回到顶部。
+     */
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState =
+        rememberLazyGridState(),
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         BrowseFilterSheet(
@@ -197,7 +206,6 @@ fun BrowsePage(
                 //
                 // 判定「接近底部」用可见项做比较（不是写死数字）：
                 // 最后可见项的 index 进到倒数第 3 项以内就算触底。
-                val gridState = rememberLazyGridState()
                 val paging by remember {
                     derivedStateOf {
                         val total = gridState.layoutInfo.totalItemsCount

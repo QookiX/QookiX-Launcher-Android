@@ -107,6 +107,7 @@ import com.zhayi.qookix.compose.pages.rememberInstanceSettings
 import com.zhayi.qookix.compose.pages.InstanceTab
 import com.zhayi.qookix.compose.pages.InstanceSection
 import com.zhayi.qookix.compose.pages.ProjectUi
+import com.zhayi.qookix.compose.pages.ContentSelection
 import com.zhayi.qookix.compose.pages.ContentVersionUi
 import com.zhayi.qookix.compose.pages.DependencyUi
 import com.zhayi.qookix.compose.pages.ExportPlanUi
@@ -268,6 +269,14 @@ fun PageHost(
     onSelectedServerIdChange: (String?) -> Unit = {},
     selectedInstanceId: String? = null,
     onSelectedInstanceIdChange: (String?) -> Unit = {},
+    /**
+     * 内容中心当前打开的内容详情（null = 只看列表）。
+     *
+     * 同 selectedInstanceId：NavDestination 是 enum 带不了参数，
+     * 且横竖屏切换会重建 PageHost 子树，所以这个会话状态放在 Activity 层。
+     */
+    selectedContent: ContentSelection? = null,
+    onSelectedContentChange: (ContentSelection?) -> Unit = {},
 ) {
     // i18n（2026-10-17）：错误消息在非 Composable 的 lambda 里拼，
     // `stringResource` 用不了，只能靠 Context。这里取一次全程复用。
@@ -449,6 +458,9 @@ fun PageHost(
     //（那会把「当前查看的实例」改坏）。
     LaunchedEffect(dest) {
         if (dest != NavDestination.InstanceDetail) taskQueryInstanceId = null
+        // 内容详情同理：离开这一页（不管走返回键还是底栏跳走）都要清掉选中项，
+        // 否则下次进内容中心会直接停在详情页上。
+        if (dest != NavDestination.ContentDetail) onSelectedContentChange(null)
     }
 
     // 当前正在查看的服务器（多人页点进去时设置）。
@@ -701,7 +713,9 @@ fun PageHost(
                 pinnedIds = pinnedIds,
             )
 
-            NavDestination.Browse -> BrowseRoute(
+            // ⚠️ 内容详情与内容中心共用一个分支/一个组合位置：
+            // BrowseRoute 内部的列表状态、滚动位置才能跨「进详情 → 返回」存活。
+            NavDestination.Browse, NavDestination.ContentDetail -> BrowseRoute(
                 bridge = bridge,
                 ready = bridgeReady,
                 openUrl = activity?.let { a -> { url: String -> a.openExternalUrl(url) } },
@@ -711,6 +725,15 @@ fun PageHost(
         // 把搜索/筛选/排序/紧凑工具栏注册到顶栏（2026-10-17）
         onRegisterToolbar = onRegisterToolbar,
         activity = activity,
+                // 点条目 → 内容详情（2026-10-27：独立页面，不再是弹窗）
+                onOpenContent = { p, kind ->
+                    onSelectedContentChange(ContentSelection(p, kind))
+                    onNavigate(NavDestination.ContentDetail)
+                },
+                selection = selectedContent,
+                onTitleChange = onTitleChange,
+                tasks = tasksState,
+                onCancelTask = { tasksRepo.cancel(it) },
             )
 
         NavDestination.CreateInstance -> CreateRoute(

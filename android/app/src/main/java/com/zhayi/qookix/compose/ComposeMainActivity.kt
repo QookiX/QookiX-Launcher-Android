@@ -45,6 +45,7 @@ import com.zhayi.qookix.ServerDocsProvider
 import androidx.activity.ComponentActivity
 import com.zhayi.qookix.GameActivity
 import com.zhayi.qookix.compose.bridge.*
+import com.zhayi.qookix.compose.pages.ContentSelection
 import com.zhayi.qookix.compose.pages.FirstRunSetupHost
 import com.zhayi.qookix.compose.pages.FirstRunUiState
 import com.zhayi.qookix.compose.shell.LauncherShell
@@ -1381,6 +1382,11 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
     // 结果就是「详情页转竖屏自动退回列表」。放到 Activity 层才能跨形态存活。
     var selectedServerId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedInstanceId by rememberSaveable { mutableStateOf<String?>(null) }
+    // 内容中心正在看的那一项（内容详情页）。同样是「会话状态」，
+    // 放在这里才能跨横竖屏重建存活；ProjectUi 不可 Parcelable，用自定义 Saver。
+    var selectedContent by rememberSaveable(stateSaver = ContentSelection.Saver) {
+        mutableStateOf<ContentSelection?>(null)
+    }
         // 顶栏标题覆盖（文件浏览这类「非 NavDestination 的下钻层」用）
         var titleOverride by remember { mutableStateOf<String?>(null) }
         // PageHost 注册的「内部返回处理器」（文件浏览这类栈外下钻层用）
@@ -1412,6 +1418,8 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 NavDestination.Skins, NavDestination.News,
                 NavDestination.Playtime, NavDestination.Settings -> NavDestination.More
                 NavDestination.Account -> NavDestination.Home
+                // 内容详情是内容中心的下钻层
+                NavDestination.ContentDetail -> NavDestination.Browse
                 else -> null
             }
 
@@ -1530,6 +1538,8 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                     onSelectedServerIdChange = { selectedServerId = it },
                     selectedInstanceId = selectedInstanceId,
                     onSelectedInstanceIdChange = { selectedInstanceId = it },
+                    selectedContent = selectedContent,
+                    onSelectedContentChange = { selectedContent = it },
                     activity = activity,
                     // 3D 预览渲染方式（外观页可切）。不传的话 PageHost
                     // 会一直用默认值 "compose"，「流畅」模式就永远不生效

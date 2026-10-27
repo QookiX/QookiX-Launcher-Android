@@ -162,6 +162,20 @@ enum class NavDestination(
         selectedIcon = Icons.Filled.AccountCircle,
         unselectedIcon = Icons.Outlined.AccountCircle,
     ),
+
+    /**
+     * 内容详情（内容中心点条目进入）。
+     *
+     * ⚠️ 2026-10-27：从「项目详情对话框」改成独立页面。
+     * 弹窗里塞不下 Markdown 正文（旧实现还把正文截断到 500 字），
+     * 也不能滚动看版本列表。
+     */
+    ContentDetail(
+        route = "content-detail",
+        labelRes = R.string.nav_content_detail,
+        selectedIcon = Icons.Filled.Explore,
+        unselectedIcon = Icons.Outlined.Explore,
+    ),
     ;
 
     companion object {

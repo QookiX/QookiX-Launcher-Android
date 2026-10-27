@@ -154,7 +154,7 @@ fun DownloadsPage(
 }
 
 @Composable
-private fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
+internal fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
     // 展开态（B2）：旧界面的 DownloadsView 点任务行能看分文件/分项进度，
     // 迁移时丢了 —— 下大整合包时只有一个总进度条，看不出卡在哪一步。
     var expanded by remember { mutableStateOf(false) }
