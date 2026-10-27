@@ -258,17 +258,30 @@ fun InstanceDetailPage(
             }
             Spacer(Modifier.width(QkSpacing.md))
             Column(modifier = Modifier.weight(1f)) {
+                // 名字里自带「（1.21.1）3.1.2」这类后缀，和下面的版本信息重复，
+                // 而且在 48dp 图标旁边会把名字挤断。拆开显示：
+                //   第一行：纯实例名（月落花野）
+                //   第二行：加载器 + MC 版本（NeoForge 21.1.251 · 1.21.1）
+                val mcVersion = Regex("[（(]([^）)]+)[）)]")
+                    .find(state.name)?.groupValues?.getOrNull(1).orEmpty()
+                val displayName = state.name
+                    .substringBefore("（").substringBefore("(")
+                    .trim()
+                    .ifBlank { state.name }
                 Text(
-                    text = state.name,
+                    text = displayName,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (state.subtitle.isNotBlank()) {
+                val meta = listOf(state.subtitle, mcVersion)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+                if (meta.isNotBlank()) {
                     Text(
-                        text = state.subtitle,
+                        text = meta,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1701,10 +1714,17 @@ fun InstanceDetailToolbar(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 名字 / 版本**不再放顶栏**：页内顶部的 hero（48dp 图标 + 名字 + 版本）
-        // 已经承担了身份信息，两边都写就是重复显示
-        //（2026-10-17 用户就指出过「两套叠在一起」）。
-        // 顶栏只留操作按钮，靠这个 weight 推到右侧。
+        // 顶栏只写**固定词「实例」**，不写实例名。
+        //
+        // 实例名和版本放在下面的 hero（标题栏下方、tab 上方），那里有图标当锚点，
+        // 一眼能看清是哪个实例。
+        // ⚠️ 但顶栏也不能空着：之前把那列整个删掉后只剩一个返回箭头，
+        // 看起来像没渲染完（用户反馈「标题栏不显示了」）。
+        Text(
+            text = "实例",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.weight(1f))
 
         Spacer(Modifier.width(8.dp))
