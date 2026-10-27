@@ -173,6 +173,7 @@ import com.zhayi.qookix.compose.pages.settings.SettingsTab
 import com.zhayi.qookix.compose.pages.settings.SettingsUiState
 import com.zhayi.qookix.compose.pages.settings.StoragePane
 import com.zhayi.qookix.compose.shell.NavDestination
+import com.zhayi.qookix.compose.motion.SharedHero
 import com.zhayi.qookix.compose.motion.SharedHeroOverlay
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -641,6 +642,17 @@ fun PageHost(
     // 恒为 1：缩放是唯一「必然抽搐」的属性 —— 从中心收缩时四周同时内收，
     // 眼睛对这种变化极度敏感。位移和透明度都能靠「起点不可见」藏住，缩放不行。
     val pageScale = 1f
+
+    // 临时测量（2026-10-27）：把「点击 → hero 就位」的 930ms 拆开。
+    // 这里是 PageHost 重组的入口 —— 如果重组开始 ≈ 点击时刻，
+    // 说明时间花在组合/布局里；如果重组开始就晚了，说明前面还有别的在占主线程。
+    remember(dest) {
+        val t = (System.nanoTime() - SharedHero.launchedAtNanos) / 1_000_000
+        if (SharedHero.launchedAtNanos > 0 && t in 0..2000) {
+            android.util.Log.i("QkPerf", "PageHost 重组开始（切页后 ${t}ms）")
+        }
+        true
+    }
 
     // 外层 Box 只给飞行浮层一个**不受转场影响**的坐标系。
     // 它的窗口原点在这里一次算好 —— 浮层自己测的话要多等一帧（布局完成后才有值），

@@ -17,7 +17,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -442,6 +444,9 @@ private fun InstanceCard(
     var iconRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     // LocalDensity.current 是 @Composable 的读取，不能写在点击回调里 —— 先取好。
     val density = LocalDensity.current
+    // 飞行动画的驱动作用域：rememberCoroutineScope 自带 Compose 的帧时钟
+    //（全局 CoroutineScope 没有 MonotonicFrameClock，实测抛 IllegalStateException）。
+    val flightScope = rememberCoroutineScope()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -459,12 +464,15 @@ private fun InstanceCard(
                     // 「点完立马飞，不要等那边加载完成才动」）。落点由 hero 稍后上报，
                     // 动画在 object 里独立跑，到达后改目标、从当前值接续。
                     iconRect?.let { r ->
-                        SharedHero.launch(
+                        SharedHero.start(
                             from = r,
                             label = inst.name.take(1).uppercase(),
                             background = iconBg,
                             foreground = iconFg,
+                            estimate = estimatedLanding(density),
                         )
+                        // 立即启动飞行循环：不等详情页组合完成 —— 点击与起飞同帧。
+                        flightScope.launch { SharedHero.flyLoop { SharedHero.finish() } }
                     }
                     onClick()
                 },

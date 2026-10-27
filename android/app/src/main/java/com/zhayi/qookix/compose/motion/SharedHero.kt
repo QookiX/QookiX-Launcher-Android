@@ -1,6 +1,5 @@
 package com.zhayi.qookix.compose.motion
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
@@ -8,10 +7,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,8 +22,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.compose.theme.QkRadius
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameNanos
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -38,17 +35,19 @@ import kotlin.math.roundToInt
  * 而本项目 `PageHost` 用 `when (dest)` 切页 —— 换成 `AnimatedContent` 后各页的
  * `LaunchedEffect(bridgeReady)` 不再执行（2026-10-13 踩过）。
  *
- * ## 两条已确认的硬约束
+ * ## 为什么不用 `Animatable`
  *
- * 1. **动画不能放在全局协程里**：`Animatable.animateTo` 需要 Compose 的
- *    `MonotonicFrameClock`，全局 `CoroutineScope(Dispatchers.Main)` 没有它 ——
- *    实测直接抛 `IllegalStateException: A MonotonicFrameClock is not available`。
- *    所以动画必须在 Composable 的作用域里启动。
- * 2. **组合是单线程的**：切页那一帧要先完成详情页的组合（1000+ 行、还要拉数据），
- *    提交之后 `LaunchedEffect` 才会跑。��「图标先卡一下、等那边加载完才飞」——
- *    这不是动画的问题，是**详情页首帧太重**。
+ * 转场动画（16dp 上浮）会让 hero 的位置**每一帧都在变**，而 hero 每帧都上报
+ * 新的落点。如果用 `Animatable.animateTo`，新目标一来就会取消旧动画、从当前值
+ * 重启 —— 转场 300ms 期间动画被**反复打断**，位置几乎不动，直到目标稳定才
+ * 真正开始飞。用户看到的就是「图标先卡一下，等那边加载完才飞」。
  *
- * 所以能做的优化是：**不等落点**（用估算位置先飞），把等待压到最短。
+ * 现在改成**每帧向目标指数趋近**：目标怎么变都只是换终点，永远平滑追。
+ *
+ * ## 坐标约定（踩过）
+ *
+ * 起点/落点用 `boundsInWindow()`；浮层绘制时减掉 `origin`
+ * （内容区左上角在窗口里的位置 —— 浮层不在窗口 (0,0)，上边有顶栏、左边有侧栏）。
  */
 object SharedHero {
 
@@ -62,32 +61,82 @@ object SharedHero {
         val foreground: Color,
     )
 
-    /** 待起飞：卡片点击时写入。 */
+    /** 飞行块的当前位置（窗口坐标）。浮层读它绘制。 */
+    val current = mutableStateOf<Rect?>(null)
+
+    /** 当前目标（可能是估算值，也可能是真实落点；转场期间会变）。 */
+    var target by mutableStateOf<Rect?>(null)
+        private set
+
+    /** 起飞信息。非空 = 飞行中。落地后置 null（overlay 随之消失）。 */
     var pending by mutableStateOf<Launch?>(null)
         private set
 
-    /** 落点：目标页 hero 布局完成后写入。 */
-    var landing by mutableStateOf<Rect?>(null)
+    /**
+     * 当前 [target] 是不是**真实落点**。
+     *
+     * 起飞瞬间用的是估算位置（[estimatedLanding]），那时不能判定"到了" ——
+     * 否则浮层会在估算点提前消失。只有目标页 hero 上报（[updateTarget]）之后才允许落地。
+     */
+    var targetReal by mutableStateOf(false)
         private set
 
-    /** 点击时刻（纳秒），用于测量「切页 → hero 就位」的实际耗时。 */
-    var launchedAtNanos: Long = 0L
+    /** 起飞时刻（`System.nanoTime()`），只用于耗时诊断。 */
+    var launchedAtNanos by mutableStateOf(0L)
         private set
 
-    fun launch(from: Rect, label: String, background: Color, foreground: Color) {
-        landing = null
-        launchedAtNanos = System.nanoTime()
+    fun start(from: Rect, label: String, background: Color, foreground: Color, estimate: Rect) {
         pending = Launch(from, label, background, foreground)
+        current.value = from
+        target = estimate
+        targetReal = false
+        launchedAtNanos = System.nanoTime()
     }
 
-    /** 真实落点到达。 */
+    /** 目标页 hero 上报真实落点（此后才允许落地）。 */
     fun updateLanding(rect: Rect) {
-        landing = rect
+        target = rect
+        targetReal = true
     }
 
-    fun clear() {
+    /** 落地：清掉飞行任务，目标页 hero 由 `pending == null` 淡入。 */
+    fun finish() {
         pending = null
-        landing = null
+        targetReal = false
+    }
+
+    /**
+     * 飞行循环：每帧向目标指数趋近（k=0.22），接近且目标已确认为真实落点时落地。
+     *
+     * 必须在 `rememberCoroutineScope()` 里启动（那个作用域带 Compose 的
+     * `MonotonicFrameClock`，`withFrameNanos` 才能工作；全局 scope 没有它，
+     * 实测直接抛 IllegalStateException）。
+     *
+     * @param onArrive 落地回调（置 landed=true，让目标页 hero 现身）
+     */
+    suspend fun flyLoop(onArrive: () -> Unit) {
+        while (pending != null) {
+            withFrameNanos { }                       // 等下一帧
+            val t = target ?: continue
+            val c = current.value ?: continue
+            val k = 0.22f                            // 每帧趋近 22%（指数趋近，永不超调）
+            val next = Rect(
+                c.left + (t.left - c.left) * k,
+                c.top + (t.top - c.top) * k,
+                c.right + (t.right - c.right) * k,
+                c.bottom + (t.bottom - c.bottom) * k,
+            )
+            current.value = next
+            // 接近且目标已是真实落点 → 落地（估算阶段不能落地，否则会提前消失）
+            val cx = (next.left + next.right) / 2f
+            val cy = (next.top + next.bottom) / 2f
+            val tx = (t.left + t.right) / 2f
+            val ty = (t.top + t.bottom) / 2f
+            if (targetReal && abs(cx - tx) < 2f && abs(cy - ty) < 2f) {
+                current.value = t
+                onArrive()
+            }
+        }
     }
 }
 
@@ -95,10 +144,10 @@ object SharedHero {
  * 落点还没上报时的**估算位置**。
  *
  * 详情页 hero 固定在「内容区左上 + 页面内边距」处（48dp 图标）。
- * 误差几十 dp 无妨：真实落点到达后会自动改目标、从当前值接续。
+ * 误差几十 dp 无妨：真实落点到达后目标会变，指数趋近自动追。
  */
 fun estimatedLanding(density: Density): Rect {
-    val sideBar = 168.dp      // 侧栏展开宽（收起是 88dp，误差可接受）
+    val sideBar = 168.dp
     val pagePad = 20.dp
     val icon = 48.dp
     val topBar = 64.dp
@@ -106,12 +155,7 @@ fun estimatedLanding(density: Density): Rect {
     val cy = topBar + 20.dp + icon / 2
     val half = icon / 2
     return with(density) {
-        Rect(
-            left = (cx - half).toPx(),
-            top = (cy - half).toPx(),
-            right = (cx + half).toPx(),
-            bottom = (cy + half).toPx(),
-        )
+        Rect((cx - half).toPx(), (cy - half).toPx(), (cx + half).toPx(), (cy + half).toPx())
     }
 }
 
@@ -125,43 +169,20 @@ fun estimatedLanding(density: Density): Rect {
 @Composable
 fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
     val launch = SharedHero.pending ?: return
-    val landing = SharedHero.landing
+    val rect = SharedHero.current.value ?: return
     val density = LocalDensity.current
-
-    // 四个维度各自 Animatable：好处是「目标中途改变」时能从当前值接续，
-    // 而不是像 progress + lerp 那样一换目标就整体跳一下。
-    val left = remember(launch) { Animatable(launch.from.left) }
-    val top = remember(launch) { Animatable(launch.from.top) }
-    val w = remember(launch) { Animatable(launch.from.width) }
-    val h = remember(launch) { Animatable(launch.from.height) }
-
-    LaunchedEffect(launch, landing) {
-        // ⚠️ 不等落点：先用估算位置起飞。
-        // 之前是 `val landing = SharedHero.landing ?: return` —— 要等详情页
-        // 布局完成才动，用户感知到的是「点了半天才飞」（反馈里的「延迟」）。
-        val target = landing ?: estimatedLanding(density)
-        coroutineScope {
-            launch { left.animateTo(target.left, QookiX.spatialSpec()) }
-            launch { top.animateTo(target.top, QookiX.spatialSpec()) }
-            launch { w.animateTo(target.width, QookiX.spatialSpec()) }
-            launch { h.animateTo(target.height, QookiX.spatialSpec()) }
-        }
-        // 只有落到**真实**落点才算完成；用的是估算位置就继续等（effect 会因
-        // landing 变化重启，从当前值接着飞）。
-        if (landing != null) SharedHero.clear()
-    }
 
     Box(
         modifier = modifier
             .offset {
                 IntOffset(
-                    (left.value - origin.x).roundToInt(),
-                    (top.value - origin.y).roundToInt(),
+                    (rect.left - origin.x).roundToInt(),
+                    (rect.top - origin.y).roundToInt(),
                 )
             }
             .size(
-                width = with(density) { w.value.coerceAtLeast(1f).toDp() },
-                height = with(density) { h.value.coerceAtLeast(1f).toDp() },
+                width = with(density) { rect.width.coerceAtLeast(1f).toDp() },
+                height = with(density) { rect.height.coerceAtLeast(1f).toDp() },
             )
             .clip(RoundedCornerShape(QkRadius.medium))
             .background(launch.background),
@@ -170,7 +191,7 @@ fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
         Text(
             text = launch.label,
             color = launch.foreground,
-            fontSize = with(density) { (h.value * 0.42f).toSp() },
+            fontSize = with(density) { (rect.height * 0.42f).toSp() },
             fontWeight = FontWeight.Bold,
         )
     }
