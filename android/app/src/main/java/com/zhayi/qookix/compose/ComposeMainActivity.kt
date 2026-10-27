@@ -1375,15 +1375,6 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             color = androidx.compose.material3.MaterialTheme.colorScheme.background,
         ) {
             var current by remember { mutableStateOf(NavDestination.Home) }
-            // ⚠️ 换页时**同步**清掉上一页注册的顶栏槽位。上一页的按钮要等
-            // DisposableEffect 的 onDispose 才注销，而那是本次组合之后 —— 中间会
-            // 有一帧「旧按钮（校验/换图标/启动）+ 新页按钮（新建实例）」排在同一行，
-            // 宽度被挤变，用户看到的就是「退出来时闪一下」。
-            var lastDest by remember { mutableStateOf(NavDestination.Home) }
-            if (lastDest != current) {
-                lastDest = current
-                toolbarContent = null
-            }
     // 选中的实例 / 服务器 id —— **必须放在这一层**（2026-10-17）。
     // LauncherShell 在横屏用侧栏、竖屏用底部导航，是两个不同的组合分支；
     // 旋转时 PageHost 子树会被销毁重建，放在里面的 remember 全丢 ——
@@ -1394,6 +1385,20 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
         var titleOverride by remember { mutableStateOf<String?>(null) }
         // PageHost 注册的「内部返回处理器」（文件浏览这类栈外下钻层用）
         var innerBack by remember { mutableStateOf<(() -> Boolean)?>(null) }
+        // ⚠️ 换页时**同步**清掉上一页注册到顶栏/返回链上的三样东西。
+        // 页面注册它们是在组合期，注销却要等 DisposableEffect 的 onDispose（本次
+        // 组合之后）—— 中间那一帧里旧状态还挂着：
+        //   · toolbarContent：旧按钮（校验/换图标/启动）和新页的「新建实例」挤一行
+        //   · titleOverride：进过文件浏览后标题永远停在「文件」，返回也不恢复
+        //   · innerBack：栈外下钻层的返回处理器残留，按返回会先被它吃掉
+        // 必须在 `titleOverride` / `innerBack` 声明之后才能引用，所以守卫放在这里。
+        var lastDest by remember { mutableStateOf(NavDestination.Home) }
+        if (lastDest != current) {
+            lastDest = current
+            toolbarContent = null
+            titleOverride = null
+            innerBack = null
+        }
             var bridgeReady by remember { mutableStateOf(false) }
             val backStack = remember { androidx.compose.runtime.mutableStateListOf<NavDestination>() }
 
