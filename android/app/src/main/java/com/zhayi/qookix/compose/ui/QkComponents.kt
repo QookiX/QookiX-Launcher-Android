@@ -228,35 +228,49 @@ fun QkBusy(
  * @param index 在列表中的位置（算延迟用）
  * @param maxStagger 最多错开几档 —— 长列表末尾不该等几秒才出现
  */
+/**
+ * 列表入场是否已经播过（进程内有效）。
+ *
+ * 为什么要这个：`PageHost` 用 `when (dest)` 切页，每次回来 `InstancesPage`
+ * 都会**重新组合**，于是整列卡片又播一遍入场 —— 既多跑一轮动画（掉帧），
+ * 又显得"每次进列表都在加载"。真实需求是：**本次运行第一次看到列表时播**。
+ *
+ * 用普通的顶层 var 而不是 State：它只在组合期被读一次（`remember { … }`），
+ * 不需要触发重组。
+ */
+private var introPlayed = false
+
 @Composable
 fun QkAppear(
     index: Int = 0,
-    maxStagger: Int = 8,
+    maxStagger: Int = 5,
     content: @Composable () -> Unit,
 ) {
-    var visible by remember { mutableStateOf(false) }
+    val alreadyPlayed = remember { introPlayed }
+    var visible by remember { mutableStateOf(alreadyPlayed) }
     LaunchedEffect(Unit) {
-        val d = index.coerceIn(0, maxStagger) * 40L
-        if (d > 0) delay(d)
-        visible = true
+        if (!alreadyPlayed) {
+            // 错开 32ms：40ms 在 26 个卡片的列表上会把入场拖到 1 秒以上，
+            // 而用户感知不到那么细的间隔，只会在意"列表还没出来"。
+            val d = index.coerceIn(0, maxStagger) * 32L
+            if (d > 0) delay(d)
+            visible = true
+        }
+        // 无论是否播过，都标记「本进程已播」—— 滚动时新组合出来的 item
+        // 会读到 true，直接显示，不会在滚动中途闪一下。
+        introPlayed = true
     }
+    // ⚠️ 只动 alpha，不做位移。
+    //
+    // 原来这里还驱动 translationY（12dp → 0）。真机反馈"切页时掉帧"——
+    // 每个卡片两个动画，26 个卡片就是 52 个同时在跑，而切页本身还有一层转场。
+    // 位移的收益（多一点点"浮上来"）远小于它带来的掉帧，所以只留 alpha。
     val alpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 240, easing = QkEasing.Standard),
+        animationSpec = tween(durationMillis = 200, easing = QkEasing.Standard),
         label = "qkAppearAlpha",
     )
-    val shift by animateDpAsState(
-        targetValue = if (visible) 0.dp else 12.dp,
-        animationSpec = tween(durationMillis = 300, easing = QkEasing.Standard),
-        label = "qkAppearShift",
-    )
-    Box(
-        Modifier
-            .graphicsLayer {
-                this.alpha = alpha
-                translationY = shift.toPx()
-            },
-    ) {
+    Box(Modifier.graphicsLayer { this.alpha = alpha }) {
         content()
     }
 }
