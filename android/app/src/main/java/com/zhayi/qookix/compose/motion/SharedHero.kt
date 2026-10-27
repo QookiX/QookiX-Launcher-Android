@@ -1,7 +1,6 @@
 package com.zhayi.qookix.compose.motion
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
@@ -17,14 +16,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.compose.theme.QkRadius
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -32,28 +36,27 @@ import kotlin.math.roundToInt
  *
  * ## 为什么不用 `SharedTransitionLayout`
  *
- * Compose 官方的共享元素（`SharedTransitionLayout` + `Modifier.sharedElement`）
- * 要求源和目标**同时存在于组合树里**，通常配合 `AnimatedContent` 使用。
- * 而本项目 `PageHost` 用 `when (dest)` 切页 —— 一旦改成 `AnimatedContent`，
- * 各页的 `LaunchedEffect(bridgeReady)` 就不再执行（2026-10-13 踩过：
- * 内容页永远空白、版本清单加载不出来）。
+ * 官方的共享元素要求源和目标**同时存在于组合树里**，通常配 `AnimatedContent`。
+ * 而本项目 `PageHost` 用 `when (dest)` 切页 —— 换成 `AnimatedContent` 后各页的
+ * `LaunchedEffect(bridgeReady)` 不再执行（2026-10-13 踩过）。
  *
  * ## 这里的做法
  *
- * 在页面**之上**画一个临时浮层：
+ * 在页面之上画一个临时浮层，从卡片图标位置飞到详情页 hero：
  *
  * ```
- * 点卡片 → 记录图标位置(Rect) → 切页 → 目标页上报落点(Rect)
- *        → 浮层从起点飞到落点 → 落地后清除，把画面交给真实内容
+ * 点卡片 → 记录图标窗口位置 → 切页
+ *        → 浮层**立即**起飞（目标先用估算位置，不等落点）
+ *        → hero 布局完成上报真实落点 → 改目标继续飞（从当前值接续，不跳）
+ *        → 落地清除
  * ```
  *
- * 源页和目标页**不需要共存**，只是让一瞬间的视觉元素连续起来。
+ * ## 两个必须注意的坐标问题（都踩过）
  *
- * ## 坐标约定
- *
- * 源和落点都必须用 `boundsInWindow()`（窗口坐标），不能用 `boundsInParent()`
- * ——后者是相对直接父容器，跨页面/跨层就会错位（侧栏选中框那次踩过）。
- * 浮层本身放在全屏 Box 里，因此窗口坐标可以直接当父坐标用。
+ * 1. 起点/落点用 `boundsInWindow()`（窗口坐标），不能用 `boundsInParent()`
+ *    —— 后者相对直接父容器，跨层就差一个 padding。
+ * 2. **浮层自己的原点也不是窗口原点**：它挂在内容区（侧栏右侧、顶栏下方），
+ *    所以绘制时要减掉 `localToWindow(0,0)`，否则整体偏移（用户反馈「飞的位置不对」）。
  */
 object SharedHero {
 
@@ -86,43 +89,82 @@ object SharedHero {
 }
 
 /**
- * 飞行浮层。挂在 `PageHost` 的最外层 Box（全屏）里，覆盖在所有页面之上。
+ * 落点还没上报时的**估算位置**。
  *
- * 只有「起点和落点都就绪」时才真正开始动画 —— 否则会先飞到一个占位位置再跳一下。
+ * 详情页 hero 固定在「内容区左上 + 页面内边距」处（48dp 图标），
+ * 这里按横屏布局估算一个矩形。误差几十 dp 无妨：飞行本身只有几百毫秒，
+ * 真实落点到达后会自动改目标、从当前值接续。
+ */
+private fun estimatedLanding(density: Density): Rect {
+    val sideBar = 168.dp      // 侧栏展开宽（收起是 88dp，误差可接受）
+    val pagePad = 20.dp       // 内容区 padding
+    val icon = 48.dp
+    val topBar = 64.dp
+    val cx = sideBar + pagePad + icon / 2
+    val cy = topBar + 20.dp + icon / 2
+    val half = icon / 2
+    return with(density) {
+        Rect(
+            left = (cx - half).toPx(),
+            top = (cy - half).toPx(),
+            right = (cx + half).toPx(),
+            bottom = (cy + half).toPx(),
+        )
+    }
+}
+
+/**
+ * 飞行浮层。挂在 `PageHost` 的 `when(dest)` 之后（全屏 Box 最后一个子项）。
  */
 @Composable
 fun SharedHeroOverlay(modifier: Modifier = Modifier) {
     val launch = SharedHero.pending ?: return
-    val landing = SharedHero.landing ?: return
-
+    val landing = SharedHero.landing
     val density = LocalDensity.current
-    val progress = remember(launch) { Animatable(0f) }
-    LaunchedEffect(launch, landing) {
-        // slowSpatialSpec：大范围移动要慢一点才有分量（spring，会轻微过冲）
-        progress.animateTo(1f, QookiX.slowSpatialSpec())
-        SharedHero.clear()
+
+    // 浮层自己的窗口原点。它不在窗口 (0,0) —— 上边有顶栏、左边有侧栏。
+    var origin by remember { mutableStateOf<Offset?>(null) }
+
+    // 四个维度各自 Animatable：好处是「目标中途改变」时能从当前值接续，
+    // 而不是像 progress + lerp 那样一换目标就整体跳一下。
+    val left = remember(launch) { Animatable(launch.from.left) }
+    val top = remember(launch) { Animatable(launch.from.top) }
+    val w = remember(launch) { Animatable(launch.from.width) }
+    val h = remember(launch) { Animatable(launch.from.height) }
+
+    LaunchedEffect(launch, landing, origin) {
+        if (origin == null) return@LaunchedEffect
+        // ⚠️ 不等落点：先用估算位置起飞。
+        // 之前是 `val landing = SharedHero.landing ?: return` —— 要等详情页
+        // 布局完成才动，用户感知到的是「点了半天才飞」（反馈里的「延迟」）。
+        val target = landing ?: estimatedLanding(density)
+        coroutineScope {
+            // spatialSpec（spring）而不是 slowSpatialSpec：后者为大范围慢速设计，
+            // 400-600ms 的飞行在手机尺寸上显得拖沓。
+            launch { left.animateTo(target.left, QookiX.spatialSpec()) }
+            launch { top.animateTo(target.top, QookiX.spatialSpec()) }
+            launch { w.animateTo(target.width, QookiX.spatialSpec()) }
+            launch { h.animateTo(target.height, QookiX.spatialSpec()) }
+        }
+        // 只有落到**真实**落点才算完成；用的是估算位置就继续等（effect 会因
+        // landing 变化重启，从当前值接着飞）。
+        if (landing != null) SharedHero.clear()
     }
 
-    val p = progress.value
-    val left = launch.from.left + (landing.left - launch.from.left) * p
-    val top = launch.from.top + (landing.top - launch.from.top) * p
-    val w = launch.from.width + (landing.width - launch.from.width) * p
-    val h = launch.from.height + (landing.height - launch.from.height) * p
-    // 最后 15% 淡出：让浮层把画面"交给"真实的 hero，避免两个图标同时存在
-    val alpha by animateFloatAsState(
-        targetValue = if (p < 0.85f) 1f else 0f,
-        animationSpec = QookiX.effectsSpec(),
-        label = "heroFade",
-    )
-
+    val o = origin ?: Offset.Zero
     Box(
         modifier = modifier
-            .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
+            .onGloballyPositioned { origin = it.localToWindow(Offset.Zero) }
+            .offset {
+                IntOffset(
+                    (left.value - o.x).roundToInt(),
+                    (top.value - o.y).roundToInt(),
+                )
+            }
             .size(
-                width = with(density) { w.coerceAtLeast(1f).toDp() },
-                height = with(density) { h.coerceAtLeast(1f).toDp() },
+                width = with(density) { w.value.coerceAtLeast(1f).toDp() },
+                height = with(density) { h.value.coerceAtLeast(1f).toDp() },
             )
-            .graphicsLayer { this.alpha = alpha }
             .clip(RoundedCornerShape(QkRadius.medium))
             .background(launch.background),
         contentAlignment = Alignment.Center,
@@ -130,7 +172,7 @@ fun SharedHeroOverlay(modifier: Modifier = Modifier) {
         Text(
             text = launch.label,
             color = launch.foreground,
-            fontSize = with(density) { (h * 0.42f).toSp() },
+            fontSize = with(density) { (h.value * 0.42f).toSp() },
             fontWeight = FontWeight.Bold,
         )
     }
