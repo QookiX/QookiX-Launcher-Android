@@ -86,6 +86,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.annotation.StringRes
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.ui.SkeletonList
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.zhayi.qookix.compose.theme.QkRadius
 
 /**
  * 实例详情。
@@ -213,6 +215,57 @@ fun InstanceDetailPage(
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         state.error?.let { QkInlineError(it) }
+
+        // ── Hero：图标 + 名称 + 版本（2026-10-27 新增）──────────────────
+        //
+        // 两个用途：
+        //   1. 详情页顶部原来直接就是提示条 / tab，没有「这是哪个实例」的视觉锚点
+        //      （标题 2026-10-17 搬进外层贯穿顶栏了，页内就空了）
+        //   2. **共享元素转场的落点** —— 实例卡片上的图标会飞到这里
+        //
+        // 刻意做紧凑（48dp 图标，总高约 56dp）：横屏可用高度只有 320dp 左右，
+        // 72dp 的大 hero 会把内容区压掉一截。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = QkSpacing.lg, vertical = QkSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(48.dp),
+                shape = RoundedCornerShape(QkRadius.medium),
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = state.name.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+            Spacer(Modifier.width(QkSpacing.md))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = state.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (state.subtitle.isNotBlank()) {
+                    Text(
+                        text = state.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
 
         // ── 顶栏已上移（2026-10-17）────────────────────────────────────
         //
