@@ -346,9 +346,13 @@ private fun CurrentInstanceCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        // 对齐 QkRadius.card（28dp）与 QkCard 的容器色。
+        // 原来用 shapes.large(20dp) + surfaceContainerHigh —— 比其它卡片更亮、更方，
+        // 同一个屏幕里两种卡放一起不像一套（Expressive 的层次应该是
+        // 「背景 → 卡片(container) → 卡片内条目(containerLow)」三级，不是四级）。
+        shape = RoundedCornerShape(QkRadius.card),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
     ) {
         Column(modifier = Modifier.padding(QkSpacing.lg)) {
