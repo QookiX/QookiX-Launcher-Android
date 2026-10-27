@@ -597,30 +597,27 @@ fun PageHost(
     //
     // 方向在 LaunchedEffect 里**当场算**（用上一次真正生效的 dest），
     // 不放进 `remember` 缓存 —— 避免"用了过期值"。
-    val pageAnim = remember { androidx.compose.animation.core.Animatable(1f) }
-    // 用单独的状态记录"本次动画的方向"，由 LaunchedEffect 写入
-    var slideFromRight by remember { mutableStateOf(true) }
-    val lastDest = remember { mutableStateOf<NavDestination?>(null) }
-
-    LaunchedEffect(dest) {
-        val prev = lastDest.value
-        if (prev != null && prev != dest) {
-            val order = NavDestination.bottomBar
-            val pi = order.indexOf(prev)
-            val ci = order.indexOf(dest)
-            // 一级页面之间：索引增大 = 往右走（从右进）；二级页面：都从右进
-            slideFromRight = if (pi >= 0 && ci >= 0) ci >= pi else true
-            // ⚠️ 先 snap 到起点（这一帧页面是 alpha=0，用户看不到跳变），
-            // 再 animateTo(1f) —— 保证"起点 → 终点"是一条连续的曲线。
-            pageAnim.snapTo(0f)
-            pageAnim.animateTo(
-                targetValue = 1f,
-                // 统一走 QookiX.pageSpec()：MEDIUM + SoftBounce（阻尼余弦，轻微过冲）。
-                // 以前这里各自写 tween(260/320, EaseOut)，是全项目六种时长之一。
-                animationSpec = QookiX.pageSpec(),
-            )
+    // ⚠️ 2026-10-27：改成 `remember(dest)` 新建 Animatable —— 这是修「抽搐」的关键。
+    //
+    // 原来写的是 `remember { Animatable(1f) }` +
+    // `LaunchedEffect(dest) { snapTo(0f); animateTo(1f) }`：
+    // dest 变化的那次组合里 progress 还是旧值 1，Compose 会**先画出一帧完整内容**，
+    // 之后 LaunchedEffect 才执行 snapTo(0f) —— 于是看到「完整内容闪一下、再重新淡入」，
+    // 这就是抽搐。LaunchedEffect 是**组合提交后**才运行的，改不了这一帧。
+    //
+    // `remember(dest) { Animatable(起点) }` 让起点在**同一帧**就生效：
+    // dest 一变，新的 Animatable 立刻以 0 参与这一帧绘制，不存在「先画终点」。
+    //
+    // 首次进入不播（shouldAnimate = false，直接从 1f 起），之后每次切页都播。
+    val firstDest = remember { dest }
+    val shouldAnimate = dest != firstDest
+    val pageAnim = remember(dest) {
+        androidx.compose.animation.core.Animatable(if (shouldAnimate) 0f else 1f)
+    }
+    LaunchedEffect(pageAnim) {
+        if (shouldAnimate) {
+            pageAnim.animateTo(1f, QookiX.pageSpec())
         }
-        lastDest.value = dest
     }
 
     // 由同一个 progress（0→1）派生出全部视觉量，保证完全同步
