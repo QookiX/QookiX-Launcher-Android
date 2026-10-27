@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -502,6 +503,19 @@ fun InstanceDetailPage(
         // 表现为「设置 tab 内容超一屏但滑不动」。
         // 外层先给一个明确尺寸的 Box，AnimatedContent 填满它，就稳定了。
         Box(modifier = Modifier.weight(1f)) {
+            // ⚠️ 首帧只画「壳」（hero + tab 条），tab 内容推迟一帧再组合。
+            // 实测（OnePlus 8 / debug）：点卡片到 hero 就位要 126ms —— 这段时间
+            // 主线程在组合 161 个模组的列表 + 各 tab 的 LaunchedEffect，共享元素
+            // 浮层一帧都画不出来，用户的感受就是「卡一下，然后图标才飞」。
+            // 把内容挪到第二帧，hero 就能在第一帧落地、飞行从第一帧开始跑。
+            var bodyReady by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                bodyReady = true
+            }
+            if (!bodyReady) {
+                Spacer(Modifier.fillMaxSize())
+            } else {
             AnimatedContent(
                 targetState = state.tab,
                 modifier = Modifier.fillMaxSize(),
@@ -558,6 +572,7 @@ fun InstanceDetailPage(
                 InstanceTab.Crash -> CrashTab(state, onLoadCrashes, onAnalyzeCrash, onCopyCrashText, onViewCrashRaw)
             }
         }
+            }   // ← else（推迟一帧的 tab 内容）
         }   // ← Box
     }
 }
