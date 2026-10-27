@@ -203,6 +203,10 @@ dependencies {
     // Lottie 动画
     implementation("com.airbnb.android:lottie-compose:6.6.2")
 
+    // Markdown 渲染（内容详情的简介就是 Markdown）：表格/代码块/图片/链接都齐，
+    // 免去自己写解析器再把表格图片退化成纯文本。MIT。
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.29.0")
+
     debugImplementation(platform("androidx.compose:compose-bom:2025.04.01"))
     debugImplementation("androidx.compose.ui:ui-tooling")
 
