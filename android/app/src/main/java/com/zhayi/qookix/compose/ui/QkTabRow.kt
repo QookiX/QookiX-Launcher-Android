@@ -18,6 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 
 /**
  * 全 App 统一的 **tab 栏**。
@@ -84,6 +88,36 @@ fun QkTabRow(
                         onClick = { onSelect(i) },
                         label = label,
                     )
+                }
+            }
+        } else if (availableDp < 600f) {
+            // ── 窄屏（竖屏 / 小窗）：**分两行**，全部可见 ──
+            //
+            // 2026-10-28（竖屏审计）：8 个 tab 在 411dp 下横滚只能看到 4.5 个，
+            // 加渐隐提示也只是"知道右边还有"，仍然要多滑一下才能到「存储」「关于」。
+            // 竖屏的高度是够的（这两行共 96dp），分两行比横滚更好：
+            // 一次看全，不用猜、不用滑。
+            //
+            // 只对窄屏生效：平板/横屏宽度够，等分一行更整齐。
+            val cols = (labels.size + 1) / 2
+            Column(modifier = Modifier.fillMaxWidth()) {
+                labels.chunked(cols).forEachIndexed { rowIdx, rowItems ->
+                    Row(modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                        rowItems.forEachIndexed { i, label ->
+                            val index = rowIdx * cols + i
+                            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                QkTab(
+                                    selected = index == selectedIndex,
+                                    onClick = { onSelect(index) },
+                                    label = label,
+                                )
+                            }
+                        }
+                        // 最后一行不满时补空位，保证每个 tab 等宽
+                        repeat(cols - rowItems.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
                 }
             }
         } else {
