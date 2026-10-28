@@ -82,6 +82,8 @@ private data class DownloadProgress(
     val bytesDone: Long,
     val bytesTotal: Long,
     val message: String?,
+    /** 瞬时速度（字节/秒），由 Rust 侧平滑后推过来；0 = 还没有采样。 */
+    val speedBps: Long = 0,
 )
 
 // ── 入口 ───────────────────────────────────────────────────────────────────
@@ -204,6 +206,7 @@ fun LanSyncRoute(
                     bytesDone = json.optLong("bytesDone"),
                     bytesTotal = json.optLong("bytesTotal"),
                     message = if (json.has("message")) json.getString("message") else null,
+                    speedBps = json.optLong("speedBps"),
                 )
                 if (phase == "error") {
                     downloading = false
@@ -617,19 +620,56 @@ private fun DownloadProgressSection(
     when (phase) {
         "download" -> {
             val total = progress.bytesTotal
+            val done = progress.bytesDone
+            val speed = progress.speedBps
+
             if (total > 0) {
-                val ratio = (progress.bytesDone.toFloat() / total).coerceIn(0f, 1f)
+                val ratio = (done.toFloat() / total).coerceIn(0f, 1f)
                 LinearProgressIndicator(
                     progress = { ratio },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // 一行：已传 / 总量  ←→  百分比
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "${formatBytes(done)} / ${formatBytes(total)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "${(ratio * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            } else {
+                // PC 端没给 Content-Length（chunked 传输）—— 算不出百分比，
+                // 但至少要让用户看到"在动、有多少、多快"，别只给一个无限转的条。
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Text(
-                    "${formatBytes(progress.bytesDone)} / ${formatBytes(total)}",
+                    "已传输 ${formatBytes(done)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            } else {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            // 速度 + 剩余时间（total 未知时只显示速度）
+            if (speed > 0) {
+                val eta = if (total > done && total > 0) {
+                    val secs = (total - done) / speed
+                    " · 剩余 ${formatEta(secs)}"
+                } else {
+                    ""
+                }
+                Text(
+                    "${formatBytes(speed)}/s$eta",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         "extract" -> {
@@ -694,4 +734,12 @@ private fun formatBytes(bytes: Long): String {
         unit++
     }
     return if (unit == 0) "${bytes} B" else String.format("%.1f %s", size, units[unit])
+}
+
+/** 剩余时间的口语化写法：45 秒 / 3 分 20 秒 / 1 时 05 分。 */
+private fun formatEta(seconds: Long): String = when {
+    seconds <= 0 -> "即将完成"
+    seconds < 60 -> "${seconds} 秒"
+    seconds < 3600 -> "${seconds / 60} 分 ${seconds % 60} 秒"
+    else -> "${seconds / 3600} 时 ${(seconds % 3600) / 60} 分"
 }
