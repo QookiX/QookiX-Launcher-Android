@@ -512,18 +512,32 @@ private fun QkRailItem(
             )
         }
     } else {
-        // 收起态：**只显示图标**（用户要求），图标居中、整项 48dp 高。
-        // 不显示文字后每项从 56dp 降到 48dp，6 项在横屏下也不会超。
-        // contentDescription 仍传标签 —— 收起只是视觉上省空间，无障碍不能丢。
-        Box(
-            modifier = base.height(48.dp),
-            contentAlignment = Alignment.Center,
+        // 收起态：**图标 + 小字**（A 方案）。
+        //
+        // 为什么不做成纯图标：我们有 6 个入口，「内容」「多人」这类词光看图
+        // 容易混（用户也担心这点）。88dp 放一行 labelSmall 完全够。
+        //
+        // 高度预算：每项 ≈ 22(图标) + 2 + 14(小字) + 8(padding) = 46dp，
+        //   6 项 = 276dp；横屏扣掉顶栏(64) 后可用约 347dp —— 留了 70dp 余量，
+        //   挖孔屏 insets 也吃得下。
+        // （最早试过 vertical padding 8 + 56dp 项，6 项 336dp，最后一项「更多」
+        //   的文字被裁掉过，所以这里压到 4dp。）
+        Column(
+            modifier = base.padding(vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = stringResource(dest.labelRes),
+                contentDescription = null,
                 tint = fg,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(dest.labelRes),
+                style = MaterialTheme.typography.labelSmall,
+                color = fg,
+                maxLines = 1,
             )
         }
     }
