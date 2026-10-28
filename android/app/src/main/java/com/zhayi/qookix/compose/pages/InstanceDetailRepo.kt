@@ -131,16 +131,19 @@ class InstanceDetailRepo(private val api: QookixApi, private val context: androi
                         if (filename.isBlank()) return@mapNotNull null
                         val exists = wrapper.optBoolean("exists", true)
                         val disabled = filename.endsWith(".disabled")
-                        val name = rec.optString("name")
-                            .ifBlank { filename.removeSuffix(".disabled") }
+                        // ⚠️ 2026-10-28（竖屏审计）：`optString` 遇到 JSON null 会返回
+                        // 字面量 "null"，模组卡副标题就显示成 "null"（真机截图）。
+                        // 元数据缺失的模组（手动丢进 mods/ 的 jar）全都中招。
+                        val name = rec.optText("name")
+                            ?: filename.removeSuffix(".disabled")
                         ContentUi(
                             rel = filename,
                             name = name.removeSuffix(".disabled"),
                             meta = buildString {
-                                val v = rec.optString("version")
-                                if (v.isNotBlank()) append(v)
-                                val src = rec.optString("source")
-                                if (src.isNotBlank() && src != "manual") {
+                                val v = rec.optText("version")
+                                if (!v.isNullOrBlank()) append(v)
+                                val src = rec.optText("source")
+                                if (!src.isNullOrBlank() && src != "manual") {
                                     if (isNotEmpty()) append(" · ")
                                     append(src)
                                 }

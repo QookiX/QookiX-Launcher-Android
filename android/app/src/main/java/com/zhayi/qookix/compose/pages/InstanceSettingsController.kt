@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.QookixApi
+import com.zhayi.qookix.compose.bridge.optText
 import org.json.JSONObject
 
 /**
@@ -56,9 +57,11 @@ class InstanceSettingsController(
                         // check_files 缺省 = 开启（只有显式 false 才是关）。
                         memoryMode = o.optString("memory_mode").ifBlank { "global" },
                         maxMemoryMb = o.optInt("max_memory_mb").takeIf { it > 0 } ?: 2048,
-                        jvmArgs = o.optString("jvm_args"),
-                        gameArgs = o.optString("game_args"),
-                        alias = o.optString("alias"),
+                        // ⚠️ 不能 optString：字段为 JSON null 时它返回字面量 "null"，
+                        // 输入框里就会显示 "null"（真机竖屏审计发现）。
+                        jvmArgs = o.optText("jvm_args").orEmpty(),
+                        gameArgs = o.optText("game_args").orEmpty(),
+                        alias = o.optText("alias").orEmpty(),
                         checkFilesOnLaunch = o.optBoolean("check_files_on_launch", true),
                         renderer = o.optString("renderer").ifBlank { "auto" },
                     )

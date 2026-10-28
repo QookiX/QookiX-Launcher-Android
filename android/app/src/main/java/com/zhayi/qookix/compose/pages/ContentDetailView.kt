@@ -310,6 +310,15 @@ private fun BodyContent(
                         content = body,
                         // 默认 transformer 是 NoOp（图片不显示），换成 Coil3 那份
                         imageTransformer = Coil3ImageTransformerImpl,
+                        // ⚠️ 2026-10-28（竖屏审计）：不传 typography 时 H1 用的是
+                        // 库内置的 display 字号，Modrinth 正文开头一个 H1 就占掉
+                        // 三行高，比页面标题还大。压缩到和界面层级一致。
+                        typography = com.mikepenz.markdown.m3.markdownTypography(
+                            h1 = MaterialTheme.typography.headlineSmall,
+                            h2 = MaterialTheme.typography.titleLarge,
+                            h3 = MaterialTheme.typography.titleMedium,
+                            h4 = MaterialTheme.typography.titleSmall,
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

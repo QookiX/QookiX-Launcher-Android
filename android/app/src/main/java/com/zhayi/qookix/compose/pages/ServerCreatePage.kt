@@ -197,12 +197,19 @@ fun ServerCreatePage(
                 }
             }
 
-            Row(
+            // ⚠️ 2026-10-28（竖屏审计）：左栏只有 screenW*0.42（约 172dp），
+            // 「取消 + 创建服务器」两个按钮放不下 —— 原来是 Row，会把「创建服务器」
+            // 四个字挤成竖排两行、按钮缩成一个圆球。改 FlowRow：放不下就整块换行。
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
             ) {
                 OutlinedButton(onClick = onBack, enabled = !state.creating) {
-                    Text(stringResource(R.string.create_server_cancel))
+                    Text(
+                        stringResource(R.string.create_server_cancel),
+                        maxLines = 1,
+                    )
                 }
                 Button(
                     onClick = onCreate,
@@ -218,7 +225,10 @@ fun ServerCreatePage(
                         )
                         Spacer(Modifier.width(8.dp))
                     }
-                    Text(stringResource(R.string.create_server_create))
+                    Text(
+                        stringResource(R.string.create_server_create),
+                        maxLines = 1,
+                    )
                 }
             }
         }
