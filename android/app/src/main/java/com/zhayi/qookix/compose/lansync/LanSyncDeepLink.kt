@@ -29,21 +29,35 @@ object LanSyncDeepLink {
     val pending = MutableStateFlow<LanSyncParams?>(null)
 
     /**
-     * 解析 `qookix://lan/pair?host=…&port=…&token=…`。
+     * 纯解析：`qookix://lan/pair?host=…&port=…&token=…` → [LanSyncParams]。
      *
-     * @return 解析成功则写入 [pending] 并返回 true；不是同步 URI 或缺参则返回 false。
+     * 不写 [pending] —— 页内扫码拿到就用（见 LanSyncPage 的 onScanned），
+     * 避免「连过之后 pending 消费条件不成立 → 扫码没反应」。
      */
-    fun handle(uri: Uri): Boolean {
-        if (uri.scheme != "qookix" || uri.host != "lan") return false
+    fun parse(uri: Uri): LanSyncParams? {
+        if (uri.scheme != "qookix" || uri.host != "lan") return null
         val pcHost = uri.getQueryParameter("host")
         val port = uri.getQueryParameter("port")?.toIntOrNull()
         val token = uri.getQueryParameter("token")
         if (pcHost.isNullOrBlank() || port == null || token.isNullOrBlank()) {
             Log.w(TAG, "lan/pair URI 缺参数：$uri")
-            return false
+            return null
         }
-        pending.value = LanSyncParams(pcHost, port, token)
-        Log.i(TAG, "收到配对请求：$pcHost:$port")
+        return LanSyncParams(pcHost, port, token)
+    }
+
+    /**
+     * 解析并写入 [pending]（供 Activity 的 deep link 入口使用）。
+     *
+     * @return 解析成功则写入 [pending] 并返回 true；不是同步 URI 或缺参则返回 false。
+     */
+    fun handle(uri: Uri): Boolean {
+        val parsed = parse(uri) ?: return false
+        // StateFlow 按 equals 去重：同一台 PC、同一个 token 再扫一次不会发射。
+        // 先置空再赋值，保证「重复扫同一个码」也能重新触发。
+        pending.value = null
+        pending.value = parsed
+        Log.i(TAG, "收到配对请求：${parsed.host}:${parsed.port}")
         return true
     }
 }

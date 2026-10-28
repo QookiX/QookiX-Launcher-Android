@@ -350,8 +350,20 @@ fun LanSyncRoute(
                     ScannerSection(
                         onScanned = { text ->
                             val uri = Uri.parse(text)
-                            if (LanSyncDeepLink.handle(uri)) {
-                                // handle() 写入了 pending，LaunchedEffect 会消费
+                            // ⚠️ 2026-10-28 修（「扫码没反应」第二层原因）：
+                            // 原来只是 `handle()` 写 pending，靠
+                            // `LaunchedEffect(deepLinkPending)` 在 `params == null` 时才消费。
+                            // 只要之前连过一次（或连接失败留下 params），条件不成立 →
+                            // 扫到码也毫无反应。现在扫码直接接管：清掉旧会话、立刻连。
+                            val parsed = LanSyncDeepLink.parse(uri)
+                            if (parsed != null) {
+                                LanSyncDeepLink.pending.value = null
+                                deviceInfo = null
+                                connectError = null
+                                instances.clear()
+                                selectedIds = emptySet()
+                                params = parsed
+                                connectRetry += 1
                             } else {
                                 connectError = context.getString(R.string.lan_sync_bad_qr)
                             }

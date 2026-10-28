@@ -175,24 +175,77 @@ fun LanSyncScanner(
 // ── ZXing 解码 ───────────────────────────────────────────────────────────
 
 private fun decodeQr(image: ImageProxy, reader: MultiFormatReader): String? {
-    val source = image.toLuminanceSource() ?: return null
-    // 尝试原始方向 + 逆时针 90°（横屏持机时后置摄像头帧通常需要旋转）
-    val candidates = listOfNotNull(source, source.rotateCounterClockwise())
-    for (s in candidates) {
-        val binary = BinaryBitmap(HybridBinarizer(s))
-        try {
-            return reader.decode(binary).text
-        } catch (_: NotFoundException) {
-            // 试下一个方向
-        } catch (_: Exception) {
-            // ChecksumException / FormatException：这一帧糊了，继续
-        }
-    }
+    val frame = image.toLuminance() ?: return null
+    return decodeLuminance(frame.data, frame.width, frame.height, reader)
+}
+
+/**
+ * 把一帧亮度数据解成二维码内容；解不出返回 null。
+ *
+ * ⚠️ 2026-10-28 修（真机反馈「扫码没反应」）：
+ * 原来这里写的是 `listOfNotNull(source, source.rotateCounterClockwise())` ——
+ * `PlanarYUVLuminanceSource` 的 `isRotateSupported()` 恒为 false，
+ * `rotateCounterClockwise()` 直接抛 `UnsupportedOperationException`。
+ * 这行在 try 外面，异常一路冒到分析线程的外层 catch(Throwable) 被吞掉，
+ * **每一帧都失败**，所以扫什么码都没有任何反应。
+ *
+ * 现在自己旋转字节数组：先试原方向，再试逆时针 / 顺时针 90°（相机传感器
+ * 是横向的，竖持手机时二维码在帧里是躺倒的，不转会明显更难识别）。
+ *
+ * 抽成独立函数是为了能写 JVM 单测（QRCodeWriter 编码 → 本函数解码）。
+ */
+internal fun decodeLuminance(
+    data: ByteArray,
+    width: Int,
+    height: Int,
+    reader: MultiFormatReader,
+): String? {
+    if (width <= 0 || height <= 0 || data.size < width * height) return null
+
+    val original = PlanarYUVLuminanceSource(data, width, height, 0, 0, width, height, false)
+    decodeWith(original, reader)?.let { return it }
+
+    // 逆时针 90°：新图宽 = height，高 = width
+    val ccw = rotateCounterClockwise(data, width, height)
+    decodeWith(
+        PlanarYUVLuminanceSource(ccw, height, width, 0, 0, height, width, false),
+        reader,
+    )?.let { return it }
+
     return null
 }
 
-/** 把 CameraX 的 YUV_420_888 帧的 Y 平面（亮度）转成 ZXing 的 LuminanceSource。 */
-private fun ImageProxy.toLuminanceSource(): PlanarYUVLuminanceSource? {
+private fun decodeWith(source: PlanarYUVLuminanceSource, reader: MultiFormatReader): String? =
+    try {
+        reader.decode(BinaryBitmap(HybridBinarizer(source))).text
+    } catch (_: NotFoundException) {
+        null
+    } catch (_: Exception) {
+        // ChecksumException / FormatException：这一帧糊了，继续
+        null
+    }
+
+/**
+ * 逆时针旋转 90°（行优先，`out[ny * newW + nx]`）。
+ *
+ * 逆时针后：新宽 = h、新高 = w，新坐标 `(nx, ny)` 对应原 `(x, y) = (ny, w - 1 - nx)`。
+ */
+internal fun rotateCounterClockwise(data: ByteArray, w: Int, h: Int): ByteArray {
+    val out = ByteArray(w * h)
+    for (y in 0 until h) {
+        for (x in 0 until w) {
+            // 原 (x, y) → 新 (nx = y, ny = w - 1 - x)
+            out[(w - 1 - x) * h + y] = data[y * w + x]
+        }
+    }
+    return out
+}
+
+/** 一帧亮度画面（解码用，和 CameraX / Android 解耦，方便单测）。 */
+internal class LuminanceFrame(val data: ByteArray, val width: Int, val height: Int)
+
+/** 把 CameraX 的 YUV_420_888 帧的 Y 平面（亮度）取出来。 */
+private fun ImageProxy.toLuminance(): LuminanceFrame? {
     if (format != ImageFormat.YUV_420_888) return null
     val yPlane = planes[0]
     val yBuffer = yPlane.buffer
@@ -220,5 +273,5 @@ private fun ImageProxy.toLuminanceSource(): PlanarYUVLuminanceSource? {
             offset += copy
         }
     }
-    return PlanarYUVLuminanceSource(data, w, h, 0, 0, w, h, false)
+    return LuminanceFrame(data, w, h)
 }
