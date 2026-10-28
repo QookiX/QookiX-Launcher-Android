@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>QookiX Skin3D</title>
+  <style>
+    /* 宿主是离屏的：canvas 由 skin3d.js 自己 createElement，这里只需要一个
+       不占空间的容器。背景透明，避免 readPixels 读到黑底。 */
+    html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <!--
+    QookiX 皮肤 3D 预览宿主（2026-10-29 重建）。
+
+    背景：原来的 3D 预览借的是 Tauri 的隐形 IPC WebView（`RustBridge.findTauriWebView`），
+    纯 Compose 界面下那个 WebView 从来不存在，于是皮肤页永远报「WebView 不可用」。
+    现在由 Skin3dHost 自己建一个 1×1 的透明 WebView 加载本页面。
+
+    ⚠️ 脚本顺序不能反：skin3d.js 依赖 skinview3d.bundle.js 暴露的全局 SkinViewer。
+    ⚠️ 走 file:// 加载，WebView 必须开 allowFileAccessFromFileURLs /
+       allowUniversalAccessFromFileURLs，否则 bundle 里的 ES module 引不到。
+  -->
+  <script src="skinview3d.bundle.js"></script>
+  <script src="skin3d.js"></script>
+</body>
+</html>
