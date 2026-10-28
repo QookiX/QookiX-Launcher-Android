@@ -69,6 +69,9 @@ import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.ui.QkInlineError
 import com.zhayi.qookix.compose.ui.SkeletonList
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.changedToUp
 
 /**
  * 皮肤页。
@@ -650,16 +653,37 @@ private fun SkinPreview3d(
                         onPreviewBoxChanged?.invoke(true, r[0], r[1], r[2], r[3])
                     }
                 }
+                // ⚠️ 2026-10-29（用户报「动不了」）：从 detectDragGestures 改成
+                // 手写 awaitEachGesture。
+                //
+                // 原因：预览框在 `verticalScroll` 的 Column 里，而 `detectDragGestures`
+                // 要等超过 touchSlop 才「认领」手势 —— 垂直方向往往先被父级滚动抢走，
+                // 于是**只有左右能转、上下拖不动**，手感上就是「基本动不了」。
+                //
+                // 现在在 `awaitFirstDown` 时立刻 consume：这块区域由我独占，
+                // 父级滚动不再介入，上下左右都能转。
                 .pointerInput(bitmap) {
-                    detectDragGestures { _, dragAmount ->
-                        // 累积到一定阈值再提交，避免每个像素都触发一次
-                        // evaluateJavascript + 截图（那会造成大量 binder 流量）
-                        val acc = dragAccum.value + dragAmount
-                        if (kotlin.math.abs(acc.x) >= 12f || kotlin.math.abs(acc.y) >= 12f) {
-                            onDrag(acc.x, acc.y)
-                            dragAccum.value = androidx.compose.ui.geometry.Offset.Zero
-                        } else {
-                            dragAccum.value = acc
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        dragAccum.value = androidx.compose.ui.geometry.Offset.Zero
+                        var last = down.position
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (change.changedToUp() || !change.pressed) break
+                            val delta = change.position - last
+                            last = change.position
+                            change.consume()
+                            // 累积到阈值再提交：每个像素都触发一次 evaluateJavascript
+                            // + 截图会造成大量 binder 流量（系统会杀进程）。
+                            val acc = dragAccum.value + delta
+                            if (kotlin.math.abs(acc.x) >= 12f || kotlin.math.abs(acc.y) >= 12f) {
+                                onDrag(acc.x, acc.y)
+                                dragAccum.value = androidx.compose.ui.geometry.Offset.Zero
+                            } else {
+                                dragAccum.value = acc
+                            }
                         }
                     }
                 },
