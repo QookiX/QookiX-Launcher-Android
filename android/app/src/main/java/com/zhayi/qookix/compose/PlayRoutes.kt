@@ -428,13 +428,13 @@ internal fun SkinRoute(
             host3d?.setAutoRotate(on)
         },
         onPreview3dDrag = { dx, dy ->
-            // 拖拽：交给 JS 的 OrbitControls，然后重取一帧
-            host3d?.orbit(dx, dy) {
-                if (state.imageDataUrl.isNotBlank()) {
-                    host3d.snapshot { r ->
-                        r.onSuccess { preview3d = it.asImageBitmap() }
-                    }
-                }
+            // 拖动：**一次调用**完成「旋转 + 取帧」（orbitSnap），
+            // 并且用拖动专用的小尺寸（128×160）。
+            //
+            // 之前是 orbit() + snapshot() 两次 evaluateJavascript 往返，
+            // 每帧多付一次 binder + JS 调度，拖动起来就是「卡」。
+            host3d?.orbitSnap(dx, dy) { r ->
+                r.onSuccess { preview3d = it.asImageBitmap() }
             }
         },
         capes = capes,

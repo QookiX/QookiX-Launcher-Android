@@ -586,6 +586,28 @@
     },
 
     /**
+     * 拖动专用：**旋转 + 立刻取一帧**，一次调用完成。
+     *
+     * 2026-10-29 加（用户报「转起来很卡」）。
+     *
+     * 原来 Kotlin 侧是两步：
+     *   1. evaluateJavascript("orbit(dx,dy)") → 等回调
+     *   2. 回调里再 evaluateJavascript("snapshotPush(w,h)") → 等推送
+     *
+     * 两次 binder 往返，每次几~十几 ms，光排队就吃掉了拖动的手感。
+     * 合并成一次 eval 之后只剩「发出 → 推送回来」。
+     *
+     * @param outW/outH 拖动期间可以用更小的尺寸（128×160），
+     *   PNG 编码 + base64 + Kotlin 解码都随像素数线性下降。
+     */
+    orbitSnap: function (dx, dy, outW, outH) {
+      if (!ensure()) return false;
+      orbitBy(dx, dy);
+      QkSkin3D.snapshotPush(outW || 192, outH || 240);
+      return true;
+    },
+
+    /**
      * 自检：**验证旋转接口真的改变了画面**。
      *
      * "接口存在" ≠ "调用有效" —— 之前 `setView` 手改相机的写法

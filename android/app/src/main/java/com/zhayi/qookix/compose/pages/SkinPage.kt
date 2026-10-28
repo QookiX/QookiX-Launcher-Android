@@ -662,7 +662,14 @@ private fun SkinPreview3d(
                 //
                 // 现在在 `awaitFirstDown` 时立刻 consume：这块区域由我独占，
                 // 父级滚动不再介入，上下左右都能转。
-                .pointerInput(bitmap) {
+                // ⚠️⚠️ key 必须是 Unit，**不能是 bitmap**（2026-10-29 用户报「没法拖动」）。
+                //
+                // 原来写 `pointerInput(bitmap)`：每拖 12dp 就触发一次 setView + 截图，
+                // `preview3d` 更新 → bitmap 换了 → **pointerInput 整个被取消重建** →
+                // 当前手势循环在里面 break 掉。表现就是「拖一下就没反应」。
+                //
+                // 手势处理不依赖 bitmap 内容，key 用 Unit 即可，整个页面存活期只建一次。
+                .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         down.consume()
@@ -678,7 +685,10 @@ private fun SkinPreview3d(
                             // 累积到阈值再提交：每个像素都触发一次 evaluateJavascript
                             // + 截图会造成大量 binder 流量（系统会杀进程）。
                             val acc = dragAccum.value + delta
-                            if (kotlin.math.abs(acc.x) >= 12f || kotlin.math.abs(acc.y) >= 12f) {
+                            // 2026-10-29：12dp -> 4dp。12dp 在 density 2.8 下是 34px，
+                            // 拖 100px 才更新 3 次 —— 视觉上就是「一格一格地卡」。
+                            // 4dp 下同样的拖动有 9 次更新，配合合并调用后的单次往返，跟手感明显变好。
+                            if (kotlin.math.abs(acc.x) >= 4f || kotlin.math.abs(acc.y) >= 4f) {
                                 onDrag(acc.x, acc.y)
                                 dragAccum.value = androidx.compose.ui.geometry.Offset.Zero
                             } else {

@@ -71,6 +71,16 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
         private const val OUT_W = 192
         private const val OUT_H = 240
 
+        /**
+         * **拖动期间**的输出尺寸。
+         *
+         * 128×160 = 20480 像素，约为全尺寸（46080）的 44%。
+         * PNG 编码、base64 体积、Kotlin 侧解码耗时都随像素数线性下降 ——
+         * 拖动时优先跟手，松手后再用 [OUT_W]×[OUT_H] 取一张清晰的。
+         */
+        private const val DRAG_W = 192
+        private const val DRAG_H = 240
+
         /** 轮询间隔（ms）。 */
         /**
  * 轮询间隔。
@@ -382,9 +392,73 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
     }
 
     /**
+     * 拖动专用：**旋转 + 取帧一次完成**。
+     *
+     * 2026-10-29 加（用户报「转起来很卡」）。
+     *
+     * 原来 [orbit] 和 [snapshot] 是两次独立调用：
+     *   eval(orbit) → 回调 → eval(snapshotPush) → 推送
+     * 两次 binder 往返 + 两次 JS 调度，拖动时每一帧都要付这个代价。
+     *
+     * 合并后只剩「发出 → 推送回来」，并且用**更小的输出尺寸**
+     * （[DRAG_W]×[DRAG_H]）—— PNG 编码、base64、Kotlin 解码都随像素数线性下降。
+     * 松手后再用全尺寸取一帧（[snapshot]）补清晰度。
+     */
+    /** 拖动帧是否还在飞（用于丢弃积压请求，见 [orbitSnap]）。 */
+    private var orbitBusy = false
+
+    fun orbitSnap(dx: Float, dy: Float, onResult: (Result<Bitmap>) -> Unit) {
+        val wv = webView
+        if (wv == null) {
+            onResult(Result.failure(IllegalStateException(getString(R.string.skin_3d_webview_unavailable))))
+            return
+        }
+        // ⚠️⚠️ 上一帧还没回来就**丢弃**这次（2026-10-29，用户报「转起来很卡」）。
+        //
+        // 拖动时手指的 MOVE 事件（约 60-120Hz）远快于「渲染一帧」的成本
+        //（readPixels + PNG + base64 + 解码，几十 ms）。不丢的话请求会排队，
+        // 队列越来越长，越拖越慢 —— 这就是「卡」的主要来源。
+        //
+        // 丢弃是安全的：下一次 MOVE 会带着**累积位移**再来一次，
+        // 视角不会丢（delta 是累加后提交的）。
+        if (orbitBusy) return
+        orbitBusy = true
+        // 所有出口都要复位，否则一次失败会让拖动永久失效
+        val wrapped: (Result<Bitmap>) -> Unit = { r ->
+            orbitBusy = false
+            onResult(r)
+        }
+        if (!hostReady) {
+            probe { ready ->
+                if (ready) {
+                    orbitBusy = false
+                    orbitSnap(dx, dy, onResult)
+                } else {
+                    orbitBusy = false
+                    onResult(Result.failure(IllegalStateException(getString(R.string.skin_3d_init_failed))))
+                }
+            }
+            return
+        }
+        pendingFrame = wrapped
+        wv.evaluateJavascript(
+            "window.QkSkin3D ? window.QkSkin3D.orbitSnap($dx, $dy, $DRAG_W, $DRAG_H) : 'nohost'"
+        ) { r ->
+            if (r == "false" || r == "\"nohost\"") {
+                pendingFrame = null
+                orbitBusy = false
+                Log.w(TAG, "orbitSnap 未受理：$r")
+                wrapped(Result.failure(IllegalStateException(getString(R.string.skin_3d_init_failed))))
+                return@evaluateJavascript
+            }
+            if (pendingFrame != null) pollResult(0, wv, wrapped)
+        }
+    }
+
+    /**
      * 等待中的帧回调。
      *
-     * 由 [snapshot] 设置，被 `QookiXNative.onSkinFrame`（推送）
+     * 由 [snapshot] / [orbitSnap] 设置，被 `QookiXNative.onSkinFrame`（推送）
      * **或** [pollResult]（兜底）消费 —— 二者只会生效一个。
      */
     private var pendingFrame: ((Result<Bitmap>) -> Unit)? = null
