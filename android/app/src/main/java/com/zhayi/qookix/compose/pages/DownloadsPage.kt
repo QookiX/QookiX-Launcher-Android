@@ -42,6 +42,9 @@ import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import com.zhayi.qookix.compose.theme.qkPressable
 
 /**
  * 下载页。
@@ -177,10 +180,22 @@ internal fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
                     TextButton(onClick = onCancel) { Text(stringResource(R.string.download_cancel)) }
                 }
                 if (hasDetail) {
-                    IconButton(onClick = { expanded = !expanded }) {
+                    // ⚠️ 2026-10-28（用户反馈「箭头突出去」）：
+                    // IconButton 的最小触摸区是 48dp，比左边「取消」文字按钮宽得多，
+                    // 贴在 Row 右端时视觉上凸出卡片内容区。
+                    // 改成 32dp 的紧凑点击区（图标仍 20dp，触摸范围 32dp 够用）。
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .qkPressable { expanded = !expanded },
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Icon(
                             imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                             contentDescription = stringResource(R.string.download_detail_toggle),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
