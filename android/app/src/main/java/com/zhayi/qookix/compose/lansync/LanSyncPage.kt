@@ -387,11 +387,10 @@ private fun ScannerSection(
     onSwitchToManual: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            stringResource(R.string.nav_lan_sync),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
+        // ⚠️ 2026-10-28（真机逐页检查）：这里原来还有一行 headlineSmall 的
+        // 「局域网同步」大标题 —— 而共用顶栏已经写着「QookiX 局域网同步」，
+        // 同一屏出现两次页面名。删掉它，说明文字直接跟在顶栏下面。
+        // （下面「手动输入」的大标题保留：那是切换后的子状态标题，不是页面名。）
         Text(
             stringResource(R.string.lan_sync_desc),
             style = MaterialTheme.typography.bodyMedium,
