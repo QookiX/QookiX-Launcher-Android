@@ -127,8 +127,47 @@ if (shouldInstall) {
   step("安装到设备");
   const adb = join(SDK, "platform-tools", process.platform === "win32" ? "adb.exe" : "adb");
   if (!apk) throw new Error("没找到 APK，无法安装");
+
+  // ⚠️ 2026-10-28：多设备时必须显式指定。
+  //
+  // 踩过的坑：同时连着真机和模拟器时，`adb install` 会报
+  // "more than one device/emulator" 然后失败 —— 但脚本当时没把退出码
+  // 当回事，输出看起来一切正常。结果一整天的改动全装到了模拟器上，
+  // 真机还停在旧版本，而人和脚本都以为装好了。
+  //
+  // 现在：多台设备且没给 --device 就直接报错，并把设备列出来。
+  const listed = execFileSync(adb, ["devices"], { encoding: "utf8" });
+  const serials = listed
+    .split("\n")
+    .slice(1)
+    .map((l) => l.trim())
+    .filter((l) => /\tdevice$/.test(l))
+    .map((l) => l.split("\t")[0]);
+
+  if (!device && serials.length > 1) {
+    throw new Error(
+      `检测到 ${serials.length} 台设备：${serials.join(", ")}\n` +
+        `  请用 --device <serial> 指定要装哪台，例如：\n` +
+        `  node scripts/build-android.mjs ${abiName} --install --device ${serials[0]}`,
+    );
+  }
+  if (device && !serials.includes(device)) {
+    throw new Error(`--device ${device} 不在已连接设备里（当前：${serials.join(", ") || "无"}）`);
+  }
+
   const target = device ? ["-s", device] : [];
   run(adb, [...target, "install", "-r", join(apkDir, apk)]);
+  // 装完再确认一次版本，避免「Success 但其实装到别的机器」
+  try {
+    const ver = execFileSync(adb, [...target, "shell", "dumpsys", "package", "com.zhayi.qookix"], {
+      encoding: "utf8",
+    })
+      .split("\n")
+      .find((l) => l.includes("versionName="));
+    if (ver) console.log(`  已安装：${ver.trim()}`);
+  } catch {
+    // 查不到就算了，不影响主流程
+  }
 } else {
   step("跳过安装（加 --install 可自动装）");
 }
