@@ -499,7 +499,12 @@ fun BrowseToolbar(
                 .weight(1f)
                 .height(44.dp),
             placeholder = {
-                Text(stringResource(R.string.browse_search), style = MaterialTheme.typography.bodySmall)
+                // maxLines = 1：窄屏 + 界面缩放放大时，也不让它折成两行被裁掉
+                Text(
+                    stringResource(R.string.browse_search),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                )
             },
             leadingIcon = {
                 Icon(

@@ -543,6 +543,7 @@
     <string name="settings_appearance_sidebar_width">侧边栏宽度</string>
     <string name="settings_appearance_sidebar_width_desc">横屏时左侧导航栏的宽度</string>
     <string name="settings_appearance_sidebar_width_desc_changed">横屏时左侧导航栏的宽度（当前非默认）</string>
+    <string name="settings_appearance_sidebar_width_portrait">当前是竖屏（用底部导航），切到横屏才能看到效果</string>
     <string name="settings_appearance_reset_sidebar">恢复默认（168 dp）</string>
     <string name="settings_appearance_background">背景图片</string>
     <string name="settings_appearance_background_unset">未设置</string>
@@ -718,6 +719,7 @@
     <string name="settings_storage_all_files_access">所有文件访问</string>
     <string name="settings_storage_all_files_access_granted">已授权</string>
     <string name="settings_storage_all_files_access_missing">未授权，选外部目录可能失败</string>
+    <string name="settings_storage_all_files_go">去授权</string>
     <string name="settings_storage_options_group">可选目录</string>
     <string name="settings_storage_free_space">剩余 %1$s / 共 %2$s</string>
     <string name="settings_storage_removable">可插拔存储</string>

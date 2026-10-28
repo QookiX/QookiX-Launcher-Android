@@ -110,27 +110,26 @@ fun AboutPane(
 
                 Spacer(Modifier.height(QkSpacing.sm))
 
-                // ⚠️ 不能同时用 verticalAlignment = CenterVertically 和 alignByBaseline ——
-                // 后者要求 Row 用默认（Top）对齐才会按基线排列。
-                Row {
-                    // 两段文字按**基线**对齐（原来各占各的高度，版本号"浮"在标题下方）
+                // ⚠️ 2026-10-28（issue #2「关于页版本号字符显示不全」）：
+                // 原来是一个 Row + alignByBaseline 把「QookiX Launcher Android」
+                // 和「v0.2.1-beta16」硬排在一行 —— 竖屏（窄）时两段都不可压缩，
+                // 版本号直接被裁掉。改用 FlowRow：宽度够就并排，不够自动换行。
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
                     Text(
                         text = "QookiX Launcher Android",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.alignByBaseline(),
                     )
-                    Spacer(Modifier.width(10.dp))
-
                     // 版本号（2026-10-18：连点彩蛋已整体移除）
                     Text(
                         text = "v$appVersion",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier
-                            .alignByBaseline()
-                            .padding(horizontal = QkSpacing.xxs),
+                        maxLines = 1,
                     )
                 }
             }

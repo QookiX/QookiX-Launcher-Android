@@ -226,12 +226,19 @@ fun AppearancePane(
             // 为什么可调：不同人屏幕/视力差异大 —— 有人觉得 168dp 太窄，
             // 「内容服务」这种 4 字标签看不清；有人觉得太宽，占掉内容区。
             // 固定值必然有人不满意，所以交给用户自己拖。
+            // 侧边栏只在横屏存在；竖屏下拖滑杆看不到任何变化，
+            // 用户会以为「形同虚设」（issue #2）—— 明确告诉他要切横屏
+            val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+            val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
             SettingsRow(
                 title = stringResource(R.string.settings_appearance_sidebar_width),
-                subtitle = if (state.sidebarWidth == 168) {
-                    stringResource(R.string.settings_appearance_sidebar_width_desc)
-                } else {
-                    stringResource(R.string.settings_appearance_sidebar_width_desc_changed)
+                subtitle = when {
+                    !isLandscape ->
+                        stringResource(R.string.settings_appearance_sidebar_width_portrait)
+                    state.sidebarWidth == 168 ->
+                        stringResource(R.string.settings_appearance_sidebar_width_desc)
+                    else ->
+                        stringResource(R.string.settings_appearance_sidebar_width_desc_changed)
                 },
             ) {
                 Text(

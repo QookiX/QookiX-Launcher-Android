@@ -414,6 +414,13 @@ pub struct Settings {
     /// 启动器默认锁定横屏：竖屏下桌面式侧边栏会把内容挤到只剩一条缝。
     #[serde(default = "default_orientation")]
     pub orientation: String,
+    /// 横屏侧边栏宽度（dp，140~260），168 = 默认。
+    ///
+    /// ⚠️ 2026-10-28 补（issue #2「侧边栏宽度按钮形同虚设」）：前端外观页
+    /// 早就在往 settings.json 写 `sidebarWidth`，但结构体里一直没有对应字段，
+    /// `get_settings` 读不回来 → 拖完只在当前会话生效，重启就回 168。
+    #[serde(default = "default_sidebar_width", alias = "sidebarWidth")]
+    pub sidebar_width: i32,
 }
 
 fn default_translate_provider() -> String {
@@ -426,6 +433,10 @@ fn default_ui_scale() -> i32 {
 
 fn default_orientation() -> String {
     "landscape".to_string()
+}
+
+fn default_sidebar_width() -> i32 {
+    168
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

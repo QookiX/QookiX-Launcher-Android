@@ -27,6 +27,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -624,14 +625,37 @@ fun StoragePane(
     var gameDirInstances by remember { mutableStateOf("") }
     var allFilesAccess by remember { mutableStateOf(false) }
     var gameDirOptions by remember { mutableStateOf<List<GameDirOptionUi>>(emptyList()) }
+    /** 用户自定义的游戏根（空 = 用默认的应用私有目录）。 */
+    var customRoot by remember { mutableStateOf("") }
+    /**
+     * 目录状态重载计数。
+     *
+     * ⚠️ 2026-10-28（issue #2「游戏目录选择形同虚设」）：
+     * 选完目录后只调了 `onReloadSettings()`（刷设置页），但「游戏目录」这一行
+     * 显示的是 `custom_root` / `gameDirRoot`，属于 `get_game_dir_state` 的数据，
+     * 没人重新拉 —— 界面上还是旧值，用户以为没生效。
+     * 另外从系统「所有文件访问」设置页返回时也要重拉，否则授权了仍显示未授权。
+     */
+    var dirReloadKey by remember { mutableStateOf(0) }
 
-    LaunchedEffect(api, pickSeq) {
+    // 从系统设置页返回（授权「所有文件访问」/ 改完目录）后刷新一次
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) dirReloadKey++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(api, pickSeq, dirReloadKey) {
         val a = api ?: return@LaunchedEffect
         a.getGameDirState { r ->
             r.onSuccess { o ->
                 gameDirRoot = o.optString("root")
                 gameDirInstances = o.optString("instances_dir")
                 allFilesAccess = o.optBoolean("all_files_access", false)
+                customRoot = o.optString("custom_root")
             }
         }
         a.getGameDirOptions { r ->
@@ -674,6 +698,8 @@ fun StoragePane(
                         onSuccess = {
                             dirMessage = context.getString(R.string.settings_game_dir_changed)
                             onReloadSettings()
+                            // 「游戏目录」那一行读的是 get_game_dir_state，必须重拉
+                            dirReloadKey++
                         },
                         onFailure = { e ->
                             dirMessage = context.getString(
@@ -691,7 +717,10 @@ fun StoragePane(
         SettingsGroup(stringResource(R.string.settings_storage_location_group)) {
             SettingsRow(
                 title = stringResource(R.string.settings_storage_game_dir),
-                subtitle = state.dataDir.ifBlank {
+                // 显示**真正自定义的根**：`state.dataDir` 是「应用私有目录」，
+                // set_game_dir 写的是 `game_root`，两者不是同一个字段 ——
+                // 拿 dataDir 当副标题，选完目录这行永远不变（issue #2 的「形同虚设」）。
+                subtitle = customRoot.ifBlank {
                     stringResource(R.string.settings_storage_default_dir)
                 },
                 showDivider = false,
@@ -754,6 +783,14 @@ fun StoragePane(
                     ),
                     showDivider = false,
                 ) {
+                    // 未授权时给个直达入口 —— 原来这行什么按钮都没有，
+                    // 用户只能自己去系统设置里翻（issue #2：授权了还显示未授权，
+                    // 实际是授权后没有刷新，见 dirReloadKey 的 ON_RESUME 监听）
+                    if (!allFilesAccess) {
+                        TextButton(onClick = { api?.requestAllFilesAccess { } }) {
+                            Text(stringResource(R.string.settings_storage_all_files_go))
+                        }
+                    }
                 }
             }
         }
@@ -790,6 +827,7 @@ fun StoragePane(
                                         onSuccess = {
                                             dirMessage = context.getString(R.string.settings_game_dir_changed)
                                             onReloadSettings()
+                                            dirReloadKey++
                                         },
                                         onFailure = { e ->
                                             dirMessage = context.getString(
