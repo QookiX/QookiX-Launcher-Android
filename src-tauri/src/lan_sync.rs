@@ -217,18 +217,46 @@ async fn stream_download(
     new_id: &str,
     instance_name: &str,
 ) -> Result<(), String> {
-    let resp = client()
-        .get(endpoint(
-            host,
-            port,
-            &format!("/api/instances/{remote_id}"),
-        ))
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(|e| format!("下载请求失败：{e}"))?;
+    // ⚠️ 2026-10-28（真机：下载请求失败 error sending request）：
+    // 列表能拉出来、下载却连不上 —— 说明不是网络不通，而是**这一次连接**被拒/超时。
+    // 常见原因是 PC 端在打包 zip（几十秒），期间不再 accept 新连接。
+    //
+    // 所以重试 3 次（0.5s / 1s / 1.5s 退避）；仍失败才报错，并且错误文案区分
+    // 「连不上电脑」和「电脑返回错误」—— 前者让用户去看防火墙/PC 是否还在跑。
+    let url = endpoint(host, port, &format!("/api/instances/{remote_id}"));
+    let mut last_err = String::new();
+    let mut resp = None;
+    for attempt in 0..3u32 {
+        if attempt > 0 {
+            let wait = std::time::Duration::from_millis(500 * attempt as u64);
+            crate::util::log_line(&format!(
+                "[lan] 下载连接失败，{}ms 后重试（第 {} 次）：{last_err}",
+                wait.as_millis(),
+                attempt + 1
+            ));
+            tokio::time::sleep(wait).await;
+        }
+        match client().get(&url).bearer_auth(token).send().await {
+            Ok(r) => {
+                resp = Some(r);
+                break;
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    let resp = resp.ok_or_else(|| {
+        format!(
+            "连不上电脑（{host}:{port}），已重试 3 次。\n\
+             请确认电脑上的 QookiX 还在运行、没有正在打包大文件，并检查防火墙是否放行。\n\
+             原始错误：{last_err}"
+        )
+    })?;
     if !resp.status().is_success() {
-        return Err(format!("下载失败：HTTP {}", resp.status()));
+        return Err(format!(
+            "电脑返回错误：HTTP {}（接口 {}）",
+            resp.status(),
+            url
+        ));
     }
 
     let total = resp.content_length().unwrap_or(0);
@@ -243,6 +271,10 @@ async fn stream_download(
 
     let mut done: u64 = 0;
     let mut last_emit = std::time::Instant::now();
+    // 速度用「两次推送之间的增量 / 间隔」算，再做一次指数平滑。
+    // 直接拿瞬时值会让数字疯狂跳动（250ms 的窗口里抖动很大）。
+    let mut last_bytes: u64 = 0;
+    let mut speed_bps: f64 = 0.0;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("下载中断：{e}"))?;
@@ -252,7 +284,16 @@ async fn stream_download(
         done += chunk.len() as u64;
 
         // 每 250ms 推一次进度，别刷爆事件通道（Kotlin 那侧要切主线程分发）
-        if last_emit.elapsed() > std::time::Duration::from_millis(250) {
+        let elapsed = last_emit.elapsed();
+        if elapsed > std::time::Duration::from_millis(250) {
+            let instant = (done - last_bytes) as f64 / elapsed.as_secs_f64().max(0.001);
+            speed_bps = if speed_bps <= 0.0 {
+                instant
+            } else {
+                // 0.6 旧值 + 0.4 新值：既跟得上变化，又不至于每 250ms 跳一下
+                speed_bps * 0.6 + instant * 0.4
+            };
+            last_bytes = done;
             crate::progress::push(
                 "lan://progress",
                 serde_json::json!({
@@ -261,6 +302,8 @@ async fn stream_download(
                     "instanceName": instance_name,
                     "bytesDone": done,
                     "bytesTotal": total,
+                    // 字节/秒。前端自己算 ETA（total 为 0 时也能显示"已传 X · Y/s"）
+                    "speedBps": speed_bps.round() as u64,
                 }),
             );
             last_emit = std::time::Instant::now();
