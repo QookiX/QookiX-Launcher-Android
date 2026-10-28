@@ -961,6 +961,15 @@
     <string name="lan_sync_has_saves">含存档</string>
     <string name="lan_sync_has_mods">含模组</string>
     <string name="lan_sync_reconnect">重连</string>
+    <string name="lan_sync_upload_title">发送到电脑</string>
+    <string name="lan_sync_upload_desc">把手机上的实例打包传给电脑（不含日志与共享游戏文件）</string>
+    <string name="lan_sync_upload_loading">正在读取本机实例…</string>
+    <string name="lan_sync_upload_no_instance">本机还没有实例</string>
+    <string name="lan_sync_upload_pick">要发送的实例</string>
+    <string name="lan_sync_upload_send">发送</string>
+    <string name="lan_sync_upload_packing">正在打包（已处理 %1$d 个文件）</string>
+    <string name="lan_sync_upload_done">已发送到电脑</string>
+    <string name="lan_sync_upload_failed">发送失败</string>
     <string name="lan_sync_bad_qr">无法识别的二维码，请确认扫的是 QookiX 桌面端的配对码</string>
     <string name="lan_sync_progress_count">同步中（%1$d/%2$d）</string>
     <string name="lan_sync_all_done">已同步 %1$d 个实例</string>

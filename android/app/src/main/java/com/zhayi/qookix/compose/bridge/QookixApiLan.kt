@@ -54,3 +54,22 @@ fun QookixApi.lanDownloadInstance(
         .put("instanceName", instanceName),
     onResult,
 )
+
+/**
+ * 把本地实例打包上传到电脑（`POST /api/instances/upload`）。
+ *
+ * 打包与上传进度走 `lan://progress` 事件（`direction = "upload"`，
+ * `phase` 依次 pack → upload → done/error），不在这层返回。
+ * 成功时 result 是 `{remoteId: "电脑端的新实例 id"}`（老服务端可能为空串）。
+ */
+fun QookixApi.lanUploadInstance(
+    host: String,
+    port: Int,
+    token: String,
+    instanceId: String,
+    onResult: (Result<JSONObject>) -> Unit,
+) = callObj(
+    "lan_upload_instance",
+    lanEndpoint(host, port, token).put("instanceId", instanceId),
+    onResult,
+)

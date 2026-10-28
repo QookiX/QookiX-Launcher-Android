@@ -4,6 +4,7 @@
 //!   · `lan_connect`        — 验证 token + 拿 PC 设备信息
 //!   · `lan_list_instances` — 拿 PC 上的实例列表
 //!   · `lan_download_instance` — 流式下载 + 解压一个实例到本地
+//!   · `lan_upload_instance`   — 打包本地实例并上传到 PC（反向）
 //!
 //! 进度走 `lan://progress` 事件（见 `lan_sync.rs`），不在这层返回。
 
@@ -16,6 +17,7 @@ pub(crate) const HANDLED: &[&str] = &[
     "lan_connect",
     "lan_list_instances",
     "lan_download_instance",
+    "lan_upload_instance",
 ];
 
 /// 主分发入口：不是本域的命令返回 `None`。
@@ -63,6 +65,19 @@ async fn run(cmd: &str, p: &Value) -> String {
                 .await
             {
                 Ok(new_id) => ok(serde_json::json!({ "instanceId": new_id })),
+                Err(e) => err(e),
+            }
+        }
+        "lan_upload_instance" => {
+            let (host, port, token) = match parse_endpoint(p) {
+                Ok(v) => v,
+                Err(e) => return err(e),
+            };
+            let Some(instance_id) = sarg(p, &["instanceId", "instance_id", "id"]) else {
+                return err("缺少 instanceId");
+            };
+            match crate::lan_sync::upload_instance(&host, port, &token, &instance_id).await {
+                Ok(remote_id) => ok(serde_json::json!({ "remoteId": remote_id })),
                 Err(e) => err(e),
             }
         }

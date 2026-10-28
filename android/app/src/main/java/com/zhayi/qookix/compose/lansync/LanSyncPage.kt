@@ -55,6 +55,7 @@ import com.zhayi.qookix.compose.bridge.RustBridge
 import com.zhayi.qookix.compose.bridge.lanConnect
 import com.zhayi.qookix.compose.bridge.lanDownloadInstance
 import com.zhayi.qookix.compose.bridge.lanListInstances
+import com.zhayi.qookix.compose.theme.QkSpacing
 import com.zhayi.qookix.compose.ui.QkFeedback
 import org.json.JSONObject
 
@@ -301,28 +302,39 @@ fun LanSyncRoute(
                     onBack = { params = null; connectError = null },
                 )
             }
-            // 已连接 → 实例列表
+            // 已连接 → 电脑上的实例（往下拉）+ 把本机实例发上去
             deviceInfo != null -> {
-                InstanceListSection(
-                    deviceInfo = deviceInfo!!,
-                    instances = instances,
-                    selectedIds = selectedIds,
-                    onToggle = { id ->
-                        selectedIds = if (id in selectedIds) {
-                            selectedIds - id
-                        } else {
-                            selectedIds + id
-                        }
-                    },
-                    instancesLoading = instancesLoading,
-                    instancesError = instancesError,
-                    onRetry = { instancesError = null; listRetry += 1 },
-                    onDownload = { startDownload() },
-                    onDisconnect = {
-                        params = null; deviceInfo = null; instances.clear()
-                        selectedIds = emptySet(); connectError = null
-                    },
-                )
+                val p = params
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        InstanceListSection(
+                            deviceInfo = deviceInfo!!,
+                            instances = instances,
+                            selectedIds = selectedIds,
+                            onToggle = { id ->
+                                selectedIds = if (id in selectedIds) {
+                                    selectedIds - id
+                                } else {
+                                    selectedIds + id
+                                }
+                            },
+                            instancesLoading = instancesLoading,
+                            instancesError = instancesError,
+                            onRetry = { instancesError = null; listRetry += 1 },
+                            onDownload = { startDownload() },
+                            onDisconnect = {
+                                params = null; deviceInfo = null; instances.clear()
+                                selectedIds = emptySet(); connectError = null
+                            },
+                        )
+                    }
+                    if (p != null) {
+                        LanSyncUploadSection(api = api, bridge = bridge, params = p)
+                    }
+                }
             }
             // 未连接 → 扫码 / 手动输入
             else -> {
