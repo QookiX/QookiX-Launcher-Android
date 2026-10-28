@@ -428,6 +428,7 @@ private fun titleFor(d: NavDestination): String = stringResource(
         NavDestination.Playtime -> R.string.shell_title_playtime
         NavDestination.FrpRooms -> R.string.shell_title_frp_rooms
         NavDestination.Frp -> R.string.shell_title_frp
+        NavDestination.LanSync -> R.string.nav_lan_sync
     }
 )
 

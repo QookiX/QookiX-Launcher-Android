@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -77,10 +78,11 @@ internal fun ProfileIdentityCard(current: AccountUi?) {
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
+                        // 名字已经在上面一行了，这里只说账号类型，别重复名字
                         text = if (current.online) {
-                            stringResource(R.string.skin_current_account_online, current.name)
+                            stringResource(R.string.profile_account_online)
                         } else {
-                            stringResource(R.string.skin_current_account_offline, current.name)
+                            stringResource(R.string.profile_account_offline)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -124,6 +126,12 @@ internal fun ProfileEntryList(onNavigate: (NavDestination) -> Unit, modifier: Mo
         listOf(
             MoreEntry("downloads", R.string.profile_downloads, Icons.Filled.Download) {
                 onNavigate(NavDestination.Downloads)
+            },
+            // 局域网同步原来只能靠桌面端二维码 deep link 唤起，
+            // 应用里根本找不到入口（NavDestination 的注释写着「或设置页入口」，
+            // 但设置页一直没做）。放在「下载任务」旁边最顺手 —— 都是「把东西搬进来」。
+            MoreEntry("lan", R.string.nav_lan_sync, Icons.Filled.SwapHoriz) {
+                onNavigate(NavDestination.LanSync)
             },
             MoreEntry("skins", R.string.more_skins, Icons.Filled.Person) {
                 onNavigate(NavDestination.Skins)

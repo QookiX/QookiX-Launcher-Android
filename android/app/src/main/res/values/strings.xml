@@ -366,6 +366,8 @@
     <string name="account_open">打开</string>
     <string name="account_empty_title">还没有账号</string>
     <string name="profile_add_hint">在下方添加账号后就能启动游戏（离线账号也可以）</string>
+    <string name="profile_account_offline">离线账号</string>
+    <string name="profile_account_online">微软正版账号</string>
     <string name="profile_tasks">进行中的任务</string>
     <string name="profile_downloads">下载任务</string>
     <string name="account_empty_desc">点击添加账号</string>
@@ -928,7 +930,38 @@
 
     <!-- ── 内容详情页（ContentDetailPage.kt）──────────────────────────── -->
     <string name="nav_content_detail">内容详情</string>
+
+    <!-- ── 局域网直传同步（LanSyncPage.kt）────────────────────────────── -->
+    <string name="nav_lan_sync">局域网同步</string>
+    <string name="lan_sync_desc">扫描桌面端二维码，把电脑上的实例同步到手机</string>
+    <string name="lan_sync_scan">扫码配对</string>
+    <string name="lan_sync_manual_input">手动输入</string>
+    <string name="lan_sync_host">IP 地址</string>
+    <string name="lan_sync_port">端口</string>
+    <string name="lan_sync_token">令牌</string>
+    <string name="lan_sync_connect">连接</string>
+    <string name="lan_sync_connecting">正在连接…</string>
+    <string name="lan_sync_connected">已连接：%1$s</string>
+    <string name="lan_sync_connect_failed">连接失败</string>
+    <string name="lan_sync_loading">正在加载实例列表…</string>
+    <string name="lan_sync_no_instances">PC 上没有可同步的实例</string>
+    <string name="lan_sync_select">选择要同步的实例</string>
+    <string name="lan_sync_download">同步到手机</string>
+    <string name="lan_sync_downloading">正在同步：%1$s</string>
+    <string name="lan_sync_extracting">正在解压…</string>
+    <string name="lan_sync_done">同步完成</string>
+    <string name="lan_sync_failed">同步失败：%1$s</string>
+    <string name="lan_sync_camera_perm">需要相机权限才能扫码</string>
+    <string name="lan_sync_grant_perm">授予权限</string>
+    <string name="lan_sync_size">大小</string>
+    <string name="lan_sync_has_saves">含存档</string>
+    <string name="lan_sync_has_mods">含模组</string>
+    <string name="lan_sync_reconnect">重连</string>
+    <string name="lan_sync_bad_qr">无法识别的二维码，请确认扫的是 QookiX 桌面端的配对码</string>
+    <string name="lan_sync_progress_count">同步中（%1$d/%2$d）</string>
+    <string name="lan_sync_all_done">已同步 %1$d 个实例</string>
     <string name="common_retry">重试</string>
+    <string name="common_back">返回</string>
     <string name="content_detail_author">作者：%1$s</string>
     <string name="content_detail_downloads">%1$s 次下载</string>
     <string name="content_detail_body">介绍</string>

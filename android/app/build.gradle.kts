@@ -185,6 +185,15 @@ dependencies {
     // 宿主 Activity：enableEdgeToEdge + setContent
     implementation("androidx.activity:activity-compose:1.10.1")
 
+    // ── 局域网同步：扫码配对 ──────────────────────────────────────────────
+    // CameraX：相机预览 + 帧分析（AndroidX Java 库，无 Kotlin metadata 兼容问题）
+    implementation("androidx.camera:camera-core:1.4.1")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+    // ZXing：二维码解码核心（纯 Java，无 Kotlin 依赖）
+    implementation("com.google.zxing:core:3.5.3")
+
     // ── 生态库：让界面「活起来」的那些 ──────────────────────────────────────
     // ⚠️ 版本选择受一个硬约束：本工程编译器是 **Kotlin 2.0.21**，
     //    读不了用更新 Kotlin 编译的库的 metadata（报

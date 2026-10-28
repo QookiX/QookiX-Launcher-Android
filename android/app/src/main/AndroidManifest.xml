@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 关于页彩蛋：曲奇炸碎时 navigator.vibrate 触发一下震动反馈 -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 局域网同步：扫码配对需要相机 -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- 控制布局可以通过 content:// 从外部导入（Pojav 的 ImportControlActivity 同款） -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -120,6 +122,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!--
+              局域网直传同步：桌面端起 HTTP 服务后生成
+              `qookix://lan/pair?host=192.168.x.x&port=8765&token=xxx` 二维码，
+              手机扫码后系统用这个 intent-filter 唤起 QookiX，直接进同步页。
+
+              launchMode="singleTask"：已在运行时走 onNewIntent 而非重建，
+              这样从桌面端「打开同步面板 → 扫码」不会丢已有页面状态。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="qookix" android:host="lan" />
             </intent-filter>
         </activity>
 

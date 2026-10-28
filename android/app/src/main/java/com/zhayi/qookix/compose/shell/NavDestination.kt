@@ -176,6 +176,18 @@ enum class NavDestination(
         selectedIcon = Icons.Filled.Explore,
         unselectedIcon = Icons.Outlined.Explore,
     ),
+    /**
+     * 局域网直传同步（从桌面端扫码进入，或设置页入口）。
+     *
+     * 不在底栏；由 `qookix://lan/pair?…` deep link 或设置页跳转进入。
+     * 配对参数在 [com.zhayi.qookix.compose.lansync.LanSyncDeepLink]。
+     */
+    LanSync(
+        route = "lan-sync",
+        labelRes = R.string.nav_lan_sync,
+        selectedIcon = Icons.Filled.SwapHoriz,
+        unselectedIcon = Icons.Outlined.SwapHoriz,
+    ),
     ;
 
     companion object {

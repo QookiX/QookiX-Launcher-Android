@@ -10,6 +10,7 @@ mod dispatch_controls;
 mod dispatch_files;
 mod dispatch_server;
 mod dispatch_account;
+mod dispatch_lan;
 
 use crate::models::*;
 use crate::settings;
@@ -229,6 +230,9 @@ pub fn native_invoke(cmd: &str, payload: &str) -> String {
             return r;
         }
         if let Some(r) = dispatch_controls::dispatch(cmd, &p).await {
+            return r;
+        }
+        if let Some(r) = dispatch_lan::dispatch(cmd, &p).await {
             return r;
         }
         match cmd {

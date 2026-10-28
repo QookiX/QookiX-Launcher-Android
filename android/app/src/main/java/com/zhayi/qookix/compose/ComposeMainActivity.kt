@@ -53,6 +53,7 @@ import com.zhayi.qookix.compose.shell.NavDestination
 import com.zhayi.qookix.compose.theme.QookiXTheme
 import com.zhayi.qookix.tauri.TauriBridge
 import android.content.Intent
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.kdt.pojavlaunch.CustomControlsActivity
 
 /**
@@ -185,11 +186,21 @@ class ComposeMainActivity : ComponentActivity() {
         com.zhayi.qookix.compose.bridge.RustBridge.deliverEvent(event, payload)
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 局域网同步 deep link：qookix://lan/pair?host=…&port=…&token=…
+        // singleTask 下已在运行时扫码走这里（不重建 Activity）
+        intent.data?.let { com.zhayi.qookix.compose.lansync.LanSyncDeepLink.handle(it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // 最先挂上：之后任何未捕获异常都会落盘，用户能通过「导出日志」带出来。
         installCrashHandler()
         super.onCreate(savedInstanceState)
         TauriBridge.attach(this)
+
+        // 冷启动由 deep link 唤起时，intent.data 就是 qookix://lan/pair?…
+        intent?.data?.let { com.zhayi.qookix.compose.lansync.LanSyncDeepLink.handle(it) }
 
         // 游戏退出后重启进程（否则第二次启动必崩，见 watchGameExitAndRestart 的注释）
         watchGameExitAndRestart()
@@ -1436,6 +1447,9 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 NavDestination.Account -> NavDestination.Home
                 // 内容详情是内容中心的下钻层
                 NavDestination.ContentDetail -> NavDestination.Browse
+                // 局域网同步：从 deep link 或设置进入，返回回首页
+                // 局域网同步从「我的」进，返回也回「我的」
+                NavDestination.LanSync -> NavDestination.Account
                 else -> null
             }
 
@@ -1467,6 +1481,15 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             fun navigate(dest: NavDestination) {
                 if (dest in NavDestination.bottomBar) { current = dest; backStack.clear() }
                 else { if (current !in NavDestination.bottomBar) backStack.add(current); current = dest }
+            }
+
+            // Deep link qookix://lan/pair?… → 跳同步页（参数在 LanSyncDeepLink.pending）
+            val lanSyncPending by com.zhayi.qookix.compose.lansync.LanSyncDeepLink.pending
+                .collectAsStateWithLifecycle()
+            LaunchedEffect(lanSyncPending) {
+                if (lanSyncPending != null && current != NavDestination.LanSync) {
+                    navigate(NavDestination.LanSync)
+                }
             }
 
             // 首启「准备运行环境」：检查 + 自动补齐 + 逐项进度 + 失败可见。

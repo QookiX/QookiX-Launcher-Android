@@ -5,6 +5,7 @@ import com.zhayi.qookix.compose.theme.QkSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -85,40 +86,80 @@ fun AccountPanel(
     onSelect: (String) -> Unit,
     onRemove: (String) -> Unit,
     onDismissError: () -> Unit,
+    /**
+     * true = 嵌在别处的滚动容器里（「我的」页）。
+     *
+     * 这时**不能**再用 `fillMaxSize` / `LazyColumn`：外层已经是
+     * `verticalScroll`，内部再来一个无界高度的滚动列表会直接崩
+     *（"measured with infinity maximum height constraints"）。
+     * 改成普通 Column 铺开（账号一般不超过十个，不需要懒加载）。
+     */
+    embedded: Boolean = false,
 ) {
     var showAdd by remember { mutableStateOf(false) }
     var addMode by remember { mutableStateOf(AddMode.Offline) }
     var removeTarget by remember { mutableStateOf<AccountUi?>(null) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
         // ── 顶部标题 + 添加入口 ────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.account_title),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-            )
-            FilledTonalButton(onClick = { addMode = AddMode.Offline; showAdd = true }) {
-                Icon(Icons.Filled.PersonAdd, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.account_add_offline))
+        //
+        // 嵌在「我的」页里时，窄屏放不下「标题 + 两个按钮」一行 ——
+        // 标题会被挤成竖排（真机/模拟器都复现过），所以改成上下两行。
+        if (embedded) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+                Text(
+                    text = stringResource(R.string.account_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Spacer(Modifier.height(QkSpacing.xs))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
+                    FilledTonalButton(onClick = { addMode = AddMode.Offline; showAdd = true }) {
+                        Icon(Icons.Filled.PersonAdd, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.account_add_offline))
+                    }
+                    Button(onClick = {
+                        addMode = AddMode.Microsoft
+                        showAdd = true
+                        onStartMsLogin()
+                    }) {
+                        Icon(Icons.Filled.Wifi, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.account_ms_login))
+                    }
+                }
             }
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = {
-                addMode = AddMode.Microsoft
-                showAdd = true
-                onStartMsLogin()
-            }) {
-                Icon(Icons.Filled.Wifi, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.account_ms_login))
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.account_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                FilledTonalButton(onClick = { addMode = AddMode.Offline; showAdd = true }) {
+                    Icon(Icons.Filled.PersonAdd, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.account_add_offline))
+                }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = {
+                    addMode = AddMode.Microsoft
+                    showAdd = true
+                    onStartMsLogin()
+                }) {
+                    Icon(Icons.Filled.Wifi, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.account_ms_login))
+                }
             }
         }
 
@@ -181,8 +222,17 @@ fun AccountPanel(
                 SkeletonList(rows = 2, rowHeight = 72.dp)
             }
 
-            accounts.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // 「我的」页的身份卡已经写了「还没有账号」，这里不再重复一块空态
+            embedded && accounts.isEmpty() -> Unit
+
+            accounts.isEmpty() -> Box(
+                modifier = if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = if (embedded) Modifier.padding(QkSpacing.lg) else Modifier,
+                ) {
                     Text(
                         text = stringResource(R.string.account_empty_title),
                         style = MaterialTheme.typography.titleMedium,
@@ -193,6 +243,22 @@ fun AccountPanel(
                         text = stringResource(R.string.account_empty_desc),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            embedded -> Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = QkSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+            ) {
+                accounts.forEach { a ->
+                    AccountCard(
+                        account = a,
+                        isCurrent = a.uuid == currentUuid,
+                        onSelect = { onSelect(a.uuid) },
+                        onRemove = { removeTarget = a },
                     )
                 }
             }

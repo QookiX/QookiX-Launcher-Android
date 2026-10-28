@@ -300,20 +300,29 @@ internal fun AccountRoute(
         error = context.getString(R.string.login_timeout_detail)
     }
 
-    // ── 身份卡：头像 + 名字 + 账号类型（展示块在 ProfilePage.kt）─────────
-    val current = accounts.firstOrNull { it.uuid == currentUuid }
-    ProfileIdentityCard(current)
+    // 「我的」页：整页一条竖向滚动流，各块之间用统一间距。
+    //
+    // ⚠️ 必须包一层 Column：之前这些块直接平铺在函数体里，等于交给外层
+    // 的同一个容器，结果**全部叠在一起**（用户截图反馈）。
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // ── 身份卡：头像 + 名字 + 账号类型（展示块在 ProfilePage.kt）─────
+        val current = accounts.firstOrNull { it.uuid == currentUuid }
+        ProfileIdentityCard(current)
 
-    // ── 进行中的任务（下载 / 安装 / 补全）────────────────────────────────
-    ProfileTasksSection(tasks, onCancelTask)
+        // ── 进行中的任务（下载 / 安装 / 补全）────────────────────────────
+        ProfileTasksSection(tasks, onCancelTask)
 
-    // ── 入口列表（下载任务 / 皮肤 / 统计 / 新闻 / 设置）─────────────────
-    ProfileEntryList(
-        onNavigate,
-        modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 10.dp),
-    )
+        // ── 入口列表（下载任务 / 皮肤 / 统计 / 新闻 / 设置）─────────────
+        ProfileEntryList(
+            onNavigate,
+            modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 10.dp),
+        )
 
-    AccountPanel(
+        AccountPanel(
         accounts = accounts,
         loading = loading,
         msFlow = msFlow,
@@ -380,7 +389,11 @@ internal fun AccountRoute(
             }
         },
         onDismissError = { error = null },
+        // 嵌在上面的滚动 Column 里：内部不能用 fillMaxSize / LazyColumn
+        embedded = true,
     )
+        Spacer(Modifier.height(QkSpacing.xl))
+    }
 }
 
 

@@ -189,6 +189,9 @@ class QookixApi(private val bridge: RustBridge) {
         onResult: (Result<String>) -> Unit,
     ) = call(cmd, payload, onResult)
 
+    // ── 局域网直传同步 ────────────────────────────────────────────────────
+    // 三个 `lan_*` 包装在 QookixApiLan.kt（扩展函数），别再加回这里。
+
     // ── 实例 ──────────────────────────────────────────────────────────────
 
     /** 实例列表。 */

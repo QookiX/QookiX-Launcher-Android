@@ -155,6 +155,7 @@ import com.zhayi.qookix.compose.pages.TaskUi
 import com.zhayi.qookix.compose.pages.TasksRepo
 import com.zhayi.qookix.compose.pages.loadNews
 import com.zhayi.qookix.compose.pages.parseNews
+import com.zhayi.qookix.compose.lansync.LanSyncRoute
 import com.zhayi.qookix.compose.pages.settings.AboutPane
 import com.zhayi.qookix.compose.pages.settings.AppearancePane
 import com.zhayi.qookix.compose.pages.settings.ContentServicesPane
@@ -993,6 +994,14 @@ fun PageHost(
             onNavigate = onNavigate,
         )
 
+        NavDestination.LanSync -> LanSyncRoute(
+            bridge = bridge,
+            bridgeReady = bridgeReady,
+            // 主入口在「我的」，返回也回那里（与 parentOf 保持一致）；
+            // deep link 冷启动进来时「我的」是底栏 tab，不会迷路。
+            onBack = { onNavigate(NavDestination.Account) },
+        )
+
         else -> PlaceholderPage(dest)
     }
 
@@ -1138,11 +1147,17 @@ private fun InstanceDetailRoute(
     // 普遍超过 40 秒 —— 轮询结束后才选完文件，control-import.json 就永远
     // 没人读，界面毫无反应。现在宿主在 onActivityResult 写完盘后 tick +1，
     // 这里 collect 到就立刻取走结果（onLayoutImport 里另有 10 秒短轮询兜底）。
+    /** 按键布局列表的强制重载计数（导入完必须重载，否则列表看不出变化）。 */
+    var keysReload by remember(instanceId) { mutableStateOf(0) }
+
     fun consumeControlImport(s: String?) {
         val o = runCatching { org.json.JSONObject(s ?: "") }.getOrNull() ?: return
         if (o.optBoolean("ok")) {
-            // 成功：回到按键 tab，列表里就能看到 TMP_IMPORT_FILE
+            // 成功：回到按键 tab 并**强制重载列表** ——
+            // 只在 Keys tab 时切 tab 不改变 state.tab，LaunchedEffect 不会重启，
+            // 列表就一直停在导入前（用户看到的就是「导入了但列表没变」）。
             state = state.copy(tab = InstanceTab.Keys)
+            keysReload += 1
             android.widget.Toast.makeText(
                 context,
                 context.getString(R.string.control_import_done, o.optInt("buttons")),
@@ -1418,7 +1433,7 @@ private fun InstanceDetailRoute(
     }
 
     // 按 tab 懒加载
-    LaunchedEffect(bridgeReady, instanceId, state.tab) {
+    LaunchedEffect(bridgeReady, instanceId, state.tab, keysReload) {
         if (!bridgeReady) return@LaunchedEffect
         state = state.copy(loading = true, error = null)
         when (state.tab) {
