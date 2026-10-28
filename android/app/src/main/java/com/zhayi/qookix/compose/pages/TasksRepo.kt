@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import android.util.Log
 import com.zhayi.qookix.compose.bridge.*
 import org.json.JSONObject
+import com.zhayi.qookix.LaunchStageBus
 
 /**
  * 下载 / 安装任务的实时状态仓库。
@@ -233,6 +234,19 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
                 e.finished = true
                 e.ok = o.optBoolean("ok", true)
                 e.speed = 0.0
+                LaunchStageBus.clear()
+            } else {
+                // 同步给启动悬浮层：启动时「补全文件」阶段游戏进程还没起，
+                // 那边只能读游戏日志（空的）→ 一直显示「正在准备运行环境」。
+                // 通过总线把「正在做什么」传过去（用户反馈「启动没动静」）。
+                LaunchStageBus.update(
+                    detail = e.message.ifBlank { e.title }.ifBlank { null },
+                    progress = if (e.stepTotal > 0) {
+                        e.stepDone.toFloat() / e.stepTotal
+                    } else {
+                        -1f
+                    },
+                )
             }
             emit()
         }.onFailure { Log.w(TAG, "解析 install://progress 失败", it) }
@@ -256,6 +270,16 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
 
             val current = o.optString("current")
             if (current.isNotBlank()) e.message = current
+
+            // 同 onInstall：让启动悬浮层能看到「正在下哪个文件、多少了」。
+            LaunchStageBus.update(
+                detail = (e.message.ifBlank { e.title }).ifBlank { null },
+                progress = when {
+                    e.bytesTotal > 0 -> e.bytesDone.toFloat() / e.bytesTotal
+                    e.fileTotal > 0 -> e.fileDone.toFloat() / e.fileTotal
+                    else -> -1f
+                },
+            )
 
             sampleSpeed(e)
             emit()

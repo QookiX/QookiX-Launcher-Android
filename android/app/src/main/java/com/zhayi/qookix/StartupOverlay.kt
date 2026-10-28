@@ -292,7 +292,15 @@ class StartupOverlay @JvmOverloads constructor(
 
         val stageRes = if (failed) R.string.startup_failed else stageFor(text)
         val elapsedText = context.getString(R.string.startup_elapsed, elapsed)
-        stageView.text = "${context.getString(stageRes)} · $elapsedText"
+        // 游戏日志还没出东西时（说明还在**补全/下载文件**），优先显示总线的
+        // 具体动作 —— 否则永远停在「正在准备运行环境…」，用户以为卡死
+        //（真机反馈「1.8.9 启动没动静了」，实际是在下 22.5MB 的 jar）。
+        val busDetail = LaunchStageBus.detail
+        stageView.text = if (!failed && text.isBlank() && busDetail != null) {
+            "$busDetail · $elapsedText"
+        } else {
+            "${context.getString(stageRes)} · $elapsedText"
+        }
         stageView.setTextColor(
             if (failed) Color.rgb(255, 138, 128) else Color.rgb(150, 172, 196)
         )
