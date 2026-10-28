@@ -483,13 +483,28 @@ fun BrowseToolbar(
         //
         // 取舍：搜索框宽度收窄约 90dp（正常人不会在这打很多字），
         // 换来标题始终可见 —— 用户一眼知道自己在哪一页。
-        Text(
-            text = title.ifBlank { stringResource(R.string.browse_title) },
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
+        //
+        // ⚠️ 2026-10-28（真机逐页检查）：原来这里是 titleLarge(24sp 白) 的「内容」，
+        // 而实例/多人/我的页顶栏是「QookiX + 页面名(20sp 灰)」—— 同一层级两种排版，
+        // 一切到内容页观感就断。改成同样的「品牌 + 页面名」，标题本身仍然保留。
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(end = QkSpacing.sm),
-        )
+        ) {
+            Text(
+                text = "QookiX",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(QkSpacing.md))
+            Text(
+                text = title.ifBlank { stringResource(R.string.browse_title) },
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
 
         // 搜索框：高度压到 40dp，塞进 56dp 的 TopAppBar 里不顶格
         OutlinedTextField(

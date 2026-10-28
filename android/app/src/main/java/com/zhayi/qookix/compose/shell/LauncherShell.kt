@@ -356,7 +356,7 @@ fun LauncherShell(
                         NavDestination.bottomBar.forEach { dest ->
                             QkRailItem(
                                 dest = dest,
-                                selected = dest == current,
+                                selected = dest == current.rootTab(),
                                 expanded = sidebarExpanded,
                                 onClick = { onNavigate(dest) },
                                 onLongPress = { sidebarExpanded = !sidebarExpanded },
@@ -392,7 +392,7 @@ fun LauncherShell(
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     NavDestination.bottomBar.forEach { dest ->
-                        val selected = dest == current
+                        val selected = dest == current.rootTab()
                         NavigationBarItem(
                             selected = selected,
                             onClick = { onNavigate(dest) },

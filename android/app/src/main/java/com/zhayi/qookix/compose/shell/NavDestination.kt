@@ -203,7 +203,39 @@ enum class NavDestination(
     }
 }
 
+/**
+ * 这个页面**属于**哪个主 tab。
+ *
+ * 用途：侧栏 / 底部导航的高亮判断。
+ * 进入二级页面（设置、下载任务、实例详情、内容详情…）时仍要高亮它所属的一级入口 ——
+ * 否则用户会失去位置感（2026-10-28 真机：在设置页时侧栏 5 项全不高亮，看不出自己在哪）。
+ */
+fun NavDestination.rootTab(): NavDestination = when (this) {
+    NavDestination.Home -> NavDestination.Home
 
+    NavDestination.Instances,
+    NavDestination.CreateInstance,
+    NavDestination.InstanceDetail,
+    -> NavDestination.Instances
 
+    NavDestination.Browse,
+    NavDestination.ContentDetail,
+    -> NavDestination.Browse
 
+    NavDestination.Multiplayer,
+    NavDestination.ServerDetail,
+    NavDestination.ServerCreate,
+    NavDestination.Frp,
+    NavDestination.FrpRooms,
+    -> NavDestination.Multiplayer
 
+    NavDestination.Account,
+    NavDestination.Downloads,
+    NavDestination.More,
+    NavDestination.News,
+    NavDestination.Skins,
+    NavDestination.Settings,
+    NavDestination.Playtime,
+    NavDestination.LanSync,
+    -> NavDestination.Account
+}
