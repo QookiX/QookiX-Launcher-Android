@@ -263,8 +263,10 @@ fun LauncherShell(
         // 默认收起成 88dp 的图标 rail（省出 80dp 给内容），**长按任一导航项**切换。
         // 宽度用 spatialSpec（spring，dampingRatio 0.8）—— 会轻微冲过目标再回来，
         // 就是用户要的那种「Q 弹」。
-        // 默认**展开**（用户要求）；长按任一导航项收起成纯图标 rail。
-        var sidebarExpanded by remember { mutableStateOf(true) }
+        // 默认**收起**（用户要求）：只显示图标，把宽度让给内容；
+        // 长按任一导航项弹出文字（168dp）。
+        // 之前写反成 true 了，启动就是展开态，和「默认收进去」的要求相反。
+        var sidebarExpanded by remember { mutableStateOf(false) }
         val sidebarW by animateDpAsState(
             targetValue = if (sidebarExpanded) 168.dp else 88.dp,
             // ⚠️ 宽度**不能**用 spatialSpec（带过冲）：
