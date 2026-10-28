@@ -92,7 +92,54 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
         private const val MAX_POLLS = 80
     }
 
-    private val webView: WebView? get() = RustBridge.findTauriWebView(activity)
+    /**
+     * 自己建的离屏 WebView（懒加载）。
+     *
+     * ## 为什么不再借 Tauri 的
+     *
+     * 原来这里写的是 `RustBridge.findTauriWebView(activity)` —— 那是 Tauri 的
+     * 隐形 IPC WebView。但 UI 已经全换成纯 Compose，Tauri 的 Activity/WebView
+     * 根本不存在（`findTauriWebView` 现在只剩空实现），于是皮肤页永远报
+     * 「WebView 不可用」。
+     *
+     * ## 为什么要 attach 到窗口
+     *
+     * WebGL 需要真实的 Surface 才能渲染。**完全离屏**（不 attach）的 WebView
+     * 拿不到 GL 上下文，`gl.readPixels` 会返回全零。所以这里建一个 1×1、
+     * alpha=0 的 WebView 挂到 decorView 上 —— 看不见，但有 surface。
+     */
+    private var cachedWv: WebView? = null
+
+    private val webView: WebView? get() = ensureWebView()
+
+    private fun ensureWebView(): WebView? {
+        cachedWv?.let { return it }
+        return try {
+            val wv = WebView(activity)
+            wv.settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                // ⚠️ 走 file:///android_asset 加载，这三项必须开，
+                // 否则页面里的 <script src> 会被静默拦掉（表现为 QkSkin3D undefined）。
+                allowFileAccess = true
+                @Suppress("DEPRECATION")
+                allowFileAccessFromFileURLs = true
+                @Suppress("DEPRECATION")
+                allowUniversalAccessFromFileURLs = true
+            }
+            wv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            wv.layoutParams = android.view.ViewGroup.LayoutParams(1, 1)
+            wv.alpha = 0f
+            (activity.window?.decorView as? android.view.ViewGroup)?.addView(wv)
+            wv.loadUrl("file:///android_asset/skin3d/index.html")
+            cachedWv = wv
+            Log.i(TAG, "已创建离屏 WebView，加载 skin3d/index.html")
+            wv
+        } catch (e: Throwable) {
+            Log.w(TAG, "WebView 创建失败", e)
+            null
+        }
+    }
 
     /** 取字符串资源（本类不是 Composable，只能走 Activity）。 */
     private fun getString(resId: Int, vararg args: Any): String = activity.getString(resId, *args)
@@ -128,18 +175,40 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
      */
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    /** 探测宿主是否就绪（异步）。 */
+    /**
+     * 探测宿主是否就绪（异步）。
+     *
+     * ⚠️ 必须**重试**：WebView 是自己新建的，`loadUrl` 之后页面要几十~几百 ms
+     * 才真正加载完（skinview3d.bundle.js 有 466KB）。第一次 `evaluateJavascript`
+     * 多半得到 "undefined"，直接判定失败的话皮肤页永远是「不可用」。
+     *
+     * 100ms 一次、最多 20 次（2 秒）。真出问题（脚本报错/资源缺失）也会在
+     * 2 秒后明确失败，不会无限转。
+     */
     fun probe(onResult: (Boolean) -> Unit) {
         val wv = webView
         if (wv == null) {
             onResult(false)
             return
         }
+        probeWithRetry(wv, attempt = 0, onResult)
+    }
+
+    private fun probeWithRetry(wv: WebView, attempt: Int, onResult: (Boolean) -> Unit) {
         wv.evaluateJavascript("(typeof window.QkSkin3D)") { r ->
             val ok = r?.trim('"') == "object"
-            hostReady = ok
-            if (!ok) Log.w(TAG, "QkSkin3D 尚未就绪（返回 $r）")
-            onResult(ok)
+            if (ok) {
+                hostReady = true
+                onResult(true)
+                return@evaluateJavascript
+            }
+            if (attempt < 20) {
+                wv.postDelayed({ probeWithRetry(wv, attempt + 1, onResult) }, 100)
+            } else {
+                hostReady = false
+                Log.w(TAG, "QkSkin3D 就绪超时（返回 $r），检查 assets/skin3d 是否打包进 APK")
+                onResult(false)
+            }
         }
     }
 
@@ -168,6 +237,28 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
         val wv = webView
         if (wv == null) {
             onResult(Result.failure(IllegalStateException(getString(R.string.skin_3d_webview_unavailable))))
+            return
+        }
+        // ⚠️ 先等宿主就绪。
+        //
+        // WebView 是新建的，`skinview3d.bundle.js` 466KB，加载 + 执行要几百 ms。
+        // 真机日志实测：`init()` 返回 false 之后 **1ms** 才打印「宿主已就绪」——
+        // init 跑在 `var SK = window.skinview3d` 之前，SK 还是 undefined。
+        //
+        // probe 内部会重试（100ms × 20），就绪后递归进来一次（那时 hostReady
+        // 已为 true，直接走下面的正常流程）。
+        if (!hostReady) {
+            probe { ready ->
+                if (ready) {
+                    loadSkin(dataUrl, slim, onResult)
+                } else {
+                    onResult(
+                        Result.failure(
+                            IllegalStateException(getString(R.string.skin_3d_init_failed)),
+                        ),
+                    )
+                }
+            }
             return
         }
         // data URL 里有大量 base64，用 JSONObject.quote 安全转义
