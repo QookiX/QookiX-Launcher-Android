@@ -188,16 +188,45 @@
    * @param dy 垂直位移（像素，正数 = 向下拖）
    */
   function orbitBy(dx, dy) {
-    if (!viewer || !viewer.controls) return false;
+    if (!viewer) return false;
     try {
+      // ⚠️⚠️ 2026-10-29 重写（用户报「没法拖动」）。
+      //
+      // 原来调 `c.rotateLeft(...)` / `c.rotateUp(...)` —— 这两个是
+      // **Three.js OrbitControls 的私有方法**，不在实例上暴露。
+      // 代码里 `typeof c.rotateLeft === "function"` 检查失败后**静默跳过**，
+      // 但函数仍然 `return true` —— 于是 Kotlin 侧看到"成功"，画面纹丝不动。
+      //
+      // 现在直接算球坐标（不依赖 THREE 全局，也不碰私有 API）：
+      //   相机位置 - controls.target = 半径向量 → 转成 (theta, phi) → 加减 → 写回
       var c = viewer.controls;
-      // rotateLeft / rotateUp 接受**弧度**。
-      // 系数 0.01：拖 100px ≈ 57°，手感接近旧 UI。
+      var cam = c && c.object ? c.object : viewer.camera;
+      var tgt = c && c.target ? c.target : { x: 0, y: 0, z: 0 };
+      if (!cam || !cam.position) return false;
+
+      var ox = cam.position.x - tgt.x;
+      var oy = cam.position.y - tgt.y;
+      var oz = cam.position.z - tgt.z;
+      var r = Math.sqrt(ox * ox + oy * oy + oz * oz);
+      if (!(r > 1e-6)) return false;
+
+      // 极角 phi ∈ (0, π)，水平角 theta 任意
+      var phi = Math.acos(Math.max(-1, Math.min(1, oy / r)));
+      var theta = Math.atan2(ox, oz);
+
+      // k 与旧手感对齐：拖 100px ≈ 57°
       var k = 0.01;
-      if (typeof c.rotateLeft === "function") {
-        c.rotateLeft(-dx * k);
-        c.rotateUp(-dy * k);
-      }
+      theta -= dx * k;
+      phi -= dy * k;
+      // 夹住两极，避免翻到模型背面/顶部时万向锁
+      phi = Math.max(0.12, Math.min(Math.PI - 0.12, phi));
+
+      cam.position.set(
+        tgt.x + r * Math.sin(phi) * Math.sin(theta),
+        tgt.y + r * Math.cos(phi),
+        tgt.z + r * Math.sin(phi) * Math.cos(theta)
+      );
+      cam.lookAt(tgt);
       // 让改动立刻反映到相机矩阵上（离屏渲染不会自动触发 update）
       if (typeof c.update === "function") c.update();
       return true;
