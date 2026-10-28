@@ -362,7 +362,15 @@ private fun CurrentInstanceCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
     ) {
-        Column(modifier = Modifier.padding(QkSpacing.lg)) {
+        // ⚠️ 2026-10-28：内容改成**水平居中**（原来全部左对齐）。
+        //
+        // 左对齐时整张卡的视觉重心偏左上，右边和下方各留一大块空 —— 就是
+        // 「上挤下空」。ZL2 那张主卡是居中英雄式的：图标居中、名字居中、
+        // 按钮压底撑满，重心落在卡片中央，看起来"实"。
+        Column(
+            modifier = Modifier.padding(QkSpacing.lg),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             if (inst == null) {
                 Text(
                     text = stringResource(R.string.home_no_instances),
@@ -406,6 +414,8 @@ private fun CurrentInstanceCard(
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                // 居中卡片里文字也要居中，否则名字贴着左边、图标居中，重心又歪了
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             Spacer(Modifier.height(QkSpacing.xs))
             Text(
@@ -414,6 +424,7 @@ private fun CurrentInstanceCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
 
             Spacer(Modifier.height(QkSpacing.lg))

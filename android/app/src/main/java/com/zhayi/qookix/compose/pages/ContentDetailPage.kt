@@ -164,6 +164,25 @@ fun ContentDetailRoute(
     // 译文拿到后还能切回原文看（术语 / 代码块翻坏了可以对照）
     var showZh by remember(project.id) { mutableStateOf(true) }
 
+    // ⚠️ 2026-10-28（真机逐页检查）：内容详情页左上角会**永久停在「翻译中…」**。
+    //
+    // 回调里第一行就是 `translating = false`，所以卡住只有一种可能：
+    // **回调压根没执行**（翻译服务无响应，bridge 请求挂起，没有超时）。
+    // 和下过大文件卡住是同一类问题 —— 用户看到的是一个永远转不完的状态。
+    //
+    // 这里加前端兜底：15 秒没结果就放弃并提示，至少能恢复可操作状态。
+    // （根治要在 Rust 侧给 translate 命令加超时，但那是另一条链路，
+    //   前端兜底能先把"卡死"变成"失败可重试"。）
+    LaunchedEffect(translating) {
+        if (translating) {
+            kotlinx.coroutines.delay(15_000)
+            if (translating) {
+                translating = false
+                notice = context.getString(R.string.browse_translate_failed, "超时")
+            }
+        }
+    }
+
     // ── 顶栏：图标 / 名字 / 作者 · 下载量 / MC 百科 / 安装 ─────────────────
     //
     // 顶栏这一行本来就横着很宽（用户指出），与其在左栏再画一遍封面和标题，
