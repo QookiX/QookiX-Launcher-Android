@@ -97,7 +97,9 @@
     <string name="shell_title_server_detail">服务器详情</string>
     <string name="shell_title_instance_detail">实例详情</string>
     <string name="shell_title_account">我的</string>
-    <string name="shell_title_playtime">游玩统计</string>
+    <!-- 2026-10-28：和入口（more_playtime）、页内标题（playtime_title）统一成「游戏统计」。
+         原来顶栏叫「游玩统计」、里面叫「游戏统计」，同一功能两个名字。 -->
+    <string name="shell_title_playtime">游戏统计</string>
     <string name="shell_title_frp">FRP 隧道</string>
     <string name="shell_title_frp_rooms">联机房间</string>
     <string name="shell_action_back">返回</string>
