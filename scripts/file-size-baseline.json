@@ -89,7 +89,7 @@
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/AboutCredits.kt": 91,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/AboutShowcase.kt": 905,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/AppearancePane.kt": 766,
-  "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/DownloadGameStoragePanes.kt": 989,
+  "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/DownloadGameStoragePanes.kt": 957,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/GeneralPane.kt": 227,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/PluginsPane.kt": 317,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/ProxySection.kt": 194,

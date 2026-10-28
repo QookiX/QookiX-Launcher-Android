@@ -598,7 +598,8 @@ fun StoragePane(
 
     // 弹层状态
     var showStats by remember { mutableStateOf(false) }
-    var statsText by remember { mutableStateOf("") }
+    // 存解析后的统计（不是格式化文本）：弹窗按结构画，不再打印原始 JSON
+    var statsData by remember { mutableStateOf<StorageStatsUi?>(null) }
     var statsLoading by remember { mutableStateOf(false) }
     var statsError by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -816,7 +817,7 @@ fun StoragePane(
                     showStats = true
                     statsLoading = true
                     statsError = null
-                    statsText = ""
+                    statsData = null
                     // ⚠️ 用 refresh_storage_stats（强制重扫），不是 get_storage_stats。
                     //
                     // 实测踩到（2026-10-13）：存储统计显示 instance_count=0，
@@ -831,7 +832,7 @@ fun StoragePane(
                     api?.refreshStorageStats { r ->
                         statsLoading = false
                         r.fold(
-                            onSuccess = { statsText = formatStorageStats(it, context) },
+                            onSuccess = { statsData = parseStorageStats(it) },
                             onFailure = {
                                 statsError = context.getString(
                                     R.string.settings_storage_read_failed,
@@ -868,11 +869,11 @@ fun StoragePane(
                     showStats = true
                     statsLoading = true
                     statsError = null
-                    statsText = ""
+                    statsData = null
                     api?.refreshStorageStats { r ->
                         statsLoading = false
                         r.fold(
-                            onSuccess = { statsText = formatStorageStats(it, context) },
+                            onSuccess = { statsData = parseStorageStats(it) },
                             onFailure = {
                                 statsError = context.getString(
                                     R.string.settings_storage_read_failed,
@@ -889,9 +890,8 @@ fun StoragePane(
     }
 
     if (showStats) {
-        InfoDialog(
-            title = stringResource(R.string.settings_storage_usage),
-            body = statsText,
+        StorageStatsDialog(
+            stats = statsData,
             loading = statsLoading,
             error = statsError,
             onDismiss = { showStats = false },
@@ -934,43 +934,11 @@ fun StoragePane(
     }
 }
 
-/**
- * 把存储统计 JSON 格式化成可读文本。
- *
- * 字段名不固定（Rust 侧手写 json! 是 camelCase，结构体是 snake_case），
- * 所以做**语义识别**而不是硬编码 key：凡是名字里含 total/size/bytes 的
- * 数值字段都按字节格式化。这样新增字段也不会显示成裸数字。
- */
-private fun formatStorageStats(json: org.json.JSONObject, context: android.content.Context): String {
-    val sb = StringBuilder()
-    json.keys().asSequence().sorted().forEach { k ->
-        val v = json.opt(k)
-        val label = when {
-            k.contains("total", true) ->
-                context.getString(R.string.settings_storage_stat_total, k)
-            k.contains("used", true) ->
-                context.getString(R.string.settings_storage_stat_used, k)
-            k.contains("free", true) || k.contains("avail", true) ->
-                context.getString(R.string.settings_storage_stat_free, k)
-            k.contains("cache", true) ->
-                context.getString(R.string.settings_storage_stat_cache, k)
-            else -> k
-        }
-        val shown = when {
-            v is Number && (
-                k.contains("size", true) || k.contains("bytes", true) ||
-                    k.contains("total", true) || k.contains("used", true) ||
-                    k.contains("free", true) || k.contains("avail", true) ||
-                    k.contains("cache", true)
-                ) -> humanBytes(v.toLong())
-            v is org.json.JSONObject -> "\n" + formatJsonForDisplay(v, 1)
-            else -> v?.toString() ?: "—"
-        }
-        sb.append(label).append(": ").append(shown).append('\n')
-    }
-    return sb.toString().trimEnd()
-        .ifBlank { context.getString(R.string.settings_storage_no_stats) }
-}
+// 存储统计的展示挪到了 `StorageStatsDialog.kt`。
+// 原来这里有个 `formatStorageStats`：把返回的 JSON 逐 key 拼成
+// 「key: value」文本塞进通用 InfoDialog —— 嵌套的 categories/instances
+// 数组直接 toString() 打印，用户看到的是一屏原始 JSON（真机截图反馈）。
+// 现在按数据结构画（总数 / 分类占比条 / 实例与服务器明细）。
 
 
 

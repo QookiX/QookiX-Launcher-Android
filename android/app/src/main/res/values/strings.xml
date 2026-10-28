@@ -730,6 +730,10 @@
     <string name="settings_storage_view">查看</string>
     <string name="settings_storage_clear">清除</string>
     <string name="settings_storage_stats_group">存储统计</string>
+    <string name="settings_storage_category_group">分类</string>
+    <string name="settings_storage_total_label">总计</string>
+    <string name="settings_storage_instances_group">实例（%1$d）</string>
+    <string name="settings_storage_servers_group">服务器（%1$d）</string>
     <string name="settings_storage_usage">存储占用</string>
     <string name="settings_storage_tap_for_details">点击查看详细统计</string>
     <string name="settings_storage_details">详情</string>
