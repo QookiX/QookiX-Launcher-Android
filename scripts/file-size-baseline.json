@@ -48,7 +48,7 @@
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/BrowseFilterSheet.kt": 245,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/BrowsePage.kt": 667,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/BrowseRepo.kt": 216,
-  "android/app/src/main/java/com/zhayi/qookix/compose/pages/CreateInstancePage.kt": 628,
+  "android/app/src/main/java/com/zhayi/qookix/compose/pages/CreateInstancePage.kt": 630,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/CreateRepo.kt": 160,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/DownloadsPage.kt": 364,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/FileEditorController.kt": 171,

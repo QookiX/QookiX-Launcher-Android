@@ -710,33 +710,38 @@ private fun KeysTab(
 ) {
     var showPassthru by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
+        // ⚠️ 2026-10-28（竖屏审计）：原来是「导入 + 按键穿透 + 说明文字」挤在一个 Row，
+        // 竖屏 411dp 下说明文字只剩半宽、被压成 4 行。改成按钮一行、说明独占下一行。
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            FilledTonalButton(onClick = onImport) {
-                Icon(Icons.Filled.Download, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.instance_detail_import_layout))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilledTonalButton(onClick = onImport) {
+                    Icon(Icons.Filled.Download, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.instance_detail_import_layout))
+                }
+                // 按键穿透设置（D2）：get_control_buttons / set_control_button_passthru
+                // 一直没有 UI —— 按键挡住游戏画面时用户无从关掉它。
+                TextButton(onClick = {
+                    showPassthru = true
+                    onLoadControlButtons()
+                }) {
+                    Icon(Icons.Filled.TouchApp, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.instance_detail_passthru))
+                }
             }
-            // 按键穿透设置（D2）：get_control_buttons / set_control_button_passthru
-            // 一直没有 UI —— 按键挡住游戏画面时用户无从关掉它。
-            TextButton(onClick = {
-                showPassthru = true
-                onLoadControlButtons()
-            }) {
-                Icon(Icons.Filled.TouchApp, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.instance_detail_passthru))
-            }
+            Spacer(Modifier.height(QkSpacing.xxs))
             Text(
                 text = stringResource(R.string.instance_detail_keys_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.weight(1f),
             )
         }
 

@@ -237,7 +237,9 @@ fun CreateInstancePage(
         // 右列保住 58%（约 223dp），两边都可用。
         // 宽屏（横屏 853dp）仍用 360dp 的舒适宽度。
         val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-        val leftW = if (screenW < 600.dp) (screenW * 0.42f) else 360.dp
+        // 竖屏 42% 时表单挤得厉害（名称框、加载器 chips 都要缩），
+        // 提到 50%：右栏仍能看到三四行版本，左边舒服很多（2026-10-28 竖屏审计）
+        val leftW = if (screenW < 600.dp) (screenW * 0.50f) else 360.dp
 
         Row(modifier = Modifier.fillMaxSize()) {
             // ── 左：参数 ──────────────────────────────────────────────────

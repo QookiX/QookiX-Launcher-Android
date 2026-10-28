@@ -1,16 +1,21 @@
 package com.zhayi.qookix.compose.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -47,8 +52,13 @@ fun QkTabRow(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    /** 每个 tab 的舒适最小宽度；低于这个值就横滚而非挤压。 */
-    minTabWidth: Int = 88,
+    /**
+     * 每个 tab 的舒适最小宽度；低于这个值就横滚而非挤压。
+     *
+     * 2026-10-28 从 88 收到 76：411dp 竖屏下 88 只放得下 4.5 个 tab
+     *（设置页有 8 个），76 能放 5.4 个，配合下面的渐隐提示够用了。
+     */
+    minTabWidth: Int = 76,
 ) {
     if (labels.isEmpty()) return
 
@@ -81,20 +91,44 @@ fun QkTabRow(
             // ⚠️ ScrollableTabRow 没有 minTabWidth 参数（那是 TabRow 的）。
             // 它的每个 tab 宽度由内容决定，这里用固定宽度的 Box 包一层，
             // 保证每个 tab 至少 minTabWidth，避免长标签把短标签挤扁。
-            ScrollableTabRow(
-                selectedTabIndex = selectedIndex,
-                edgePadding = 8.dp,
-                containerColor = container,
-            ) {
-                labels.forEachIndexed { i, label ->
-                    Box(modifier = Modifier.width(minTabWidth.dp)) {
-                        QkTab(
-                            selected = i == selectedIndex,
-                            onClick = { onSelect(i) },
-                            label = label,
-                        )
+            //
+            // ⚠️ 2026-10-28（竖屏审计）：8 个 tab 在 411dp 下只能看到 4 个多，
+            // 而横滚**没有任何视觉提示** —— 用户根本不知道右边还有「存储」「关于」。
+            //
+            // 右侧加一层渐隐提示「右边还有」。M3 的 ScrollableTabRow 不暴露
+            // scrollState（没法判断是否滚到头），所以这层常显 —— 代价是滚到最右
+            // 仍有一点点渐隐，换来的是「一眼能看出还能滑」，值得。
+            Box {
+                ScrollableTabRow(
+                    selectedTabIndex = selectedIndex,
+                    edgePadding = 8.dp,
+                    containerColor = container,
+                ) {
+                    labels.forEachIndexed { i, label ->
+                        Box(modifier = Modifier.width(minTabWidth.dp)) {
+                            QkTab(
+                                selected = i == selectedIndex,
+                                onClick = { onSelect(i) },
+                                label = label,
+                            )
+                        }
                     }
                 }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .width(28.dp)
+                        // ⚠️ 不能用 fillMaxHeight：这层在 Column 里拿到的是
+                        // 「剩余全部高度」的无界约束，会把整条 tab 栏撑成一屏高，
+                        // 下面的内容区被挤出去（实测表现：所有 tab 内容全空白）。
+                        // Tab 的固定高度是 48dp，照它来。
+                        .height(48.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(container.copy(alpha = 0f), container),
+                            ),
+                        ),
+                )
             }
         }
     }

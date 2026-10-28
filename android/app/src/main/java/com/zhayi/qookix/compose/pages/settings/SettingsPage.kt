@@ -187,13 +187,17 @@ enum class SettingsTab(
     @StringRes val labelRes: Int,
     val icon: ImageVector,
 ) {
+    // ⚠️ 2026-10-28（竖屏审计）：8 个 tab 在 411dp 下只显示 4 个多，
+    // 「存储」原本排第 7，是最后一个够不到的高频项（改游戏目录、看占用都在这）。
+    // 顺序改成「常规 → 外观 → 存储 → 下载 → 游戏内 → 插件 → 内容服务 → 关于」，
+    // 高频的前三个不用横滑就能点到。
     General("general", R.string.settings_tab_general, Icons.Filled.Tune),
-    Plugins("plugins", R.string.settings_tab_plugins, Icons.Filled.Widgets),
     Appearance("appearance", R.string.settings_tab_appearance, Icons.Filled.Image),
-    Download("download", R.string.settings_tab_download, Icons.Filled.Download),
-    ContentServices("content", R.string.settings_tab_content_services, Icons.Filled.Public),
-    Game("game", R.string.settings_tab_game, Icons.Filled.SportsEsports),
     Storage("storage", R.string.settings_tab_storage, Icons.Filled.Refresh),
+    Download("download", R.string.settings_tab_download, Icons.Filled.Download),
+    Game("game", R.string.settings_tab_game, Icons.Filled.SportsEsports),
+    Plugins("plugins", R.string.settings_tab_plugins, Icons.Filled.Widgets),
+    ContentServices("content", R.string.settings_tab_content_services, Icons.Filled.Public),
     About("about", R.string.settings_tab_about, Icons.Filled.Info),
 }
 

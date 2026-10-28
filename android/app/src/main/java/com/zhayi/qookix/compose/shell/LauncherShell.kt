@@ -8,6 +8,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -277,7 +280,15 @@ fun LauncherShell(
         // ⚠️ 2026-10-27 布局重构：顶栏**贯穿全宽**（原来它只在内容区，
         // 左边被侧栏挡住，看起来像两个独立的头部）。
         // 现在的层次：顶栏（全宽）→ 下面才是 侧栏 + 内容。
-        Column(modifier = Modifier.fillMaxSize()) {
+        // ⚠️ 2026-10-28（issue #2 最后一条）：横屏挖孔屏的摄像头会压住
+        // 最左侧的侧栏 / 最右侧的内容（用户反馈「部分按键受摄像头影响，轻微遮挡」）。
+        // 只避让 displayCutout，不动 systemBars —— 后者本来就没问题，
+        // 一起加反而会多出一圈空白。
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.displayCutout),
+        ) {
             topBar()
             Row(modifier = Modifier.weight(1f)) {
             Surface(

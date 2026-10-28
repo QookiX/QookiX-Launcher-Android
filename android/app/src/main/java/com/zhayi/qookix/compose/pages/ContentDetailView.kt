@@ -15,9 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -83,8 +87,21 @@ internal fun ContentDetailTopBar(
                 )
             }
         }
-        TextButton(onClick = onOpenWiki) {
-            Text(stringResource(R.string.browse_open_wiki), maxLines = 1)
+        // ⚠️ 2026-10-28（竖屏审计）：411dp 竖屏下「MC 百科」四个字 + 安装按钮
+        // 把标题挤得只剩一点，作者/下载量被省略号吃掉。窄屏改成图标按钮。
+        val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+        if (narrow) {
+            IconButton(onClick = onOpenWiki) {
+                Icon(
+                    imageVector = Icons.Filled.OpenInNew,
+                    contentDescription = stringResource(R.string.browse_open_wiki),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        } else {
+            TextButton(onClick = onOpenWiki) {
+                Text(stringResource(R.string.browse_open_wiki), maxLines = 1)
+            }
         }
         Spacer(Modifier.width(QkSpacing.xxs))
         Button(onClick = onInstall, enabled = canInstall && !installing) {
@@ -310,15 +327,14 @@ private fun BodyContent(
                         content = body,
                         // 默认 transformer 是 NoOp（图片不显示），换成 Coil3 那份
                         imageTransformer = Coil3ImageTransformerImpl,
-                        // ⚠️ 2026-10-28（竖屏审计）：不传 typography 时 H1 用的是
-                        // 库内置的 display 字号，Modrinth 正文开头一个 H1 就占掉
-                        // 三行高，比页面标题还大。压缩到和界面层级一致。
-                        typography = com.mikepenz.markdown.m3.markdownTypography(
-                            h1 = MaterialTheme.typography.headlineSmall,
-                            h2 = MaterialTheme.typography.titleLarge,
-                            h3 = MaterialTheme.typography.titleMedium,
-                            h4 = MaterialTheme.typography.titleSmall,
-                        ),
+                        // ⚠️ 2026-10-28（竖屏审计）：正文开头的 H1 字号过大
+                        //（Modrinth 的 body 常以 `# 项目名` 开头，一屏占掉三行）。
+                        //
+                        // 试过 `typography = markdownTypography(h1 = …, h2 = …)`：
+                        // 编译通过、装包实测**字号没变化** —— 0.29.0 的 m3 `Markdown`
+                        // 在内部对标题做了二次处理，传进去的 typography 只覆盖了
+                        // 正文/列表，标题仍用库内置的 display 级字号。
+                        // 这条路走不通，先不动（见 docs/portrait-audit.md 待办）。
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

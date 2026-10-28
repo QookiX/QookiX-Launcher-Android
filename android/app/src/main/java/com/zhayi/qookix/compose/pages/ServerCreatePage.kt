@@ -117,7 +117,8 @@ fun ServerCreatePage(
     val screenW = LocalConfiguration.current.screenWidthDp.dp
     // 窄屏（竖屏手机）时左栏占比小一点，保证右边版本列表还能看到几行。
     // 与 CreateInstancePage 用同一个比例/宽度 —— 两页并排看要对齐
-    val leftW = if (screenW < 600.dp) (screenW * 0.42f) else 360.dp
+    // 与 CreateInstancePage 同步：竖屏 42% → 50%，表单不再挤成一团
+    val leftW = if (screenW < 600.dp) (screenW * 0.50f) else 360.dp
 
     Row(modifier = Modifier.fillMaxSize()) {
         // ── 左：表单 ────────────────────────────────────────────────────

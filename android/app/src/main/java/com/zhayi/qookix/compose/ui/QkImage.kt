@@ -2,13 +2,19 @@ package com.zhayi.qookix.compose.ui
 
 import com.zhayi.qookix.compose.theme.QkSpacing
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -88,6 +94,25 @@ fun QkImageWithSkeleton(
         when (state) {
             is AsyncImagePainter.State.Loading, is AsyncImagePainter.State.Empty -> {
                 SkeletonBox(Modifier.fillMaxSize())
+            }
+            // ⚠️ 2026-10-28（竖屏审计）：加载失败时原来走 else 分支，
+            // 把一个失败的 painter 画进 Box —— 结果是一整块纯空白（新闻卡片
+            // 上方那块空地就是这么来的，用户以为是布局坏了）。
+            // 现在给一个静态底 + 破图图标，明确「这里没图」。
+            is AsyncImagePainter.State.Error -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
             else -> {
                 androidx.compose.foundation.Image(
