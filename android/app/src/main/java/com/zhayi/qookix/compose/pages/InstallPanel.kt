@@ -194,8 +194,15 @@ internal fun InstallTargets(
             return@Column
         }
 
+        // ⚠️ 2026-10-29（外部审计 B16 核实成立）：原来**所有**内容都排除原版实例，
+        // 但资源包和光影原版就能用（原版客户端本来就支持 resourcepacks / shaderpacks）。
+        // 结果只有原版实例的用户在安装面板里看不到任何目标，等于装不了资源包。
+        // 只有模组必须有加载器（原版不加载 mods/）。
+        val needsLoader = state.kind == "mod"
         val options = buildList {
-            state.instances.filter { it.loader != "vanilla" }.forEach { i ->
+            state.instances
+                .filter { !needsLoader || it.loader != "vanilla" }
+                .forEach { i ->
                 // 实例名里通常已经带版本（「月落花野（1.21.1）3.1.2」），别再拼一个括号
                 val label = if (i.mcVersion.isBlank() || i.name.contains(i.mcVersion)) {
                     i.name

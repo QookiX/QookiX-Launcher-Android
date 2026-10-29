@@ -249,7 +249,13 @@ fun ContentInstallHost(
     /** 换筛选条件后，原来选中的版本可能已经不在了 —— 自动落到第一条。 */
     fun reselectIfFilteredOut(newType: String, newGame: String) {
         val next = filterVersions(versions, newType, newGame)
-        if (next.isEmpty()) return
+        // ⚠️ 2026-10-29（外部审计 B16）：筛选结果为空时原来直接 return，
+        // `version` 还留着上一个可见版本 —— 列表里看不到它，但「安装」按钮
+        // 仍然可用，点下去装的是一个用户以为已经筛掉的版本。
+        if (next.isEmpty()) {
+            version = null
+            return
+        }
         if (next.none { it.id == version }) version = next.first().id
     }
 

@@ -6,6 +6,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -130,7 +134,12 @@ fun FirstRunSetup(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f)),
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f))
+                // ⚠️ 2026-10-29（外部审计 B23 核实成立）：原来只画了一层半透明背景，
+                // 没有任何事件拦截 —— 安装进行中用户能点到下面的界面（切 tab、
+                // 点启动游戏），而这不是普通弹窗，是阻塞式的首次准备。
+                // 这里吞掉落到遮罩上的点击（子元素先拿到事件，卡片里的按钮照常可用）。
+                .pointerInput(Unit) { detectTapGestures { } },
             contentAlignment = Alignment.Center,
         ) {
             Card(
@@ -142,7 +151,14 @@ fun FirstRunSetup(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ),
             ) {
-                Column(modifier = Modifier.padding(QkSpacing.xl)) {
+                Column(
+                    modifier = Modifier
+                        .padding(QkSpacing.xl)
+                        // ⚠️ 2026-10-29（审计 B23）：横屏 + 失败项多的时候内容会超出
+                        // 屏幕、底部的按钮被挤出可见区（而且整块不可滚动，用户没救）。
+                        // 列表常有 5~8 项，这里必须能滚。
+                        .verticalScroll(rememberScrollState()),
+                ) {
                     Text(
                         text = stringResource(R.string.first_run_title),
                         style = MaterialTheme.typography.titleLarge,

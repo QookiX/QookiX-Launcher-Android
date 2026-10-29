@@ -1354,7 +1354,11 @@ private fun CrashTab(
     // 分析结果弹层。结果由 state.crashHint 承载（外层 AI 分析完成后写入），
     // 关闭时调一次 onAnalyzeCrash("") 之外的清空由外层负责 —— 
     // 这里用局部 dismissed 标记避免重复弹出。
-    var dismissed by remember { mutableStateOf(false) }
+    // ⚠️ 2026-10-29（外部审计 B22 核实成立）：`remember { }` 不带 key ——
+    // 用户关掉一次崩溃分析后 dismissed 永久为 true，之后**新的**崩溃结果
+    // 也不会再弹（得退出实例详情重进才恢复）。用 crashHint 做 key：
+    // 内容变了就是新结果，自动复位成「未关闭」。
+    var dismissed by remember(state.crashHint) { mutableStateOf(false) }
     if (state.crashHint.isNotBlank() && !dismissed) {
         CrashReportDialog(
             title = stringResource(R.string.instance_detail_crash_analysis),

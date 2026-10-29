@@ -66,22 +66,40 @@ class InstanceDetailRepo(private val api: QookixApi, private val context: androi
     /** 存档列表（`saves` 子目录）。 */
     fun loadWorlds(instanceId: String, onResult: (Result<List<WorldUi>>) -> Unit) {
         listSub(instanceId, SUB_SAVES) { r ->
-            onResult(
-                r.mapCatching { files ->
-                    files.mapNotNull { o ->
-                        // 只有目录才是存档
-                        val isDir = o.optBoolean("isDir", o.optBoolean("is_dir", false))
-                        if (!isDir) return@mapNotNull null
-                        val name = o.optString("name")
-                        if (name.isBlank()) return@mapNotNull null
-                        WorldUi(
-                            name = name,
-                            meta = fmtBytes(o.optLong("size", 0)) + " · " +
-                                fmtRelative(context, o.optLong("modified", 0)),
-                        )
-                    }
+            val worlds = r.mapCatching { files ->
+                files.mapNotNull { o ->
+                    // 只有目录才是存档
+                    val isDir = o.optBoolean("isDir", o.optBoolean("is_dir", false))
+                    if (!isDir) return@mapNotNull null
+                    val name = o.optString("name")
+                    if (name.isBlank()) return@mapNotNull null
+                    WorldUi(
+                        name = name,
+                        meta = fmtBytes(o.optLong("size", 0)) + " · " +
+                            fmtRelative(context, o.optLong("modified", 0)),
+                    )
                 }
-            )
+            }
+            // ⚠️ 2026-10-29（外部审计 B22，真机实测确认）：
+            // `WorldUi.backups` 以前**从来没有任何写入点** —— `loadBackups()`
+            // 写好了却没人调。于是：点「备份」→ Rust 真的生成了 zip（实测
+            // backups/<世界>/xxx-时间戳.zip），但界面永远不显示那条备份，
+            // 也没有「恢复最新备份」按钮。用户看到的就是「备份了但没反应」。
+            // 这里给每个世界补拉一次备份列表，全部回来后再交付。
+            val base = worlds.getOrNull()
+            if (base == null || base.isEmpty()) {
+                onResult(worlds)
+                return@listSub
+            }
+            val filled = base.toMutableList()
+            var remaining = base.size
+            base.forEachIndexed { idx, w ->
+                loadBackups(instanceId, w.name) { br ->
+                    br.getOrNull()?.let { list -> filled[idx] = w.copy(backups = list) }
+                    remaining -= 1
+                    if (remaining == 0) onResult(Result.success(filled.toList()))
+                }
+            }
         }
     }
 

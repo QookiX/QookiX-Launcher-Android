@@ -1150,6 +1150,16 @@ private fun InstanceDetailRoute(
     /** 按键布局列表的强制重载计数（导入完必须重载，否则列表看不出变化）。 */
     var keysReload by remember(instanceId) { mutableStateOf(0) }
 
+    /**
+     * 存档 tab 的强制重载计数（2026-10-29，外部审计 B22）。
+     *
+     * 和 [keysReload] 同一个坑：所有「备份/恢复/删备份」成功的回调都只写
+     * `state = state.copy(tab = InstanceTab.Saves)` —— 用户本来就在存档 tab 时
+     * `tab` 没变化，加载 effect 的 key 也不变，协程不会重启，列表就一直停在操作前。
+     * 表现成「点了备份，列表里没有新备份」/「删了备份它还在」。
+     */
+    var savesReload by remember(instanceId) { mutableStateOf(0) }
+
     fun consumeControlImport(s: String?) {
         val o = runCatching { org.json.JSONObject(s ?: "") }.getOrNull() ?: return
         if (o.optBoolean("ok")) {
@@ -1433,7 +1443,7 @@ private fun InstanceDetailRoute(
     }
 
     // 按 tab 懒加载
-    LaunchedEffect(bridgeReady, instanceId, state.tab, keysReload) {
+    LaunchedEffect(bridgeReady, instanceId, state.tab, keysReload, savesReload) {
         if (!bridgeReady) return@LaunchedEffect
         state = state.copy(loading = true, error = null)
         when (state.tab) {
@@ -1496,7 +1506,7 @@ private fun InstanceDetailRoute(
                     newName.removeSuffix(".json"),
                 ) { r ->
                     r.fold(
-                        onSuccess = { state = state.copy(tab = InstanceTab.Keys) },
+                        onSuccess = { state = state.copy(tab = InstanceTab.Keys); keysReload += 1 },
                         onFailure = { e -> state = state.copy(error = context.getString(R.string.layout_rename_failed, e.message ?: "")) },
                     )
                 }
@@ -1527,6 +1537,7 @@ private fun InstanceDetailRoute(
                         onSuccess = {
                             // 触发按键 tab 重新加载，新布局出现在列表里
                             state = state.copy(tab = InstanceTab.Keys)
+                            keysReload += 1
                         },
                         onFailure = { e ->
                             layoutError = context.getString(R.string.layout_copy_failed, friendlyError(context, e))
@@ -1808,6 +1819,7 @@ private fun InstanceDetailRoute(
                 r.fold(
                     onSuccess = {
                         state = state.copy(tab = InstanceTab.Saves)
+                        savesReload += 1
                         QkFeedback.show(context.getString(R.string.backup_created))
                     },
                     onFailure = { e -> state = state.copy(error = context.getString(R.string.backup_create_failed, e.message ?: "")) },
@@ -1826,6 +1838,7 @@ private fun InstanceDetailRoute(
                         r.fold(
                             onSuccess = {
                                 state = state.copy(tab = InstanceTab.Saves)
+                                savesReload += 1
                                 QkFeedback.show(context.getString(R.string.backup_restored))
                             },
                             onFailure = { e -> state = state.copy(error = context.getString(R.string.backup_restore_failed, e.message ?: "")) },
@@ -1842,7 +1855,7 @@ private fun InstanceDetailRoute(
                 action = {
                     api.deleteWorldBackup(instanceId, world, file) { r ->
                         r.fold(
-                            onSuccess = { state = state.copy(tab = InstanceTab.Saves) },
+                            onSuccess = { state = state.copy(tab = InstanceTab.Saves); savesReload += 1 },
                             onFailure = { e -> state = state.copy(error = context.getString(R.string.backup_delete_failed, e.message ?: "")) },
                         )
                     }
@@ -1852,7 +1865,7 @@ private fun InstanceDetailRoute(
         onLayoutSelect = { name ->
             api.setCurrentControlLayout(name) { r ->
                 r.fold(
-                    onSuccess = { state = state.copy(tab = InstanceTab.Keys) },
+                    onSuccess = { state = state.copy(tab = InstanceTab.Keys); keysReload += 1 },
                     onFailure = { e -> state = state.copy(error = context.getString(R.string.layout_select_failed, e.message ?: "")) },
                 )
             }
@@ -1868,7 +1881,7 @@ private fun InstanceDetailRoute(
                 action = {
                     api.deleteControlLayout(name) { r ->
                         r.fold(
-                            onSuccess = { state = state.copy(tab = InstanceTab.Keys) },
+                            onSuccess = { state = state.copy(tab = InstanceTab.Keys); keysReload += 1 },
                             onFailure = { e -> state = state.copy(error = context.getString(R.string.layout_delete_failed, e.message ?: "")) },
                         )
                     }
