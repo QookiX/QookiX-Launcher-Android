@@ -11,16 +11,28 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -41,9 +53,22 @@ import com.zhayi.qookix.compose.theme.QkSpacing
  * 拆出来说明见 [ProfileSections] 的调用处（AccountHomeRoutes.kt）。
  */
 
-/** 身份卡：头像（名字首字母）+ 名字 + 账号类型；没有账号时引导添加。 */
+/**
+ * 身份卡：头像（名字首字母）+ 名字 + 账号类型，右侧是账号操作。
+ *
+ * 2026-10-29（用户要求）：把「添加账号 / 切换账号」收进这张卡里 ——
+ * 原来添加账号的按钮在页面底部的账号面板顶部，用户在卡里看到
+ * 「还没有账号」却不知道去哪加。现在：
+ *   · 没账号 → 卡右侧直接一个「添加账号」按钮
+ *   · 有账号 → 「切换账号」下拉菜单：列出全部账号（当前打勾）+ 末尾「添加账号」
+ */
 @Composable
-internal fun ProfileIdentityCard(current: AccountUi?) {
+internal fun ProfileIdentityCard(
+    current: AccountUi?,
+    accounts: List<AccountUi> = emptyList(),
+    onSelectAccount: (String) -> Unit = {},
+    onAddAccount: () -> Unit = {},
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -98,6 +123,58 @@ internal fun ProfileIdentityCard(current: AccountUi?) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+
+            // ── 右侧账号操作（2026-10-29 从页面底部挪上来）──────────────
+            if (current == null) {
+                FilledTonalButton(onClick = onAddAccount) {
+                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.profile_add_account), maxLines = 1)
+                }
+            } else {
+                var switchOpen by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { switchOpen = true }) {
+                        Icon(Icons.Filled.SwapHoriz, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.profile_switch_account), maxLines = 1)
+                    }
+                    DropdownMenu(expanded = switchOpen, onDismissRequest = { switchOpen = false }) {
+                        accounts.forEach { a ->
+                            DropdownMenuItem(
+                                text = { Text(a.name) },
+                                onClick = {
+                                    switchOpen = false
+                                    if (a.uuid != current.uuid) onSelectAccount(a.uuid)
+                                },
+                                trailingIcon = {
+                                    if (a.uuid == current.uuid) {
+                                        Icon(
+                                            Icons.Filled.Check,
+                                            null,
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                        if (accounts.isNotEmpty()) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.profile_add_account)) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
+                            },
+                            onClick = {
+                                switchOpen = false
+                                onAddAccount()
+                            },
+                        )
+                    }
                 }
             }
         }

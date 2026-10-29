@@ -100,6 +100,11 @@ static void abort_waiter_setup() {
     for(size_t i = 0; i < ntracked; i++) {
         sigaddset(&abort_waiter_data.tracked_sigset, tracked_signals[i]);
         sigactions[i].sa_handler = abort_waiter_handler;
+        // 2026-10-29（审计 B40）：栈上的 struct sigaction 没初始化，sa_flags / sa_mask
+        // 是垃圾值 —— sa_flags 里随机撞上 SA_SIGINFO 会让内核按三参签名调用
+        // 只有一参的 handler，直接崩；sa_mask 垃圾位会把无关信号一起屏蔽。
+        sigemptyset(&sigactions[i].sa_mask);
+        sigactions[i].sa_flags = 0;
     }
     if(pipe(abort_waiter_data.pipe) != 0) {
         printf("Failed to set up aborter pipe: %s\n", strerror(errno));

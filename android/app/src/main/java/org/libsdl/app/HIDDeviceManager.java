@@ -69,7 +69,10 @@ public class HIDDeviceManager {
     private final BroadcastReceiver mUsbBroadcast = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
+            String action = intent == null ? null : intent.getAction();
+            // 2026-10-29（审计 B34）：action 可能为 null（畸形广播），
+            // 原来直接 action.equals(...) 会 NPE 把进程带走。
+            if (action == null) return;
             if (action.equals(UsbManager.ACTION_USB_DEVICE_ATTACHED)) {
                 UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                 handleUsbDeviceAttached(usbDevice);
@@ -199,7 +202,9 @@ public class HIDDeviceManager {
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         filter.addAction(HIDDeviceManager.ACTION_USB_PERMISSION);
         if (Build.VERSION.SDK_INT >= 33) { /* Android 13.0 (TIRAMISU) */
-            mContext.registerReceiver(mUsbBroadcast, filter, Context.RECEIVER_EXPORTED);
+            // 2026-10-29（审计 B34）：USB 插拔/授权是系统广播，NOT_EXPORTED 照样收得到；
+            // 用 EXPORTED 等于允许任意本机应用伪造 ACTION_USB_PERMISSION 打进来。
+            mContext.registerReceiver(mUsbBroadcast, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             mContext.registerReceiver(mUsbBroadcast, filter);
         }

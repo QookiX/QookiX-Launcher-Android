@@ -368,6 +368,8 @@
     <string name="account_open">打开</string>
     <string name="account_empty_title">还没有账号</string>
     <string name="profile_add_hint">在下方添加账号后就能启动游戏（离线账号也可以）</string>
+    <string name="profile_add_account">添加账号</string>
+    <string name="profile_switch_account">切换账号</string>
     <string name="profile_account_offline">离线账号</string>
     <string name="profile_account_online">微软正版账号</string>
     <string name="profile_tasks">进行中的任务</string>

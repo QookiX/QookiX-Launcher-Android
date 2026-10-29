@@ -230,6 +230,9 @@ internal fun AccountRoute(
     var msFlow by remember { mutableStateOf<MsLoginFlow?>(null) }
     var currentUuid by remember { mutableStateOf("") }
 
+    /** 身份卡上「添加账号」按钮的请求计数（AccountPanel 靠它弹对话框）。 */
+    var addAccountRequest by remember { mutableStateOf(0) }
+
     fun reload() {
         api.listAccounts { r ->
             r.fold(
@@ -309,9 +312,22 @@ internal fun AccountRoute(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        // ── 身份卡：头像 + 名字 + 账号类型（展示块在 ProfilePage.kt）─────
+        // ── 身份卡：头像 + 名字 + 账号类型 + 账号操作（展示块在 ProfilePage.kt）──
         val current = accounts.firstOrNull { it.uuid == currentUuid }
-        ProfileIdentityCard(current)
+        ProfileIdentityCard(
+            current = current,
+            accounts = accounts,
+            // 切换账号必须写后端 settings.selected_account（见下面 onSelect 的说明）
+            onSelectAccount = { uuid ->
+                currentUuid = uuid
+                api.selectAccount(uuid) { r ->
+                    r.onFailure { e ->
+                        error = context.getString(R.string.account_switch_failed, e.message)
+                    }
+                }
+            },
+            onAddAccount = { addAccountRequest += 1 },
+        )
 
         // ── 进行中的任务（下载 / 安装 / 补全）────────────────────────────
         ProfileTasksSection(tasks, onCancelTask)
@@ -391,6 +407,8 @@ internal fun AccountRoute(
         onDismissError = { error = null },
         // 嵌在上面的滚动 Column 里：内部不能用 fillMaxSize / LazyColumn
         embedded = true,
+        // 身份卡上的「添加账号」按钮 → 打开这里的添加对话框
+        addRequest = addAccountRequest,
     )
         Spacer(Modifier.height(QkSpacing.xl))
     }

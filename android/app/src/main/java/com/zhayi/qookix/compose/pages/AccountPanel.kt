@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,9 +96,25 @@ fun AccountPanel(
      * 改成普通 Column 铺开（账号一般不超过十个，不需要懒加载）。
      */
     embedded: Boolean = false,
+    /**
+     * 外部请求「打开添加账号对话框」的计数器（2026-10-29）。
+     *
+     * 「我的」页的身份卡上有个「添加账号」按钮，而对话框状态在本组件内部 ——
+     * 靠这个计数变化触发。传 0 表示没有请求；每 +1 弹一次。
+     */
+    addRequest: Int = 0,
 ) {
     var showAdd by remember { mutableStateOf(false) }
     var addMode by remember { mutableStateOf(AddMode.Offline) }
+
+    // 身份卡上的「添加账号」按钮：计数变化就打开对话框（默认离线模式，
+    // 微软登录在对话框里另有按钮）
+    LaunchedEffect(addRequest) {
+        if (addRequest > 0) {
+            addMode = AddMode.Offline
+            showAdd = true
+        }
+    }
     var removeTarget by remember { mutableStateOf<AccountUi?>(null) }
 
     Column(modifier = if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {

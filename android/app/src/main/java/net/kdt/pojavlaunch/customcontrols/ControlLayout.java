@@ -468,6 +468,9 @@ public class ControlLayout extends FrameLayout {
 	public void save(String path){
 		try {
 			mLayout.save(path);
+			// 2026-10-29（外部审计 B36）：保存成功后清脏 —— 否则界面一直认为
+			// 有未保存改动，退出时反复提示。
+			setModified(false);
 		} catch (IOException e) {Log.e("ControlLayout", "Failed to save the layout at:" + path);}
 	}
 

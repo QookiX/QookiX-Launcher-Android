@@ -295,6 +295,11 @@ internal fun SkinRoute(
     val host3d = remember(bridge, activity) {
         activity?.let { Skin3dHost(bridge, it) }
     }
+    // ⚠️ 2026-10-29（外部审计 B20）：离屏 WebView 挂在 decorView 上，
+    // 没有 destroy 路径的话每进一次皮肤页就多留一个，越进越卡。
+    DisposableEffect(host3d) {
+        onDispose { host3d?.release() }
+    }
     var preview3d by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var preview3dRendering by remember { mutableStateOf(false) }
     var preview3dError by remember { mutableStateOf<String?>(null) }

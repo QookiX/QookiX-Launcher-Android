@@ -57,11 +57,22 @@ static void* find_branch_label(void* func_start) {
     // round down the pointer to get the start of the function's page
     void* func_page_start = (void*)(((uintptr_t)func_start) & ~(PAGE_SIZE-1));
     // remap to r-x to bypass "execute only" protections on MIUI
-    mprotect(func_page_start, PAGE_SIZE, PROT_READ | PROT_EXEC);
+    // ⚠️ 2026-10-29（审计 B38）：mprotect 可能失败（SELinux / 页不在映射里），
+    // 失败后接着读就是 SIGSEGV。失败就放弃这条路。
+    if (mprotect(func_page_start, PAGE_SIZE, PROT_READ | PROT_EXEC) != 0) {
+        return NULL;
+    }
     uint32_t* bl_addr = func_start;
+    // ⚠️ 2026-10-29（审计 B38）：原来注释写着 "walk through memory until we
+    // find it or die" —— 真的会 die：找不到 BL 指令就一路往后读，撞到不可访问
+    // 的页直接 SIGSEGV（整个启动器崩）。给个上限：普通函数几 KB 就到底了。
+    const uint32_t* limit = bl_addr + (64 * 1024 / (int)sizeof(uint32_t));
     // search for the "branch to label" opcode
     while((*bl_addr & OP_MS) != BL_OP) {
-        bl_addr++; // walk through memory until we find it or die
+        bl_addr++;
+        if (bl_addr >= limit) {
+            return NULL;
+        }
     }
     // offset the address to find where the "branch to label" instrunction
     // points to.
@@ -73,8 +84,14 @@ bool linker_ns_load(const char* lib_search_path) {
     return false;
 #else
     loader_dlopen_t loader_dlopen = find_branch_label(&dlopen);
+    // 找不到（有上限了，见 find_branch_label 里的注释）就别往空指针上跳
+    if (loader_dlopen == NULL) {
+        return false;
+    }
     // reprotecting the functions removes protection from indirect jumps
-    mprotect(loader_dlopen, PAGE_SIZE, PROT_WRITE | PROT_READ | PROT_EXEC);
+    if (mprotect(loader_dlopen, PAGE_SIZE, PROT_WRITE | PROT_READ | PROT_EXEC) != 0) {
+        return false;
+    }
     void* ld_android_handle = loader_dlopen("ld-android.so", RTLD_LAZY, &dlopen);
     if(ld_android_handle == NULL) {
         return false;

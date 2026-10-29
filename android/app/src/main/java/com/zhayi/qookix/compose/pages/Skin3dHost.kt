@@ -803,6 +803,27 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
     }
 
     /** 解 `data:image/png;base64,xxx` → Bitmap。 */
+    /**
+     * 释放离屏 WebView。
+     *
+     * ⚠️ 2026-10-29（外部审计 B20 核实成立）：这个 WebView 是**挂在
+     * decorView 上**的（WebGL 要有真实 Surface 才能 readPixels），而它
+     * 从来没有 destroy 路径 —— 每进一次皮肤页就新建一个、旧的还挂在
+     * 窗口上继续吃 GPU/内存，进个七八次就能明显感到卡。
+     * 皮肤页退出时（DisposableEffect.onDispose）必须调这里。
+     */
+    fun release() {
+        val wv = cachedWv ?: return
+        cachedWv = null
+        runCatching {
+            (wv.parent as? android.view.ViewGroup)?.removeView(wv)
+            wv.stopLoading()
+            wv.loadUrl("about:blank")
+            wv.destroy()
+            Log.i(TAG, "离屏 WebView 已销毁")
+        }.onFailure { Log.w(TAG, "销毁离屏 WebView 失败", it) }
+    }
+
     private fun decodeDataUrl(url: String): Bitmap? {
         return try {
             val comma = url.indexOf(',')

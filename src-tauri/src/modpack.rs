@@ -325,6 +325,10 @@ fn extract_overrides_sync(
     let file = std::fs::File::open(zip_path).map_err(|e| format!("打开整合包失败: {e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("解析整合包失败: {e}"))?;
 
+    // 2026-10-29（审计 B13）：整合包是**用户从网上下载**的东西，最容易被塞
+    // zip bomb（解压后几十 GB / 上百万个小文件）把手机存储写满。
+    let mut budget = crate::zip_guard::ZipBudget::new();
+
     let mut extracted = 0usize;
     for i in 0..archive.len() {
         let mut entry = match archive.by_index(i) {
@@ -348,6 +352,8 @@ fn extract_overrides_sync(
             }
         };
 
+        budget.admit(&entry_name, entry.size())?;
+
         if entry.is_dir() {
             let _ = std::fs::create_dir_all(&dest_path);
         } else {
@@ -356,7 +362,10 @@ fn extract_overrides_sync(
             }
             let mut out = std::fs::File::create(&dest_path)
                 .map_err(|e| format!("创建文件失败 {}: {e}", dest_path.display()))?;
-            std::io::copy(&mut entry, &mut out).map_err(|e| format!("写入文件失败: {e}"))?;
+            let n = std::io::copy(&mut entry, &mut out)
+                .map_err(|e| format!("写入文件失败: {e}"))?;
+            // 按实际写出字节再记一次（zip 头里的 size 可伪造）
+            budget.add_written(n)?;
             extracted += 1;
         }
     }

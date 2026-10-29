@@ -41,6 +41,8 @@ static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
 static long long s_stamps[PERF_MAX_FRAMES];
 static int s_count; /* 已写入的样本数（≤ PERF_MAX_FRAMES） */
 static int s_head;  /* 下一个写入位置 */
+/** 累计帧数（不受 512 环形缓冲限制）。审计 B29：writer 靠它判断有没有新帧。 */
+static long long s_total_frames;
 
 static void* perf_writer_thread(void* arg);
 
@@ -62,6 +64,7 @@ void perf_frame(void) {
     s_stamps[s_head] = now_ms();
     s_head = (s_head + 1) % PERF_MAX_FRAMES;
     if (s_count < PERF_MAX_FRAMES) s_count++;
+    s_total_frames++;
     pthread_mutex_unlock(&s_lock);
 }
 
@@ -151,8 +154,18 @@ static void* perf_writer_thread(void* arg) {
     snprintf(path, sizeof(path), "%s/perf.txt", tmp);
     snprintf(part, sizeof(part), "%s.tmp", path);
 
+    long long last_written_total = -1;
     for (;;) {
         usleep(PERF_WRITE_INTERVAL_MS * 1000);
+        pthread_mutex_lock(&s_lock);
+        long long total = s_total_frames;
+        pthread_mutex_unlock(&s_lock);
+        /* ⚠️ 2026-10-29（外部审计 B29 核实成立）：原来无条件每 500ms 写一次 ——
+           即使渲染线程完全卡死、一帧都没出，perf.txt 的 mtime 照样新鲜。
+           Java 侧的渲染自愈看门狗正是靠 mtime 判断「还在出帧」，于是永远认为
+           健康，真卡黑时反而不会重绑 Surface。改成**没有新帧就不写**。 */
+        if (total == last_written_total) continue;
+        last_written_total = total;
         FILE* f = fopen(part, "w");
         if (f == NULL) continue;
         fputs(perf_snapshot(), f);

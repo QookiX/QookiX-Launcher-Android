@@ -82,6 +82,11 @@ public class HotbarView extends View implements MCOptionUtils.MCOptionListener, 
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         CallbackBridge.removeGrabListener(mGrabListener);
+        // ⚠️ 2026-10-29（外部审计 B31）：摘下来时「长按丢物」手势可能还在跑，
+        // 布局监听也还挂在父容器上 —— 两者都持有这个 View（及其 Context），
+        // 不取消就会在面板已经消失后继续执行逻辑。
+        mDropGesture.cancel();
+        removeOnLayoutChangeListener(this);
     }
 
     private void repositionView() {

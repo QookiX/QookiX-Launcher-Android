@@ -218,6 +218,12 @@ public class Gamepad implements GrabListener, GamepadHandler {
             deltaX *= deltaTimeScale;
             deltaY *= deltaTimeScale;
 
+            // ⚠️ 2026-10-29（外部审计 B30 核实成立）：SDL 抓取光标时
+            // `sendCursorPos` 发的是 **deltaX/deltaY**（相对位移），而这里原来
+            // 只更新 mouseX/mouseY —— 摇杆转视角在抓取态下完全不动，
+            // 发出去的永远是上一次触摸留下的 delta。两个都写，两条路径才都对。
+            CallbackBridge.deltaX = deltaX;
+            CallbackBridge.deltaY = -deltaY;
             CallbackBridge.mouseX += deltaX;
             CallbackBridge.mouseY -= deltaY;
 

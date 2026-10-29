@@ -320,6 +320,10 @@ fn extract_zip(zip_path: &std::path::Path, dest: &std::path::Path) -> Result<(),
     let file = std::fs::File::open(zip_path).map_err(|e| format!("打开 zip 失败：{e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("zip 解析失败：{e}"))?;
 
+    // 2026-10-29（审计 B13）：解压预算（条目数 / 单文件 / 总量），
+    // 防对端给一个解压后几十 GB 的包把手机存储写满。
+    let mut budget = crate::zip_guard::ZipBudget::new();
+
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
@@ -328,6 +332,7 @@ fn extract_zip(zip_path: &std::path::Path, dest: &std::path::Path) -> Result<(),
             Some(p) => dest.join(p),
             None => continue, // 不安全的路径（含 .. / 绝对路径）跳过
         };
+        budget.admit(&outpath.to_string_lossy(), entry.size())?;
         if entry.is_dir() {
             std::fs::create_dir_all(&outpath).map_err(|e| format!("建目录失败：{e}"))?;
         } else {
@@ -336,8 +341,10 @@ fn extract_zip(zip_path: &std::path::Path, dest: &std::path::Path) -> Result<(),
             }
             let mut outfile =
                 std::fs::File::create(&outpath).map_err(|e| format!("建文件失败：{e}"))?;
-            std::io::copy(&mut entry, &mut outfile)
+            let n = std::io::copy(&mut entry, &mut outfile)
                 .map_err(|e| format!("解压写失败：{e}"))?;
+            // 按**实际写出**的字节再记一次：zip 头里的大小可以伪造
+            budget.add_written(n)?;
         }
     }
     Ok(())

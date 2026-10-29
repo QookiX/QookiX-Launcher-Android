@@ -25,6 +25,8 @@ mod download;
 mod java;
 mod accounts;
 mod modpack;
+/// ZIP 解压预算（zip bomb 防护，审计 B13）。
+mod zip_guard;
 mod hangar;
 mod frp;
 mod servers;

@@ -135,6 +135,9 @@ public class ControlButton extends TextView implements ControlInterface {
     public void removeButton() {
         getControlLayoutParent().getLayout().mControlDataList.remove(getProperties());
         getControlLayoutParent().removeView(this);
+        // 2026-10-29（外部审计 B36）：删除也是修改 —— 原来没标脏，
+        // 退出编辑时不提示保存，用户以为删掉了，下次进游戏按钮又回来。
+        getControlLayoutParent().setModified(true);
     }
 
 

@@ -50,7 +50,10 @@ void bigcore_set_affinity() {
     cpu_set_t bigcore_affinity_set;
     CPU_ZERO(&bigcore_affinity_set);
     CPU_SET_S(big_core_id, CPU_SETSIZE, &bigcore_affinity_set);
-    int result = sched_setaffinity(0, CPU_SETSIZE, &bigcore_affinity_set);
+    // 2026-10-29（审计 B39）：第二个参数是 cpu_set_t 的**字节数**，不是 CPU_SETSIZE。
+    // 传 CPU_SETSIZE(1024) 会让内核按 1024 字节去读一个只有 128 字节的栈对象（越界读），
+    // 轻则 EINVAL 设置失败，重则读到垃圾位把线程绑到不存在的核上。
+    int result = sched_setaffinity(0, sizeof(bigcore_affinity_set), &bigcore_affinity_set);
     if(result != 0) {
         printf("bigcore: setting affinity failed: %s\n", strerror(result));
     }else{
