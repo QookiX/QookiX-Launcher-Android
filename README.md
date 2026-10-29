@@ -65,7 +65,7 @@
 | 层 | 说明 |
 |---|---|
 | 界面 | **Jetpack Compose + Material 3**（Kotlin 2.0.21，Compose BOM 2025.04.01，原生渲染） |
-| 外壳与后端 | **Rust 静态库 + 纯 JNI**（`libqookix_lib.so`；命令走 `nativeInvoke`，事件走 `onCoreEvent`，无 WebView、无 Tauri 运行时） |
+| 外壳与后端 | **Rust 静态库 + 纯 JNI**（`libqookix_lib.so`；命令走 `nativeInvoke`，事件走 `onCoreEvent`）。**命令通道不经过 WebView**；「皮肤」页的 3D 预览由一个**独立的离屏 WebView** 承载 three.js 渲染（画面不经 Kotlin） |
 | 游戏内原生层 | Kotlin/Java + C（`libpojavexec.so`：JVM 引导、EGL/Surface 桥、输入桥） |
 | 图形后端 | GL4ES（默认）、MobileGlues、Mesa（OSMesa + Zink + Turnip） |
 
@@ -153,7 +153,7 @@ PojavLauncher 部分（含修改：包名与 R 引用调整、shim 接线、剥�
 ### 组件与项目
 - [GL4ES](https://github.com/ptitSeb/gl4es) / [MobileGlues](https://github.com/MobileGLues/MobileGlues) / [Mesa](https://gitlab.freedesktop.org/mesa/mesa) —— 图形翻译与驱动后端
 - [LWJGL](https://www.lwjgl.org/) 与 [Caciocavallo](https://github.com/OpenJDK/caciocavallo) —— Java 侧窗口与输入适配
-- [Jetpack Compose](https://developer.android.com/jetpack/compose)、[Material 3](https://m3.material.io/)、[Kotlin](https://kotlinlang.org/)、[Tauri](https://tauri.app/) —— 界面与外壳
+- [Jetpack Compose](https://developer.android.com/jetpack/compose)、[Material 3](https://m3.material.io/)、[Kotlin](https://kotlinlang.org/) —— 界面与外壳
 - [Modrinth](https://modrinth.com/) 与 [CurseForge](https://www.curseforge.com/) —— 内容平台
 - [Terracotta](https://github.com/burningtnt/Terracotta)（陶瓦联机）—— 局域网联机隧道，Android 版直接分发上游产物
 - [Feather Icons](https://feathericons.com/)（MIT）、[Lucide](https://lucide.dev/)（ISC）—— 图标

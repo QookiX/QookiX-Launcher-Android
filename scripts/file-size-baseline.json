@@ -93,7 +93,7 @@
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/SettingsPage.kt": 375,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/SettingsRepo.kt": 171,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/settings/StorageStatsDialog.kt": 249,
-  "android/app/src/main/java/com/zhayi/qookix/compose/pages/Skin3dHost.kt": 778,
+  "android/app/src/main/java/com/zhayi/qookix/compose/pages/Skin3dHost.kt": 829,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/SkinPage.kt": 965,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/SkinRepo.kt": 236,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/TasksRepo.kt": 500,
@@ -299,7 +299,7 @@
   "src-tauri/src/terracotta.rs": 173,
   "src-tauri/src/translate.rs": 554,
   "src-tauri/src/updater.rs": 323,
-  "src-tauri/src/util.rs": 589,
+  "src-tauri/src/util.rs": 605,
   "src-tauri/src/version.rs": 841,
   "src-tauri/src/world_backup.rs": 273
 }

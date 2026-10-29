@@ -169,3 +169,24 @@ LGPL 义务的履行方式与其他 LGPL 组件一致：**以独立 `.so` 形式
     （见 `src-tauri/src/terracotta.rs`）；
   - 界面署名见「多人游戏 → 陶瓦联机」卡片底部，以及本页。
 - **涉及版本**：v0.4.2（内含 EasyTier v2.5.0-terracotta.2）
+
+## 皮肤 3D 预览（skinview3d / three.js）
+
+- **用途**：「我的 → 皮肤」页的 3D 皮肤预览 —— 可拖拽旋转、待机/行走/奔跑动画、
+  经典/纤细模型切换。Compose 没有 3D 引擎，所以由一个**独立的离屏 WebView**
+  承载 three.js 渲染，画面不经 Kotlin（详见 `skin3d.js` 顶部注释）。
+
+- **来源与许可**：
+
+  | 组件 | 作者 / 版权 | 仓库 | 许可 |
+  |---|---|---|---|
+  | skinview3d | Copyright © 2021-present glisco | https://github.com/glisco/skinview3d | MIT |
+  | three.js | Copyright © 2010-2024 three.js authors | https://github.com/mrdoob/three.js | MIT |
+
+- **分发形式**：`android/app/src/main/assets-components/skin3d/skinview3d.bundle.js`
+  （477 KB，打包进 APK 随包分发）。
+- **许可声明位置**：同目录 `LICENSE.skinview3d` 存有上述两份 MIT 原文。
+- **与 GPL-3.0 的兼容性**：✔ MIT 属宽松许可，允许以 GPL-3.0 传递，
+  只需保留版权与许可声明 —— 已随包分发于上述文件。
+- **本项目自写部分**：`skin3d.js`（宿主：加载皮肤、拖拽旋转、离屏取帧）、
+  `index.html`（最小宿主页）—— 本项目 GPL-3.0-or-later。

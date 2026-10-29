@@ -560,7 +560,23 @@ pub fn runtime() -> &'static tokio::runtime::Runtime {
     QK_RT.get_or_init(|| tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime"))
 }
 
-pub fn block_on<F: std::future::Future>(f: F) -> F::Output { runtime().block_on(f) }
+pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
+    // ⚠️ 在 tokio 上下文里再调 `runtime().block_on` 会 panic：
+    //    "Cannot start a runtime from within a runtime"。
+    //
+    // 而 panic 会被 JNI 边界的 `catch_unwind` 吞掉，变成
+    // `{"ok":false,"error":"nativeInvoke panic"}` —— 用户看到「未知错误」，
+    // 我们看到一条没有线索的信封，排查成本极高。
+    //
+    // 这里提前断言并**写明原因和修法**，让同一个 panic 变成可读的线索。
+    assert!(
+        tokio::runtime::Handle::try_current().is_err(),
+        "util::block_on 不能在 tokio 上下文里调用（否则 runtime().block_on 会 panic \
+         \"Cannot start a runtime from within a runtime\"）。\
+         调用方应该改成 async fn 并 .await，而不是同步 block_on。"
+    );
+    runtime().block_on(f)
+}
 
 pub fn spawn<F>(f: F) where F: std::future::Future<Output = ()> + Send + 'static { runtime().spawn(f); }
 

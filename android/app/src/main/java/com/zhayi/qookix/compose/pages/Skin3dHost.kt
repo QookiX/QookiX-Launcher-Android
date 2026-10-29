@@ -134,22 +134,29 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
             wv.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
-                // ⚠️ 走 file:///android_asset 加载，这三项必须开，
-                // 否则页面里的 <script src> 会被静默拦掉（表现为 QkSkin3D undefined）。
+                // ⚠️ 走 file:///android_asset 加载，`allowFileAccessFromFileURLs`
+                // 必须开，否则页面里的 <script src> 会被静默拦掉
+                //（表现为 QkSkin3D undefined、且没有任何报错）。
                 allowFileAccess = true
                 @Suppress("DEPRECATION")
                 allowFileAccessFromFileURLs = true
-                @Suppress("DEPRECATION")
-                allowUniversalAccessFromFileURLs = true
+                // ⚠️ 2026-10-29（复评 P1-2 ③）：**不再**开
+                // `allowUniversalAccessFromFileURLs`。
+                //
+                // 那个开关意味着「这个 WebView 里的任何 JS 都能发起跨域请求、
+                // 读取本地文件」。现在页面是我们自己写的所以没事，但它是
+                // 一个等待被利用的姿势 —— 只要哪天 skin3d/index.html 被替换
+                // （供应链投毒、或某个「下载皮肤包」功能直接解压内容到 assets），
+                // 就是本地文件泄露 + 任意请求。
+                //
+                // 实测：skinview3d.bundle.js 是 IIFE 打包，不是 ES module，
+                // 不需要这个权限就能加载。
             }
             wv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
             // 铺满整屏、完全透明：画面位置由 JS 里 canvas 的 transform 决定
             // （见 skin3d.js 的 setDirectDisplay 注释 —— 这样只有 canvas 那一块
             //  有内容，其余透明，不会盖住任何控件）。
-            wv.layoutParams = android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-            )
+            wv.layoutParams = android.widget.FrameLayout.LayoutParams(1, 1)
             // ⚠️ 2026-10-29（RC 前检查）：这层全屏 WebView 在无障碍树里是**可见**的 ——
             // 模拟器 dump 出来的界面文字里出现了页面的 <title>「QookiX Skin3D」。
             // 屏幕上确实看不见（透明），但屏幕阅读器会把整页内容读一遍，很吵。
@@ -221,11 +228,55 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
         onResult: (Boolean) -> Unit,
     ) {
         val wv = cachedWv ?: run { onResult(false); return }
+
+        // ⚠️⚠️ 2026-10-29（复评 P1-2 ①）：WebView **只覆盖预览框那一个矩形**，
+        // 不再铺满整屏。
+        //
+        // 原来是 MATCH_PARENT + 全透明，靠 `onTouchEvent` 返回 false 让触摸「穿透」
+        // 到下层 ComposeView —— **容错为零**：任何一条事件路径返回了 true，
+        // 整个 App 的触摸就断了，而且这种问题在模拟器上不明显，只在真机特定手势下复现。
+        //
+        // 现在把遮挡面积从「整个 App」降到「一个框」：即使穿透失效，
+        // 受影响的也只可能是那个预览框本身。
+        //
+        // 坐标换算：x/y 是**窗口**坐标，而 WebView 的父容器是 decorView，
+        // 要减去 decorView 自己在窗口里的位置。
+        if (visible) {
+            val decor = activity.window?.decorView as? android.view.ViewGroup
+            val loc = IntArray(2)
+            decor?.getLocationInWindow(loc)
+            wv.layoutParams = android.widget.FrameLayout.LayoutParams(
+                w.coerceAtLeast(1),
+                h.coerceAtLeast(1),
+            ).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                leftMargin = x - loc[0]
+                topMargin = y - loc[1]
+            }
+            wv.requestLayout()
+        }
+
         // 显示时才 VISIBLE —— rAF 在不可见时不会推进（three.js 靠它驱动渲染）。
         // 隐藏时 INVISIBLE：不参与合成、不占无障碍树，也不持续耗电。
         wv.visibility = if (visible) android.view.View.VISIBLE else android.view.View.INVISIBLE
+        // ⚠️ 2026-10-29（复评 P1-2 ②）：`INVISIBLE` **不会**停掉 WebView 内部的
+        // JS 定时器、WebGL 上下文和 GPU 合成 —— 离开皮肤页后，一个看不见的
+        // WebGL 上下文仍然占着显存和一颗渲染核。
+        //
+        // onPause() 暂停 WebView 的渲染与 JS 定时器，pauseTimers() 连全局 timer
+        // 一起停；回来时对称恢复。
+        if (visible) {
+            wv.onResume()
+            wv.resumeTimers()
+        } else {
+            wv.onPause()
+            wv.pauseTimers()
+        }
         val js = if (visible) {
-            "window.QkSkin3D ? window.QkSkin3D.setDirectDisplay(true, $w, $h, $x, $y) : false"
+            // canvas 在 **WebView 视口内**定位 —— WebView 现在就等于预览框那个矩形，
+            // 所以偏移是 (0,0)，尺寸按 WebView 的 CSS 尺寸（物理像素 ÷ dpr）。
+            // （改之前 WebView 是全屏的，canvas 要用窗口坐标去 transform 定位。）
+            "window.QkSkin3D ? window.QkSkin3D.setDirectDisplay(true, $w, $h, 0, 0) : false"
         } else {
             "window.QkSkin3D ? window.QkSkin3D.setDirectDisplay(false, 0, 0, 0, 0) : false"
         }
