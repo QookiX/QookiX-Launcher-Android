@@ -306,7 +306,7 @@ class TerracottaTunnelService : Service() {
                     )
                 }
             }
-            val n = android.app.Notification.Builder(this, CHANNEL_ID)
+            val n = com.zhayi.qookix.qkNotificationBuilder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("正在等待「对局域网开放」")
                 .setContentText("在游戏里对局域网开放世界后，房间码会显示在这里")
@@ -365,7 +365,7 @@ class TerracottaTunnelService : Service() {
     /** 把通知换成「房间码 xxx」，这样玩家在游戏里也能看到并念给朋友 */
     private fun updateNotificationWithRoom(code: String) {
         runCatching {
-            val n = android.app.Notification.Builder(this, CHANNEL_ID)
+            val n = com.zhayi.qookix.qkNotificationBuilder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("联机房间 $code")
                 .setContentText("把这个房间码发给朋友即可加入")

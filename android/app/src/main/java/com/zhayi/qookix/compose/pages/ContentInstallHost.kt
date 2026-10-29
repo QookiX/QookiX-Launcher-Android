@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.QookixApi
 import com.zhayi.qookix.compose.bridge.friendlyError
+import com.zhayi.qookix.compose.bridge.optText
 import com.zhayi.qookix.compose.bridge.installContent
 import com.zhayi.qookix.compose.bridge.installServerContent
 import com.zhayi.qookix.compose.bridge.installServerPlugin
@@ -158,9 +159,14 @@ fun ContentInstallHost(
                         val o = arr.optJSONObject(i) ?: return@mapNotNull null
                         InstallTargetUi(
                             id = o.optString("id"),
-                            name = o.optString("name").ifBlank { o.optString("version_id") },
+                            // ⚠️ 2026-10-29（外部审计 B06 核实成立）：
+                            // 这里原来读 `version_id` —— 那是「已安装内容的版本 id」，
+                            // 实例根本没有这个字段（MinecraftProfile 里叫 `mc_version`）。
+                            // 结果 mcVersion 永远为空 → 「按 MC 版本筛选」对模组失效，
+                            // 会给出不兼容的版本；无匹配时还会静默回退全量。
+                            name = o.optText("name") ?: o.optText("version_id") ?: "",
                             loader = o.optString("loader"),
-                            mcVersion = o.optString("version_id"),
+                            mcVersion = o.optText("mc_version") ?: "",
                         )
                     }
                     instanceId = instances.firstOrNull { it.loader != "vanilla" }?.id

@@ -689,11 +689,18 @@ const SHOT_EXTRAS: [&str; 1] = ["screenshots"];
 #[serde(rename_all = "camelCase")]
 pub struct ExportOptions {
     /// 存档：体积大且含个人内容，默认不带
-    #[serde(default)]
+    ///
+    /// ⚠️ 2026-10-29（外部审计 B07 核实成立）：结构体是 camelCase 序列化，
+    /// 而前端 `PageHost` 发的是 `include_saves` / `include_screenshots` /
+    /// `include_config`（snake_case）—— serde 会**静默忽略**未知键，
+    /// 三个开关全部落成默认 false。用户勾了「包含存档」导出，包里却没有存档，
+    /// 而且导出成功、毫无提示。
+    /// 这里补 alias 让两种写法都认（历史版本前端也发 snake_case）。
+    #[serde(default, alias = "include_saves")]
     pub include_saves: bool,
-    #[serde(default)]
+    #[serde(default, alias = "include_screenshots")]
     pub include_screenshots: bool,
-    #[serde(default)]
+    #[serde(default, alias = "include_config")]
     pub include_config: bool,
 }
 

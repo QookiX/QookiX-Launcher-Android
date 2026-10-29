@@ -134,7 +134,13 @@ class ServerService : Service() {
         }
         val filter = android.content.IntentFilter(ACTION_STOPPED)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            // ⚠️ 2026-10-29（外部审计 B03 核实成立）：原来写的是 RECEIVER_EXPORTED，
+            // 而 ACTION_STOPPED 只由**本应用**主进程里的 Rust 侧 `sendBroadcast` 发出
+            //（android_bridge/mod_android.rs::notify_server_stopped）。
+            // EXPORTED 等于把「停服 + 杀进程」这个动作开放给本机任意应用 ——
+            // 任何应用发一个同名 action 就能打断正在运行的服务器（可能跳过存档）。
+            // 改成 NOT_EXPORTED：同 uid 的跨进程广播照样收得到。
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(receiver, filter)
@@ -243,7 +249,7 @@ class ServerService : Service() {
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val b = Notification.Builder(this, CHANNEL_ID)
+        val b = com.zhayi.qookix.qkNotificationBuilder(this, CHANNEL_ID)
             .setContentTitle("Minecraft 服务器")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_upload)

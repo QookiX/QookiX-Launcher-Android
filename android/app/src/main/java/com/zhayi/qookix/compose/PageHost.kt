@@ -2100,10 +2100,14 @@ private fun InstanceDetailRoute(
                     )
                 }
                 // 体检失败就带着空统计导出（不挡流程）
+                // ⚠️ 2026-10-29（审计 B07）：Rust 的 ExportOptions 是
+                // #[serde(rename_all = "camelCase")]，这里原来发 snake_case，
+                // serde 静默忽略未知键 → 用户勾的存档/截图/配置全被丢掉。
+                // Rust 侧同时加了 alias 兜底，这里改成正名。
                 val options = org.json.JSONObject()
-                    .put("include_saves", saves)
-                    .put("include_screenshots", shots)
-                    .put("include_config", cfg)
+                    .put("includeSaves", saves)
+                    .put("includeScreenshots", shots)
+                    .put("includeConfig", cfg)
                 api.exportModpack(instanceId, options) { er ->
                     exporting = false
                     er.fold(

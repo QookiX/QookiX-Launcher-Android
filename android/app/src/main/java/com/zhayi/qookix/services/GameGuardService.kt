@@ -133,7 +133,7 @@ class GameGuardService : Service() {
             android.app.PendingIntent.FLAG_IMMUTABLE or
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val n = android.app.Notification.Builder(this, CHANNEL_ID)
+        val n = com.zhayi.qookix.qkNotificationBuilder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("游戏已退出")
             .setContentText("点此返回启动器")
