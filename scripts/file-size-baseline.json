@@ -26,7 +26,7 @@
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/QookixApiSystem.kt": 98,
   "android/app/src/main/java/com/zhayi/qookix/compose/bridge/RustBridge.kt": 235,
   "android/app/src/main/java/com/zhayi/qookix/compose/BrowseSettingsRoutes.kt": 1129,
-  "android/app/src/main/java/com/zhayi/qookix/compose/ComposeMainActivity.kt": 1674,
+  "android/app/src/main/java/com/zhayi/qookix/compose/ComposeMainActivity.kt": 1689,
   "android/app/src/main/java/com/zhayi/qookix/compose/FrpRoutes.kt": 646,
   "android/app/src/main/java/com/zhayi/qookix/compose/lansync/LanSyncDeepLink.kt": 63,
   "android/app/src/main/java/com/zhayi/qookix/compose/lansync/LanSyncPage.kt": 744,
