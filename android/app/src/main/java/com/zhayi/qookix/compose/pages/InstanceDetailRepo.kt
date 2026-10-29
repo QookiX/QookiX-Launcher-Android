@@ -40,8 +40,24 @@ class InstanceDetailRepo(private val api: QookixApi, private val context: androi
                 r.mapCatching { o ->
                     val name = o.optString("name").ifBlank { o.optString("version_id") }
                     val loader = o.optString("loader").ifBlank { "vanilla" }
-                    val ver = o.optString("version_id")
-                    name to listOf(loaderLabel(loader), ver).filter { it.isNotBlank() }.joinToString(" ")
+                    // ⚠️ 2026-10-29（竖屏检查）：原来只取 `version_id`（历史字段），
+                    // 而当前 Rust 侧的 MC 版本在 `mc_version` —— 于是详情页 hero
+                    // 的副标题只剩「Fabric」，看不到 1.21.1。
+                    //
+                    // 改成和实例列表 `InstancesRepo.subtitleOf` 完全一致的规则：
+                    //   · MC 版本：mc_version 优先，回退 version_id
+                    //   · 加载器：有 loader_version 才拼上（原版没有版本号）
+                    // 分隔符用「·」，和 hero 里「加载器 · MC 版本」的语义吻合。
+                    val mcVer = o.optString("mc_version").ifBlank { o.optString("version_id") }
+                    val loaderVer = o.optString("loader_version")
+                    val loaderText = if (loader.equals("vanilla", true) || loaderVer.isBlank()) {
+                        loaderLabel(loader)
+                    } else {
+                        "${loaderLabel(loader)} $loaderVer"
+                    }
+                    name to listOf(loaderText, mcVer)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · ")
                 }
             )
         }

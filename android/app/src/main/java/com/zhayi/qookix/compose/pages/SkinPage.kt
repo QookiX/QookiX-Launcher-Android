@@ -698,10 +698,15 @@ private fun SkinPreview3d(
                     }
                 },
             shape = MaterialTheme.shapes.medium,
-            // webview 模式下让这个框透明 —— 露出下面正在显示 3D 的 WebView
-            color = if (renderMode == "webview")
-                androidx.compose.ui.graphics.Color.Transparent
-            else MaterialTheme.colorScheme.surfaceContainerLowest,
+            // ⚠️ 2026-10-29（竖屏检查）：原来 compose 模式用 surfaceContainerLowest
+            // （比页面背景还暗）、webview 模式用全透明 —— 没选皮肤时整个预览区
+            // 就是一整块和背景同色的黑洞，看不出这里是个「预览框」。
+            //
+            // 改成两种模式都用 surfaceContainerLow（比背景略亮一档）：
+            // · compose 模式：底色 + 上面画 Image
+            // · webview 模式：底色仍在，WebView 的页面背景是透明的，
+            //   3D canvas 叠在这层底色之上 —— 没皮肤时看到的是框，不是黑洞。
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 when {

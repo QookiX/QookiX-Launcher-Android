@@ -281,8 +281,6 @@ fun InstanceDetailPage(
                 // 而且在 48dp 图标旁边会把名字挤断。拆开显示：
                 //   第一行：纯实例名（月落花野）
                 //   第二行：加载器 + MC 版本（NeoForge 21.1.251 · 1.21.1）
-                val mcVersion = Regex("[（(]([^）)]+)[）)]")
-                    .find(state.name)?.groupValues?.getOrNull(1).orEmpty()
                 val displayName = state.name
                     .substringBefore("（").substringBefore("(")
                     .trim()
@@ -295,9 +293,9 @@ fun InstanceDetailPage(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val meta = listOf(state.subtitle, mcVersion)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · ")
+                // subtitle 现在已经是「Fabric 0.16.0 · 1.21.1」（见 loadInfo）——
+                // 不再从名字里正则提取 MC 版本，否则会和它重复。
+                val meta = state.subtitle
                 if (meta.isNotBlank()) {
                     Text(
                         text = meta,
