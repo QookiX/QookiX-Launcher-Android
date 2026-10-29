@@ -836,6 +836,21 @@ class ComposeMainActivity : ComponentActivity() {
                 pendingSaveCallback = null
                 cb?.invoke(data?.data?.toString())
             }
+            // ⚠️ 2026-10-29（外部审计 B04 核实成立）：
+            // `REQ_PICK_GAME_DIR`（4001）**从来没有分支** —— 选完目录直接落到
+            // 下面的 `else -> caps.onPickFileResult(...)`，把目录 URI 塞进了
+            // 「文件选择」的槽里。于是 `take_picked_game_dir` 永远拿不到结果：
+            // 用户点「选择」→ 选完 → 界面毫无变化。
+            // 这就是 issue #2「游戏目录选择形同虚设」的真正根因
+            //（之前只修了副标题显示字段，那只是第二层）。
+            HostCapabilities.REQ_PICK_GAME_DIR -> {
+                caps.onPickGameDirResult(data?.data)
+                caps.clearPickerInFlight()
+            }
+            HostCapabilities.REQ_VPN_PREPARE -> {
+                // VPN 授权回来：记下结果（原来复用 4002，结果被当成布局文件解析）
+                caps.markVpnConsent(true)
+            }
             HostCapabilities.REQ_PICK_CONTROL_LAYOUT -> {
                 // ⚠️ 2026-10-18 补（修「按键导入选完文件没反应」）：
                 // Compose 迁移时这个分支整个丢了 —— 用户选完文件后结果没人接收，

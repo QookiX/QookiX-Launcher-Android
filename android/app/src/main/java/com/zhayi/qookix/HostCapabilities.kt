@@ -86,6 +86,9 @@ class HostCapabilities(private val activity: Activity) {
         const val REQ_PICK_GAME_DIR = 4001
         /** 选控制布局文件的请求码。 */
         const val REQ_PICK_CONTROL_LAYOUT = 4002
+
+        /** VPN 授权（`VpnService.prepare`）。2026-10-29 加：原来借用 4002，结果被当成布局文件解析。 */
+        const val REQ_VPN_PREPARE = 4005
         /** 选 APK 安装包的请求码。 */
         const val REQ_INSTALL_APK = 4003
         /** 选图片（背景图、皮肤）的请求码。 */
@@ -421,8 +424,13 @@ class HostCapabilities(private val activity: Activity) {
         }
     }
 
-    /** 选择器结果回来了（无论成功/取消），清掉在途标记。 */
-    private fun clearPickerInFlight() {
+    /**
+     * 选择器结果回来了（无论成功/取消），清掉在途标记。
+     *
+     * 2026-10-29：`internal` —— Activity 的 `onActivityResult` 也要调，
+     * 否则 5 秒连点窗口会挡掉紧接着的第二次选择。
+     */
+    internal fun clearPickerInFlight() {
         pickerStartedAt = 0L
     }
 
@@ -549,8 +557,11 @@ class HostCapabilities(private val activity: Activity) {
                 // VpnService.prepare 会返回一个待启动的 Intent（null = 已授权）
                 val intent = android.net.VpnService.prepare(activity)
                 if (intent != null) {
+                    // ⚠️ 2026-10-29（审计 B04 核实成立）：这里原来复用
+                    // `REQ_PICK_CONTROL_LAYOUT`（4002）—— VPN 授权结果回来会被
+                    // 当成「按键布局文件」去解析，既拿不到授权、又可能报错。
                     @Suppress("DEPRECATION")
-                    activity.startActivityForResult(intent, REQ_PICK_CONTROL_LAYOUT)
+                    activity.startActivityForResult(intent, REQ_VPN_PREPARE)
                 } else {
                     markVpnConsent(true)
                 }
