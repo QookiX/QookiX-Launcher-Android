@@ -83,6 +83,9 @@ object InstancesRepo {
                     // ⚠️ 以前这里不解析，PageHost 只好**再发一次** list_instances
                     // 专门取这个字段（冷启动白白多扫一遍实例目录）。
                     groupId = o.optString("group").ifBlank { null },
+                    // ⚠️ 2026-10-29：这个字段以前完全没解析，导致「换图标」保存成功
+                    // 但界面永远不显示（详见 InstanceUi.iconPath 的注释）。
+                    iconPath = o.optString("icon").ifBlank { null },
                 )
             }
         } catch (e: Exception) {

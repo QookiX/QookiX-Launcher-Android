@@ -221,54 +221,35 @@ fun AppearancePane(
                 }
             }
 
-            // ── 侧边栏宽度（2026-10-17 新增，用户可调）──────────────────
+            // ── 避让挖孔屏（2026-10-29 新增）─────────────────────────────
             //
-            // 为什么可调：不同人屏幕/视力差异大 —— 有人觉得 168dp 太窄，
-            // 「内容服务」这种 4 字标签看不清；有人觉得太宽，占掉内容区。
-            // 固定值必然有人不满意，所以交给用户自己拖。
-            // 侧边栏只在横屏存在；竖屏下拖滑杆看不到任何变化，
-            // 用户会以为「形同虚设」（issue #2）—— 明确告诉他要切横屏
-            val cfg = androidx.compose.ui.platform.LocalConfiguration.current
-            val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
+            // 原来是无条件 `.windowInsetsPadding(WindowInsets.displayCutout)`，
+            // 非挖孔屏设备上四边白留一圈边距。现在交给用户决定。
+            val cutoutCtx = androidx.compose.ui.platform.LocalContext.current
             SettingsRow(
-                title = stringResource(R.string.settings_appearance_sidebar_width),
-                subtitle = when {
-                    !isLandscape ->
-                        stringResource(R.string.settings_appearance_sidebar_width_portrait)
-                    state.sidebarWidth == 168 ->
-                        stringResource(R.string.settings_appearance_sidebar_width_desc)
-                    else ->
-                        stringResource(R.string.settings_appearance_sidebar_width_desc_changed)
+                title = stringResource(R.string.settings_appearance_cutout_inset),
+                subtitle = stringResource(R.string.settings_appearance_cutout_inset_desc),
+                trailing = {
+                    Switch(
+                        checked = com.zhayi.qookix.compose.UiPrefs.cutoutInset,
+                        onCheckedChange = { on ->
+                            // 两处都写：内存镜像驱动根布局即时变化，pref 保证重启保留
+                            com.zhayi.qookix.compose.UiPrefs.cutoutInset = on
+                            (cutoutCtx as? com.zhayi.qookix.compose.ComposeMainActivity)?.setCutoutInsetPref(on)
+                        },
+                    )
                 },
-            ) {
-                Text(
-                    text = "${state.sidebarWidth} dp",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            )
 
-            Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 4.dp)) {
-                Slider(
-                    value = state.sidebarWidth.toFloat(),
-                    onValueChange = { onChange(SettingsPatch.SidebarWidth(it.toInt())) },
-                    // 140dp 下限：「内容服务」还不至于被截断
-                    // 260dp 上限：再宽横屏下内容区会被挤得太窄
-                    valueRange = 140f..260f,
-                    steps = 11,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (state.sidebarWidth != 168) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(onClick = { onChange(SettingsPatch.SidebarWidth(168)) }) {
-                            Text(stringResource(R.string.settings_appearance_reset_sidebar))
-                        }
-                    }
-                }
-            }
+            // ── 侧边栏宽度：**已移除**（2026-10-29 用户要求）───────────────
+            //
+            // 原来这里有一个 140–260dp 的滑杆。现在侧栏改成了「展开 168 / 收起 88」
+            // 两态固定宽度（长按切换），这个滑杆调的值根本不参与布局 ——
+            // 用户拖了半天没任何变化，就是「没用」。
+            //
+            // 数据链路（Settings.sidebar_width / SettingsPatch.SidebarWidth）暂时留着，
+            // 删除要动 Rust models + patch 枚举 + 迁移逻辑，收益不大；
+            // 界面入口没了，就不会再有人误以为它能调。
             SettingsRow(
                 title = stringResource(R.string.settings_appearance_background),
                 subtitle = if (state.backgroundImage.isBlank())

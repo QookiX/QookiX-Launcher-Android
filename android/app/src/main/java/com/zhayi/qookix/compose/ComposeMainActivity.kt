@@ -399,6 +399,9 @@ class ComposeMainActivity : ComponentActivity() {
         // ⚠️ 钩在 `onWebViewCreate` 上（见下面那个 override），**不要**靠
         // `findTauriWebView` 遍历视图树 —— 实测它在 3/8/15 秒都返回 null
         // （Tauri 的 WebView 不在这个 Activity 的视图树里），于是回调永远装不上。
+        // 把持久化的界面偏好读进内存镜像（UiPrefs），供 Compose 即时响应。
+        UiPrefs.cutoutInset = cutoutInsetPref()
+
         setContent {
                         QookiXTheme {
                             // ⚠️ 必须 remember：RustBridge 内部有 `ready` 状态，
@@ -417,6 +420,9 @@ class ComposeMainActivity : ComponentActivity() {
                                     // 状态栏临时浮出时也不会压住标题。
                                     .statusBarsPadding(),
                             ) {
+                                // 冷启动自动检查更新（受「设置 → 关于」的开关控制，
+                                // 24 小时最多一次；没有新版本时完全不打扰）。
+                                AutoUpdateCheck(bridge = bridge, activity = this@ComposeMainActivity)
                                 LauncherRoot(
                                     bridge = bridge,
                                     activity = this@ComposeMainActivity,
@@ -670,6 +676,51 @@ class ComposeMainActivity : ComponentActivity() {
     private val KEY_PREVIEW_MODE = "preview_render_mode"
     /** 内容中心紧凑模式（布尔）。 */
     private val KEY_BROWSE_COMPACT = "browse_compact"
+
+    // ── 自动检查更新（2026-10-29 补）──────────────────────────────────────
+    //
+    // ⚠️ 用户反馈：「只有手动点才有检查，即使开了自动检查」—— 属实。
+    //
+    // 原来 `autoCheck` 只是「关于」页里一个 Composable 的 state：
+    //   · 点开关改的是内存里的 state；
+    //   · 不持久化（重启回默认 true，但也没人读）；
+    //   · 没有任何地方拿它去触发 checkForUpdate —— 那个命令只在用户
+    //     手动点「检查更新」时才发。
+    //
+    // 也就是说那是**一个完全没有接线的开关**。现在补上：
+    //   · 开关存进 SharedPreferences；
+    //   · 冷启动时读它，为 true 就发一次 checkForUpdate；
+    //   · 24 小时节流（存最后检查时间），避免每次启动都打 GitHub API
+    //     （未登录的 API 限流是 60 次/小时，频繁请求会被 403）。
+
+    /** 自动检查更新的开关（默认开）。 */
+    private val KEY_AUTO_UPDATE = "auto_check_update"
+
+    /** 上次**自动**检查更新的时间戳（毫秒），用于 24 小时节流。 */
+    private val KEY_LAST_UPDATE_CHECK = "last_update_check_at"
+
+    fun autoCheckUpdatePref(): Boolean = prefs().getBoolean(KEY_AUTO_UPDATE, true)
+
+    fun setAutoCheckUpdatePref(on: Boolean) {
+        prefs().edit().putBoolean(KEY_AUTO_UPDATE, on).apply()
+    }
+
+    fun lastUpdateCheckAt(): Long = prefs().getLong(KEY_LAST_UPDATE_CHECK, 0L)
+
+    fun markUpdateChecked() {
+        prefs().edit().putLong(KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+    }
+
+    // ── 避让挖孔屏（2026-10-29 用户要求给开关）──────────────────────────────
+
+    /** 是否避让 `displayCutout`，默认开。 */
+    private val KEY_CUTOUT_INSET = "cutout_inset"
+
+    fun cutoutInsetPref(): Boolean = prefs().getBoolean(KEY_CUTOUT_INSET, true)
+
+    fun setCutoutInsetPref(on: Boolean) {
+        prefs().edit().putBoolean(KEY_CUTOUT_INSET, on).apply()
+    }
 
     /** Android 侧自己的小配置（不经过 Rust 的 settings.json）。 */
     internal fun prefs() = getSharedPreferences("qookix_ui", MODE_PRIVATE)

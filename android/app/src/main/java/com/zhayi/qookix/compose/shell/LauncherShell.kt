@@ -79,6 +79,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInParent
+import com.zhayi.qookix.compose.UiPrefs
 
 /**
  * 启动器主壳（Material 3）—— 完全重做，不参照旧 Vue 界面。
@@ -289,7 +290,18 @@ fun LauncherShell(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.displayCutout),
+                // ⚠️ 2026-10-29：避让挖孔屏改成**可开关**（UiPrefs.cutoutInset）。
+                //
+                // 这个 padding 是 2026-10-28 为 issue #2 的「横屏挖孔遮挡」加的，
+                // 但它让四边都多出一点空白 —— 不是挖孔屏的设备上纯属浪费。
+                // 用 UiPrefs 里的 Compose state，拨开关时根布局立刻跟着变。
+                .then(
+                    if (UiPrefs.cutoutInset) {
+                        Modifier.windowInsetsPadding(WindowInsets.displayCutout)
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
             topBar()
             Row(modifier = Modifier.weight(1f)) {
@@ -512,33 +524,25 @@ private fun QkRailItem(
             )
         }
     } else {
-        // 收起态：**图标 + 小字**（A 方案）。
+        // 收起态：**只有图标**（用户 2026-10-29 明确要求）。
         //
-        // 为什么不做成纯图标：我们有 6 个入口，「内容」「多人」这类词光看图
-        // 容易混（用户也担心这点）。88dp 放一行 labelSmall 完全够。
+        // 之前试过「图标 + 小字」（A 方案），理由是 6 个入口光看图容易混；
+        // 但用户的判断是收起就该是纯图标（名字在长按展开时才出现），
+        // 那就按这个来 —— 收起态本来就是为了把宽度让给内容。
         //
-        // 高度预算：每项 ≈ 22(图标) + 2 + 14(小字) + 8(padding) = 46dp，
-        //   6 项 = 276dp；横屏扣掉顶栏(64) 后可用约 347dp —— 留了 70dp 余量，
-        //   挖孔屏 insets 也吃得下。
-        // （最早试过 vertical padding 8 + 56dp 项，6 项 336dp，最后一项「更多」
-        //   的文字被裁掉过，所以这里压到 4dp。）
-        Column(
-            modifier = base.padding(vertical = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        // 每项 48dp，6 项 = 288dp，横屏扣顶栏(64) 后可用约 347dp，留了 60dp 余量。
+        // contentDescription 仍传标签：收起只是视觉上省空间，无障碍不能丢。
+        Box(
+            modifier = base.height(48.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = null,
+                contentDescription = stringResource(dest.labelRes),
                 tint = fg,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = stringResource(dest.labelRes),
-                style = MaterialTheme.typography.labelSmall,
-                color = fg,
-                maxLines = 1,
+                modifier = Modifier.size(24.dp),
             )
         }
     }
 }
+

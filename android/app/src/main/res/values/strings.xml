@@ -1393,6 +1393,14 @@
     <string name="about_update_check_short">检查</string>
     <string name="about_update_checking">正在检查…</string>
     <string name="about_update_available">发现新版本 %1$s</string>
+    <!-- 2026-10-29：冷启动自动检查更新（那个「自动检查」开关原来完全没接线） -->
+    <!-- 2026-10-29：避让挖孔屏给个开关（原来无条件避让，非挖孔屏设备白留边） -->
+    <string name="settings_appearance_cutout_inset">避让挖孔屏</string>
+    <string name="settings_appearance_cutout_inset_desc">横屏时给摄像头挖孔/刘海留出边距，内容不会被压住</string>
+    <string name="auto_update_title">发现新版本</string>
+    <string name="auto_update_body">新版本 %1$s 已发布。可在「设置 → 关于」里检查并下载。</string>
+    <string name="auto_update_go">去「关于」页</string>
+    <string name="auto_update_later">稍后</string>
     <string name="about_update_ready">新版本 %1$s 已下载</string>
     <string name="about_update_latest">当前已是最新版本（%1$s）</string>
     <string name="about_update_hint">当前版本 %1$s</string>

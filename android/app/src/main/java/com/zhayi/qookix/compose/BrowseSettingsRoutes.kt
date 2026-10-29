@@ -201,6 +201,17 @@ internal fun SettingsRoute(
     onSidebarWidthChanged: (Int) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    // 「自动检查更新」的开关存在 SharedPreferences（Rust 的 Settings 没有这个字段）。
+    // 进设置页时读一次喂给界面 —— 否则重启后开关显示默认值 true，
+    // 而实际行为（AutoUpdateCheck 读的是 pref）可能已经是关的，用户会被绕晕。
+    LaunchedEffect(Unit) {
+        val act = context as? ComposeMainActivity ?: return@LaunchedEffect
+        val on = act.autoCheckUpdatePref()
+        if (updateState.autoCheck != on) {
+            onUpdateStateChange(updateState.copy(autoCheck = on))
+        }
+    }
     val api = remember(bridge) { QookixApi(bridge) }
     val repo = remember(api) { SettingsRepo(api) }
 
@@ -784,6 +795,11 @@ internal fun SettingsRoute(
                     },
                     onToggleAutoCheck = { enabled ->
                         onUpdateStateChange(updateState.copy(autoCheck = enabled))
+                        // ⚠️ 2026-10-29：必须持久化。
+                        // 原来只改内存 state —— 重启回默认，而冷启动的自动检查
+                        // （AutoUpdateCheck）读的是 SharedPreferences 里这个值，
+                        // 不写进去等于开关对「自动检查」毫无影响。
+                        (context as? ComposeMainActivity)?.setAutoCheckUpdatePref(enabled)
                     },
                     // 社区贡献者名单（assets/contributors.json，2026-10-18）
                     contributors = contributors,

@@ -493,19 +493,34 @@ private fun InstanceCard(
                     .onGloballyPositioned { iconRect = it.boundsInWindow() },
                 contentAlignment = Alignment.Center,
             ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    shape = RoundedCornerShape(QkRadius.medium),
-                    color = parseHexColor(inst.colorHex)
-                        ?: MaterialTheme.colorScheme.primaryContainer,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = inst.name.take(1).uppercase(),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
+                // 有自定义图标就画图片（用户在「换图标」里选的），否则回落到首字母色块。
+                //
+                // ⚠️ 2026-10-29：这里以前**只画首字母** —— 后端早就支持 `icon` 字段，
+                // update_instance 也写进去了，但前端从不读，所以「换图标」保存成功
+                // 却什么都不变。现在补上渲染。
+                val iconFile = inst.iconPath?.takeIf { it.isNotBlank() }
+                if (iconFile != null) {
+                    coil3.compose.AsyncImage(
+                        model = java.io.File(iconFile),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                } else {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        shape = RoundedCornerShape(QkRadius.medium),
+                        color = parseHexColor(inst.colorHex)
+                            ?: MaterialTheme.colorScheme.primaryContainer,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = inst.name.take(1).uppercase(),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
                     }
                 }
             }
@@ -576,6 +591,16 @@ data class InstanceUi(
     val subtitle: String,
     val colorHex: String? = null,
     val groupId: String? = null,
+    /**
+     * 实例图标文件的绝对路径（用户在「换图标」里选的）。
+     *
+     * ⚠️ 2026-10-29 补：后端 **一直支持** 这个字段
+     *（`models.rs:38` 的 `Instance.icon`、`instances.rs:151` 读配置、
+     *  `instances.rs:241` 走 `update_instance` 写入），
+     * 但前端从来没解析、也没渲染过 —— 于是用户「换图标」后
+     * 保存成功、提示成功，**界面上什么都不会变**。
+     */
+    val iconPath: String? = null,
 )
 
 data class InstanceSection(
