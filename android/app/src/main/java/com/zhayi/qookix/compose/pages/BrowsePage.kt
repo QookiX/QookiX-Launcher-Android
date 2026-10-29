@@ -136,7 +136,10 @@ fun BrowsePage(
     onDismissFilter: () -> Unit = {},
     /**
      * 整页翻译（B1）：把当前页所有项目的简介批量翻成中文。
-     * 旧界面的 `translatePage()` —— 迁移时漏了，只剩安装对话框里能单个翻。
+     *
+     * ⚠️ 2026-10-29：按钮已经从网格里**挪到顶栏**（见 [BrowseToolbar]）——
+     * 用户反馈「翻译本页」占着列表第一行、还只占右边一角很难点。
+     * 这个参数保留只为兼容旧调用点，实际不再渲染任何按钮。
      */
     onTranslatePage: () -> Unit = {},
     /** 整页翻译进行中（按钮转圈 + 防重入）。 */
@@ -235,31 +238,8 @@ fun BrowsePage(
                     horizontalArrangement = Arrangement.spacedBy(if (state.compact) 8.dp else 12.dp),
                     verticalArrangement = Arrangement.spacedBy(if (state.compact) 6.dp else 12.dp),
                 ) {
-                    // 整页翻译按钮（跨整行）
-                    item(key = "__browse_translate__", span = { GridItemSpan(maxLineSpan) }) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (translatingPage) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            TextButton(onClick = onTranslatePage, enabled = !translatingPage) {
-                                Icon(
-                                    imageVector = Icons.Filled.Translate,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(stringResource(R.string.browse_translate_page))
-                            }
-                        }
-                    }
+                    // 整页翻译按钮已挪到顶栏（2026-10-29，用户要求）——
+                    // 见 BrowseToolbar 的 translatingPage / onTranslatePage。
                     items(state.items, key = { it.id }) { p ->
                         if (state.compact) {
                             ProjectRowCompact(p, onClick = { onOpenProject(p) }, onInstall = { onInstall(p) })
@@ -471,6 +451,14 @@ fun BrowseToolbar(
     onCompactChange: (Boolean) -> Unit,
     /** 页面标题（2026-10-17：用户要求「内容」两个字必须保留）。空串 = 用默认资源文案。 */
     title: String = "",
+    /**
+     * 整页翻译（2026-10-29 从列表里挪到顶栏，用户要求）。
+     *
+     * null = 不显示这个按钮（别的页面复用本工具栏时不传即可）。
+     */
+    onTranslatePage: (() -> Unit)? = null,
+    /** 整页翻译进行中：按钮位置换成转圈，同时禁止重复触发。 */
+    translatingPage: Boolean = false,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -543,6 +531,27 @@ fun BrowseToolbar(
                     contentDescription = stringResource(R.string.browse_filter),
                     modifier = Modifier.size(20.dp),
                 )
+            }
+        }
+
+        // 整页翻译（2026-10-29：用户要求从列表第一行挪到标题栏）
+        if (onTranslatePage != null) {
+            if (translatingPage) {
+                Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            } else {
+                IconButton(onClick = onTranslatePage, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Translate,
+                        contentDescription = stringResource(R.string.browse_translate_page),
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 

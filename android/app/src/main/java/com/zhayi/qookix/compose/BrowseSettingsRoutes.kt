@@ -925,6 +925,40 @@ internal fun BrowseRoute(
         }
     }
 
+    /**
+     * 整页翻译：把当前页所有项目的简介批量翻成中文。
+     *
+     * 2026-10-29：按钮从列表第一行挪到顶栏（用户要求），逻辑原样搬出来，
+     * 顶栏和以后任何入口都调这一个函数。
+     */
+    fun translatePageAction() {
+        val items = state.items
+        if (items.isEmpty() || translatingPage) return
+        translatingPage = true
+        api.translateModDescriptions(items.first().provider, items.map { it.id }) { r ->
+            translatingPage = false
+            r.fold(
+                onSuccess = { o ->
+                    val t = o.optJSONObject("translations") ?: org.json.JSONObject()
+                    state = state.copy(
+                        items = state.items.map { p ->
+                            val zh = t.optString(p.id)
+                            if (zh.isNotBlank()) p.copy(description = zh) else p
+                        },
+                    )
+                },
+                onFailure = { e ->
+                    state = state.copy(
+                        error = context.getString(
+                            R.string.browse_translate_failed,
+                            e.message ?: "",
+                        )
+                    )
+                },
+            )
+        }
+    }
+
     // ── 把工具栏注册到顶栏（2026-10-17）──────────────────────────────
     //
     // 用户要求「搜索条要跟『内容』标题平着、右边一直到用户头像」。
@@ -965,6 +999,9 @@ internal fun BrowseRoute(
                     // 记住选择（下次进内容中心还是这个模式）
                     activity?.setBrowseCompactPref(it)
                 },
+                // 整页翻译按钮（2026-10-29 从列表第一行挪进标题栏）
+                onTranslatePage = { translatePageAction() },
+                translatingPage = translatingPage,
             )
             }
         }
@@ -1071,31 +1108,6 @@ internal fun BrowseRoute(
         onLoadMore = { loadMore() },
         loadingMore = loadingMore,
         hasMore = hasMore,
-        onTranslatePage = {
-            // 整页翻译（B1）：把当前页所有项目的简介批量翻成中文。
-            // `translate_mod_descriptions` 返回 { translations: { "<id>": "译文" } }。
-            val items = state.items
-            if (items.isNotEmpty() && !translatingPage) {
-                translatingPage = true
-                api.translateModDescriptions(items.first().provider, items.map { it.id }) { r ->
-                    translatingPage = false
-                    r.fold(
-                        onSuccess = { o ->
-                            val t = o.optJSONObject("translations") ?: org.json.JSONObject()
-                            state = state.copy(
-                                items = state.items.map { p ->
-                                    val zh = t.optString(p.id)
-                                    if (zh.isNotBlank()) p.copy(description = zh) else p
-                                },
-                            )
-                        },
-                        onFailure = { e ->
-                            state = state.copy(error = context.getString(R.string.browse_translate_failed, e.message ?: ""))
-                        },
-                    )
-                }
-            }
-        },
         translatingPage = translatingPage,
     )
 
