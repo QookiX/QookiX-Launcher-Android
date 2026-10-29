@@ -28,7 +28,61 @@
 
 ### 实验遗留的独立问题（与 LWJGL/Sodium 无关）—— 排查记录（2026-10-24/25）
 
-### 【2026-10-25 追加】NeoForge 21.1.251 安装链路已全线打通，卡点前移到 RenderSystem
+### 【2026-10-25 深夜 · 最终修正】-6 的真因：单次启动内的 LWJGL 双类加载器竞态
+
+**「第一次失败 exit code 1 → 同进程重试」的理论被推翻了**（本节早先版本写错了）。
+加了入口日志后实测（launch_game 入口 log_line + JLI_Launch 计数）：
+`launch_game` 只被调用**一次**，`JLI_Launch` 也只有**一次** —— 之前日志里的
+「71 失败 → 72 重试」是**崩溃泄漏的重定向 fd 把上一次启动的 println 追加进
+同一个文件**造成的交错假象（一次点击只创建一个 GameActivity，已用
+onCreate 的 identityHashCode 日志验证）。
+
+**真因（证据充分）**：游戏 JVM 里存在**两份** org.lwjgl.system.Library——
+`lwjgl-glfw-classes.jar` 在 `-cp` 上（系统类加载器可见），BootstrapLauncher
+又把它定义进 BOOT 层（模块 lwjgl.glfw.classes）。两份各自做版本检查
+（所以 `Incompatible … versions detected` 每次启动打印两次），**竞态**在于：
+哪份先把 `liblwjgl.so` 注册进 JVM 的 NativeLibraries（按绝对路径 +
+类加载器记账）。输家在 RenderSystem.<clinit> 时再 `System.load` 同一路径 →
+`UnsatisfiedLinkError: already loaded in another classloader` → JVM abort →
+SIGABRT → abort_waiter 转成退出码 -6 弹窗。纯时序竞态，所以时好时坏
+（同一构建有时 60FPS 进主菜单、有时 -6）。
+
+**已上的缓解（GameActivity.startGameOnce）**：退出码 -6 时自动重启一次游戏
+（1.5s 后 startGameOnce，Toast 提示，只补一次），实测竞态输了的重试能进主菜单。
+用户从「崩溃弹窗」变成无感自愈。
+
+**根治方向（待做）**：让 liblwjgl.so 只被一个类加载器加载 ——
+a) 把 `lwjgl-glfw-classes.jar` 从 `-cp` 挪进 `-p`（BOOT 层唯一来源），或
+b) 启动最早期由 BOOT 层主动 `System.loadLibrary("lwjgl")` 抢注，
+   后续所有加载都命中同一登记；
+c) LWJGL 对齐工作流（本文件 §1）里换自维护移植时一并解决。
+
+### 【2026-10-25 追加】✅ 已进主菜单（vulkan_zink 渲染器）—— GL4ES 路径的根因也已定位
+
+**验收结果（2026-10-25 14:12）**：实例 `a39e8632`（月落花野，NeoForge 21.1.251，182 个模组）
+把 `instance.json` 的 `"renderer"` 从 `null` 改为 **`"vulkan_zink"`** 后，
+**完整进入整合包自定义主菜单**（MOONLIT WILDS 标题 + 全景 + 182 模组计数 +
+模组更新弹窗都正常渲染），Zink + Turnip 渲染正常。截图：`shots/verify_18_MAINMENU.png`。
+
+到这里，本文件 §1 的验收标准 1、2、3 在**本实例上全部达成**（走 zink 插件）。
+
+**GL4ES 路径（`opengles2`，MC 1.21.1 的自动默认）为什么死 —— 根因已锁定**：
+- Sodium 在 `GL.createCapabilities()` 之后立刻取
+  `glGetString(GL_VENDOR)`（成功）→ `glGetString(GL_RENDERER)`（**返回 NULL** → NPE）
+  （Sodium `WindowMixin.postContextReady` → `GlContextInfo.create`）。
+- **上游 ptitSeb/gl4es 的 `gl4es_glGetString`（src/gl/getter.c:247）对 GL_RENDERER
+  永远返回静态串**（"GL4ES using %s"），不可能为 NULL。
+- 但随包的 `jniLibs/arm64-v8a/libgl4es_114.so` 里**没有** "GL4ES using/wrapping"
+  这两个格式串 —— 是定制构建，getter 被改过（疑似直通底层 GLES，或依赖
+  `gl4es_original_renderer` 全局、而本仓库 `gl_bridge.c::nativeInitGl4esInternals`
+  里那段「接管 GL_VENDOR/RENDERER」的代码被注释摘掉了 —— 见该函数内 TODO 注释，
+  历史上还因启用它导致「停在 Backend library」）。修复路线二选一：
+  a) 用上游源码重编 gl4es（getter.c 有 NULL 兜底，最干净）；
+  b) 把 `nativeInitGl4esInternals` 的接管做完做对（当年卡在调用时机/FindClass）。
+- 另外 GL4ES 冷启动首启还伴随「第一次 JLI_Launch 静默 exit code 1 → 同进程重试
+  → liblwjgl.so already loaded in another classloader」（见上一节），zink 路径
+  冷启动偶发同样模式 —— exit code 1 的第一根因仍未抓到，重试代码仍未找到
+  （Rust/Kotlin/C 三层都没有），待办同前。
 
 安装链（本次已修，commit `198d9d2`，别再重复排查）：
 1. installer jar 本地跳过下载 ✓（maven.neoforged.net 被拦 → adb 推 jar 到 `<game_root>/libraries/`）
@@ -39,27 +93,6 @@
    `ElementShader.init: VertexShader linkage failure`（"An error occurred initializing
    shaders"）循环 y/n 卡死。现在 strip 在 classpath 合并前执行。
 5. 设备镜像设置已切 `official` → `bmclapi`（31 个 neoforged 依赖靠它下齐）
-
-修完后的新卡点（**当前唯一卡点**）——FML 全部跑完、165 个模组全加载
-（`Vanilla bootstrap took 8314 milliseconds`），死在 RenderSystem 初始化：
-
-```
-java.lang.UnsatisfiedLinkError: Native Library /data/.../natives/liblwjgl.so
-  already loaded in another classloader [in thread "Render thread"]
-  at org.lwjgl.system.Library.<clinit>(Library.java:55)      ← MC-BOOTSTRAP/lwjgl.glfw.classes
-  at org.lwjgl.system.MemoryUtil.<clinit>(MemoryUtil.java:100)
-  at com.mojang.blaze3d.vertex.ByteBufferBuilder.<clinit>
-  at com.mojang.blaze3d.systems.RenderSystem.<clinit>
-```
-
-时序（launch-a39e8632….log）：`准备调用 JLI_Launch argc=71 → 失败 exit code 1 →
-（分隔符）→ JLI_Launch argc=72 → 游戏跑到 RenderSystem 崩`。这就是本文件上面
-Z1 记录的「第一次失败 → 同进程重试(+1 arg)」模式：第一次失败前已经 dlopen 过
-liblwjgl.so（早期 GL4ES 都初始化完了），重试的 JVM 撞进程级缓存。
-**两个未解之谜都记在这**：(a) exit code 1 的第一根因还没抓到（stderr 当时已
-重定向但什么都没留下）；(b) 重试代码在 Rust/Kotlin/C 三层都没找到，但 argc
-71→72 的 +1 模式在历史日志稳定复现 —— 找到重试触发点、改成「失败换进程重启
-启动器」即可能直接翻过这一页。
 
 
 
