@@ -150,6 +150,14 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
             )
+            // ⚠️ 2026-10-29（RC 前检查）：这层全屏 WebView 在无障碍树里是**可见**的 ——
+            // 模拟器 dump 出来的界面文字里出现了页面的 <title>「QookiX Skin3D」。
+            // 屏幕上确实看不见（透明），但屏幕阅读器会把整页内容读一遍，很吵。
+            // 它对用户没有任何信息价值：只是一个离屏渲染宿主。
+            wv.importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            // 不显示时直接 INVISIBLE：不参与合成、rAF 也停下（省电），
+            // setDirectDisplay(true) 会先切回 VISIBLE。
+            wv.visibility = android.view.View.INVISIBLE
             (activity.window?.decorView as? android.view.ViewGroup)?.addView(wv)
             wv.loadUrl("file:///android_asset/skin3d/index.html")
             cachedWv = wv
@@ -213,6 +221,9 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
         onResult: (Boolean) -> Unit,
     ) {
         val wv = cachedWv ?: run { onResult(false); return }
+        // 显示时才 VISIBLE —— rAF 在不可见时不会推进（three.js 靠它驱动渲染）。
+        // 隐藏时 INVISIBLE：不参与合成、不占无障碍树，也不持续耗电。
+        wv.visibility = if (visible) android.view.View.VISIBLE else android.view.View.INVISIBLE
         val js = if (visible) {
             "window.QkSkin3D ? window.QkSkin3D.setDirectDisplay(true, $w, $h, $x, $y) : false"
         } else {
