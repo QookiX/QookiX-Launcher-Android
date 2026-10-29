@@ -77,6 +77,7 @@ mod updater;
 mod controls;
 /// 局域网直传同步：安卓端 HTTP 客户端（连桌面端起的 HTTP 服务拉实例）。
 mod lan_sync;
+mod lan_sync_upload;
 
 #[cfg(target_os = "android")]
 mod jni_bridge;

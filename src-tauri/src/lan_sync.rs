@@ -30,11 +30,23 @@
 
 use serde::{Deserialize, Serialize};
 
+// 上传链路（手机 → 电脑）拆到单独文件，见 lan_sync_upload.rs
+pub(crate) use crate::lan_sync_upload::upload_instance;
+
 /// 桌面端 `GET /api/info` 返回的设备信息。
+///
+/// ⚠️ 每个字段都要能吃 camelCase 且**缺了也不能整条解析失败**（2026-10-30）：
+/// `docs/lan-sync.md` 写的是「snake_case 与 camelCase 都能吃」，但原来只有
+/// `mc_version` / `loader_version` 加了 alias，`instance_count` 没有 ——
+/// 桌面端只要返回 `instanceCount`，这里就 `missing field` 报错，
+/// 界面表现为「连不上」，用户完全看不出是字段名对不上。
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LanDeviceInfo {
+    #[serde(alias = "deviceName", alias = "name")]
     pub device: String,
+    #[serde(default)]
     pub version: String,
+    #[serde(alias = "instanceCount", default)]
     pub instance_count: usize,
 }
 
@@ -43,34 +55,52 @@ pub struct LanDeviceInfo {
 pub struct LanInstanceSummary {
     pub id: String,
     pub name: String,
-    #[serde(rename = "mc_version", alias = "mcVersion")]
+    #[serde(rename = "mc_version", alias = "mcVersion", default)]
     pub mc_version: String,
+    #[serde(default)]
     pub loader: String,
-    #[serde(rename = "loader_version", alias = "loaderVersion")]
+    #[serde(rename = "loader_version", alias = "loaderVersion", default)]
     pub loader_version: Option<String>,
+    /// 同上：没有就按 0 显示，不让一个缺字段废掉整张列表
+    #[serde(alias = "sizeBytes", default)]
     pub size_bytes: u64,
+    #[serde(alias = "hasSaves", default)]
     pub has_saves: bool,
+    #[serde(alias = "hasMods", default)]
     pub has_mods: bool,
 }
 
 // ── 内部工具 ─────────────────────────────────────────────────────────────
 
-fn client() -> reqwest::Client {
+pub(crate) fn client() -> reqwest::Client {
     reqwest::Client::builder()
         // 大存档可能传几分钟；下载本身靠事件推进度，不靠这个超时判死。
         .timeout(std::time::Duration::from_secs(600))
+        // ⚠️ 连接阶段必须单独限时（2026-10-30）：原来只有整体 600 秒，
+        // 电脑没起服务 / IP 填错时 TCP 要等系统超时（可达 2 分钟），
+        // 用户看到的就是「点了连接，一直转圈，没反应」。
+        .connect_timeout(std::time::Duration::from_secs(8))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
-fn endpoint(host: &str, port: u16, path: &str) -> String {
+pub(crate) fn endpoint(host: &str, port: u16, path: &str) -> String {
     format!("http://{host}:{port}{path}")
 }
 
 /// 简单校验 host/port/remote_id，防注入到 URL。
-fn validate_host(host: &str) -> Result<(), String> {
+///
+/// 顺便容忍「host 里已经带了端口」这种输入（用户手填 `192.168.1.5:8765`，
+/// 或桌面端二维码把端口拼进 host）：这种情况直接拒绝，报出来的
+/// `http://192.168.1.5:8765:8765/api/info` 谁都看不懂。
+pub(crate) fn validate_host(host: &str) -> Result<(), String> {
     if host.is_empty() || host.contains('/') || host.contains(' ') {
         return Err(format!("非法 host：{host}"));
+    }
+    if host.matches(':').count() == 1 {
+        return Err(format!(
+            "host 里不要带端口（填 IP，端口另外填）：{host}"
+        ));
     }
     Ok(())
 }
@@ -252,11 +282,22 @@ async fn stream_download(
         )
     })?;
     if !resp.status().is_success() {
-        return Err(format!(
-            "电脑返回错误：HTTP {}（接口 {}）",
-            resp.status(),
-            url
-        ));
+        let status = resp.status();
+        // ⚠️ 必须把 body 读出来（2026-10-30）：桌面端 500 的 body 是
+        // 「Pack error: 读文件失败: ...」，只显示 HTTP 500 的话，
+        // 用户和我们都不知道到底是哪个文件出了事。
+        let body = resp.text().await.unwrap_or_default();
+        let detail = body.trim();
+        let detail = if detail.len() > 300 {
+            format!("{}…", &detail[..300])
+        } else {
+            detail.to_string()
+        };
+        return Err(if detail.is_empty() {
+            format!("电脑返回错误：HTTP {status}（接口 {url}）")
+        } else {
+            format!("电脑返回错误：HTTP {status} —— {detail}")
+        });
     }
 
     let total = resp.content_length().unwrap_or(0);
@@ -358,6 +399,60 @@ fn extract_zip(zip_path: &std::path::Path, dest: &std::path::Path) -> Result<(),
 /// 反序列化桌面端字段名。换掉 `id` 和 `game_dir` 指向新目录即可。
 ///
 /// 如果 zip 里已经是 `instance.json`（比如从别的安卓端传来的），就只更新 id/game_dir。
+/// 把桌面端的 `qookix.json` 洗成安卓 `MinecraftProfile` 能吃的样子。
+///
+/// ⚠️ 2026-10-30（真机：`invalid type: null, expected a string at line 17`）：
+/// 桌面端元数据里 `java_path` / `game_dir` 这些字段可能是 **null 或干脆没有**，
+/// 而安卓端把它们定义成 `String`（不是 `Option<String>`）—— 直接
+/// `from_str::<MinecraftProfile>()` 会整条失败，报错信息还只说「第 17 行」。
+/// 手工逐字段映射太容易漏（结构体有二十多个字段），所以这里只做「补默认值」，
+/// 让 serde 继续负责剩下的解析。
+fn normalize_desktop_meta(v: &mut serde_json::Value, inst_dir: &std::path::Path, new_id: &str) {
+    let Some(obj) = v.as_object_mut() else {
+        return;
+    };
+    let dir = inst_dir.to_string_lossy().to_string();
+
+    fn ensure_str(obj: &mut serde_json::Map<String, serde_json::Value>, key: &str, fallback: &str) {
+        let ok = matches!(obj.get(key), Some(serde_json::Value::String(_)));
+        if !ok {
+            obj.insert(key.to_string(), serde_json::Value::String(fallback.to_string()));
+        }
+    }
+    fn ensure_i64(obj: &mut serde_json::Map<String, serde_json::Value>, key: &str, fallback: i64) {
+        let ok = matches!(obj.get(key), Some(serde_json::Value::Number(_)));
+        if !ok {
+            obj.insert(key.to_string(), serde_json::json!(fallback));
+        }
+    }
+    fn ensure_array(obj: &mut serde_json::Map<String, serde_json::Value>, key: &str) {
+        let ok = matches!(obj.get(key), Some(serde_json::Value::Array(_)));
+        if !ok {
+            obj.insert(key.to_string(), serde_json::json!([]));
+        }
+    }
+
+    ensure_str(obj, "id", new_id);
+    ensure_str(obj, "name", "未命名实例");
+    ensure_str(obj, "mc_version", "");
+    ensure_str(obj, "game_dir", &dir);
+    // 关键：桌面端没设过 Java 路径时这里是 null
+    ensure_str(obj, "java_path", "");
+    ensure_str(obj, "loader", "vanilla");
+    ensure_i64(
+        obj,
+        "created",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
+    );
+    ensure_i64(obj, "total_play_time", 0);
+    ensure_array(obj, "mods");
+    ensure_array(obj, "resource_packs");
+    ensure_array(obj, "shaders");
+}
+
 fn convert_metadata(inst_dir: &std::path::Path, new_id: &str) -> Result<(), String> {
     let qkx_path = inst_dir.join("qookix.json");
     let inst_json_path = inst_dir.join("instance.json");
@@ -373,8 +468,11 @@ fn convert_metadata(inst_dir: &std::path::Path, new_id: &str) -> Result<(), Stri
 
     let content =
         std::fs::read_to_string(&src_path).map_err(|e| format!("读元数据失败：{e}"))?;
-    let mut profile: crate::models::MinecraftProfile =
+    let mut v: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("解析实例元数据失败：{e}"))?;
+    normalize_desktop_meta(&mut v, inst_dir, new_id);
+    let mut profile: crate::models::MinecraftProfile =
+        serde_json::from_value(v).map_err(|e| format!("解析实例元数据失败：{e}"))?;
 
     // 指向新目录
     profile.id = new_id.to_string();
@@ -411,315 +509,50 @@ fn emit_error(instance_id: &str, instance_name: &str, message: &str) {
 /// 共享游戏文件（`libraries` / `versions` / `assets`）**不能**跟着实例传：
 /// 它们由桌面端按 `mc_version` + `loader` 自己下载，跟着传等于每次多传几百 MB，
 /// 而且可能和桌面端已有版本冲突。日志/崩溃报告/截图同理，纯垃圾。
-const UPLOAD_SKIP_DIRS: &[&str] = &[
-    "logs",
-    "crash-reports",
-    "screenshots",
-    "natives",
-    "libraries",
-    "versions",
-    "assets",
-];
-
-/// 上传前要提交的实例元数据。
-struct UploadMeta {
-    name: String,
-    mc_version: String,
-    loader: String,
-    loader_version: String,
-}
-
-/// `POST /api/instances/upload` —— 把本地实例打包后传给电脑。
-///
-/// 返回桌面端给出的新实例 id（可能为空串：老服务端不回这个字段）。
-///
-/// 进度经 `lan://progress` 推给前端，`direction = "upload"`：
-/// `phase` 依次是 `pack`（打包，`files` 是已打包文件数）/ `upload`
-///（`bytesDone` / `bytesTotal`）/ `done` / `error`，与下载共用同一套字段。
-pub async fn upload_instance(
-    host: &str,
-    port: u16,
-    token: &str,
-    instance_id: &str,
-) -> Result<String, String> {
-    validate_host(host)?;
-    if instance_id.is_empty() || instance_id.contains('/') || instance_id.contains('\\') {
-        return Err(format!("非法实例 id：{instance_id}"));
-    }
-
-    let inst_dir = crate::settings::instance_dir(instance_id)
-        .await
-        .map_err(|e| format!("无法定位实例目录：{e}"))?;
-    if !inst_dir.is_dir() {
-        return Err("实例目录不存在".to_string());
-    }
-
-    let meta = read_upload_meta(&inst_dir)?;
-    let display_name = meta.name.clone();
-
-    // 1. 打包（阻塞 IO，别卡住 tokio 的 worker）
-    let tmp_zip = inst_dir.join(".lan_sync.upload.zip");
-    let _ = std::fs::remove_file(&tmp_zip);
-    let zip_for_task = tmp_zip.clone();
-    let dir_for_task = inst_dir.clone();
-    let name_for_task = display_name.clone();
-    // spawn_blocking 要求 'static：先把 &str 的 id 拷成 String 再 move 进去
-    let id_for_task = instance_id.to_string();
-    let packed = tokio::task::spawn_blocking(move || {
-        build_instance_zip(&dir_for_task, &zip_for_task, &id_for_task, &name_for_task)
-    })
-    .await
-    .map_err(|e| format!("打包线程失败：{e}"))?;
-
-    let size = match packed {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp_zip);
-            emit_upload_error(instance_id, &display_name, &e);
-            return Err(e);
-        }
-    };
-
-    // 2. 上传
-    let result = do_upload(host, port, token, &tmp_zip, size, instance_id, &display_name, &meta).await;
-    let _ = std::fs::remove_file(&tmp_zip);
-
-    match result {
-        Ok(new_id) => {
-            crate::progress::push(
-                "lan://progress",
-                serde_json::json!({
-                    "phase": "done",
-                    "direction": "upload",
-                    "instanceId": instance_id,
-                    "instanceName": display_name,
-                    "remoteId": new_id,
-                    "ok": true,
-                }),
-            );
-            Ok(new_id)
-        }
-        Err(e) => {
-            emit_upload_error(instance_id, &display_name, &e);
-            Err(e)
-        }
-    }
-}
-
-fn emit_upload_error(instance_id: &str, instance_name: &str, message: &str) {
-    crate::progress::push(
-        "lan://progress",
-        serde_json::json!({
-            "phase": "error",
-            "direction": "upload",
-            "instanceId": instance_id,
-            "instanceName": instance_name,
-            "ok": false,
-            "message": message,
-        }),
-    );
-}
-
-/// 读 `instance.json`，抽出上传需要的四个字段。
-///
-/// 用 `serde_json::Value` 而不是 `MinecraftProfile`：这里只要几个字符串，
-/// 没必要为了上传把整个结构体（含一堆 `Option` / 枚举）反序列化一遍。
-fn read_upload_meta(inst_dir: &std::path::Path) -> Result<UploadMeta, String> {
-    let path = inst_dir.join("instance.json");
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("读实例元数据失败：{e}"))?;
-    let v: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("解析实例元数据失败：{e}"))?;
-    let s = |keys: &[&str]| -> String {
-        keys.iter()
-            .find_map(|k| v.get(k).and_then(|x| x.as_str()))
-            .unwrap_or("")
-            .to_string()
-    };
-    let name = s(&["name"]).trim().to_string();
-    Ok(UploadMeta {
-        name: if name.is_empty() { "未命名实例".to_string() } else { name },
-        mc_version: s(&["mc_version", "mcVersion"]),
-        loader: {
-            let l = s(&["loader"]);
-            if l.is_empty() { "vanilla".to_string() } else { l }
-        },
-        loader_version: s(&["loader_version", "loaderVersion"]),
-    })
-}
-
-/// 把实例目录打成 zip，返回 zip 字节数。
-///
-/// 规则见模块文档与 `docs/lan-sync.md` 2.2：跳过共享游戏文件与运行时垃圾。
-fn build_instance_zip(
-    inst_dir: &std::path::Path,
-    zip_path: &std::path::Path,
-    instance_id: &str,
-    instance_name: &str,
-) -> Result<u64, String> {
-    let file = std::fs::File::create(zip_path).map_err(|e| format!("创建 zip 失败：{e}"))?;
-    let mut zw = zip::ZipWriter::new(file);
-    let opts = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-
-    let mut stack = vec![inst_dir.to_path_buf()];
-    let mut files: u32 = 0;
-    let mut last_emit = std::time::Instant::now();
-
-    while let Some(dir) = stack.pop() {
-        let entries = std::fs::read_dir(&dir).map_err(|e| format!("遍历实例目录失败：{e}"))?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            if path.is_dir() {
-                if UPLOAD_SKIP_DIRS.iter().any(|d| *d == file_name) {
-                    continue;
-                }
-                stack.push(path);
-                continue;
-            }
-            // 半成品 zip 自己不能进包
-            if file_name.starts_with(".lan_sync.") {
-                continue;
-            }
-            let rel = match path.strip_prefix(inst_dir) {
-                Ok(r) => r.to_string_lossy().replace('\\', "/"),
-                Err(_) => continue,
-            };
-            zw.start_file(rel, opts)
-                .map_err(|e| format!("写入 zip 失败：{e}"))?;
-            let mut f = std::fs::File::open(&path)
-                .map_err(|e| format!("读取文件失败（{}）：{e}", path.display()))?;
-            std::io::copy(&mut f, &mut zw).map_err(|e| format!("压缩失败：{e}"))?;
-            files += 1;
-
-            if last_emit.elapsed() > std::time::Duration::from_millis(250) {
-                crate::progress::push(
-                    "lan://progress",
-                    serde_json::json!({
-                        "phase": "pack",
-                        "direction": "upload",
-                        "instanceId": instance_id,
-                        "instanceName": instance_name,
-                        "files": files,
-                    }),
-                );
-                last_emit = std::time::Instant::now();
-            }
-        }
-    }
-
-    zw.finish().map_err(|e| format!("收尾 zip 失败：{e}"))?;
-    std::fs::metadata(zip_path)
-        .map(|m| m.len())
-        .map_err(|e| format!("读取 zip 大小失败：{e}"))
-}
-
-/// 真正发请求：流式 POST，边传边推 `phase = upload` 的字节进度。
-#[allow(clippy::too_many_arguments)]
-async fn do_upload(
-    host: &str,
-    port: u16,
-    token: &str,
-    zip_path: &std::path::Path,
-    size: u64,
-    instance_id: &str,
-    instance_name: &str,
-    meta: &UploadMeta,
-) -> Result<String, String> {
-    let file = tokio::fs::File::open(zip_path)
-        .await
-        .map_err(|e| format!("打开 zip 失败：{e}"))?;
-    let reader = tokio::io::BufReader::new(file);
-
-    let id = instance_id.to_string();
-    let name = instance_name.to_string();
-    use tokio::io::AsyncReadExt;
-    // 每读一块就推一次进度（250ms 节流）—— 与下载共用同一套事件字段
-    let stream = futures::stream::unfold(
-        (reader, 0u64, std::time::Instant::now()),
-        move |(mut r, mut done, mut last)| {
-            let id = id.clone();
-            let name = name.clone();
-            async move {
-                let mut buf = vec![0u8; 256 * 1024];
-                match r.read(&mut buf).await {
-                    Ok(0) => None,
-                    Ok(n) => {
-                        buf.truncate(n);
-                        done += n as u64;
-                        if last.elapsed() > std::time::Duration::from_millis(250) {
-                            crate::progress::push(
-                                "lan://progress",
-                                serde_json::json!({
-                                    "phase": "upload",
-                                    "direction": "upload",
-                                    "instanceId": id,
-                                    "instanceName": name,
-                                    "bytesDone": done,
-                                    "bytesTotal": size,
-                                }),
-                            );
-                            last = std::time::Instant::now();
-                        }
-                        Some((Ok::<Vec<u8>, std::io::Error>(buf), (r, done, last)))
-                    }
-                    Err(e) => Some((Err(e), (r, done, last))),
-                }
-            }
-        },
-    );
-
-    let resp = client()
-        .post(endpoint(host, port, "/api/instances/upload"))
-        .bearer_auth(token)
-        .query(&[
-            ("name", meta.name.as_str()),
-            ("mc_version", meta.mc_version.as_str()),
-            ("loader", meta.loader.as_str()),
-            ("loader_version", meta.loader_version.as_str()),
-        ])
-        .header(reqwest::header::CONTENT_TYPE, "application/zip")
-        // 流式 body 没有已知长度，必须显式给 —— 桌面端要靠它算进度/预检空间
-        .header(reqwest::header::CONTENT_LENGTH, size)
-        .body(reqwest::Body::wrap_stream(stream))
-        .send()
-        .await
-        .map_err(|e| format!("上传失败：{e}"))?;
-
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-
-    if !status.is_success() {
-        let server_msg = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|v| {
-                v.get("error")
-                    .and_then(|e| e.as_str())
-                    .map(|s| s.to_string())
-            })
-            .filter(|s| !s.is_empty());
-        return Err(match (status.as_u16(), server_msg) {
-            (401, _) => "电脑端拒绝了令牌，请重新扫码配对".to_string(),
-            (409, Some(m)) => format!("电脑上已有同名实例（{m}），请改个名字再传"),
-            (413, Some(m)) => format!("实例太大，电脑端不收：{m}"),
-            (_, Some(m)) => m,
-            (code, None) => format!("上传失败：HTTP {code}"),
-        });
-    }
-
-    Ok(serde_json::from_str::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|v| {
-            v.get("instanceId")
-                .and_then(|x| x.as_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_default())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    // 上传链路的打包函数已拆到 lan_sync_upload.rs
+    use crate::lan_sync_upload::{build_instance_zip, read_upload_meta};
+
+    /// 桌面端元数据里 `java_path` / `game_dir` 是 null 或缺失时，
+    /// 不能直接 from_str::<MinecraftProfile>（真机踩过：invalid type: null）
+    #[test]
+    fn normalize_desktop_meta_survives_nulls() {
+        let mut v = serde_json::json!({
+            "id": "c3f314a0",
+            "name": "DeceasedCraft",
+            "mc_version": "1.20.1",
+            "loader": "forge",
+            "loader_version": "8.0.4",
+            "created": 1788965076,
+            "last_played": 1789141417,
+            "total_play_time": 595,
+            "installed": true,
+            "icon": "bg:blue",
+            "alias": null,
+            "max_memory_mb": null,
+            "memory_mode": null,
+            "jvm_args": null,
+            "game_args": null,
+            "java_path": null,
+            "account_id": null,
+            "resolution": null,
+            "mods": [],
+            "resource_packs": [],
+            "shaders": [],
+            "is_symlink": true,
+            "source_path": "E:\\\\.minecraft",
+            "group": null
+        });
+        let dir = std::path::Path::new("/tmp/inst");
+        normalize_desktop_meta(&mut v, dir, "new-id");
+        let p: crate::models::MinecraftProfile = serde_json::from_value(v)
+            .expect("洗过之后必须能解析成安卓实例元数据");
+        assert_eq!(p.java_dir, "", "java_path 为 null 时要落成空串");
+        assert_eq!(p.game_dir, "/tmp/inst");
+        assert_eq!(p.name, "DeceasedCraft");
+    }
 
     /// 打包必须跳过 logs / 共享游戏文件，其余照传。
     #[test]
