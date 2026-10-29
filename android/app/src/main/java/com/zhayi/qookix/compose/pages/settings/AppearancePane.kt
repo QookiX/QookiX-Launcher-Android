@@ -388,7 +388,10 @@ data class SettingsUiState(
     val mirror: String = "official",
 
     // ── 下载 ──────────────────────────────────────────────────────────────
-    val downloadThreads: Int = 4,
+    // ⚠️ 2026-10-29：默认 4 → 8，和 Rust 侧（settings.rs / download.rs）对齐。
+    // 之前这里是 4，界面一打开就把 4 写回后端，实际并发被压到 4 路 ——
+    // 用户反馈「导入整合包远慢于 ZL2 / PCL」的直接原因之一。
+    val downloadThreads: Int = 8,
     val downloadChunkThreads: Int = 4,
     val autoUpdate: Boolean = true,
     val updateSource: String = "github",

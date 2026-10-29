@@ -17,6 +17,34 @@ pub const CUSTOM: &str = "custom";
 /// 它不代表用户偏好，也不会改设置 —— 只是「多挂一个更快的源」。
 pub const BMCLAPI_BASE: &str = "https://bmclapi2.bangbang93.com";
 
+/// Modrinth / CurseForge 的国内中转（社区服务 MCIM）。
+///
+/// ## 为什么单独有一个
+///
+/// `BMCLAPI_BASE` 只镜像 **Mojang 官方资源 + 各加载器 maven**，
+/// **不含** `cdn.modrinth.com` / `edge.forgecdn.net` ——
+/// 而整合包里的模组文件全在这两个 CDN 上。
+///
+/// 结果就是：国内用户导入整合包时是**直连国外**，几十 KB/s；
+/// 而 ZL2 的 `MCIMMirror.kt` 把它们换到 `mod.mcimirror.top`，能到几 MB/s。
+/// 用户反馈「导入整合包远慢于 ZL2 / PCL」，根因就在这里。
+///
+/// ## 为什么放在候选最前
+///
+/// 国内到 cdn.modrinth.com 的直连速度通常只有中转的百分之几。
+/// 中转挂了也不致命：候选列表是「中转 → 官方」，依次尝试，
+/// 最坏情况是多一次连接超时，下载本身仍然会走官方源完成。
+///
+/// ⚠️ 这是**第三方社区服务**，不是官方。要是长期不可用，
+/// 把这一条删掉即可（或用「自定义镜像」覆盖）。
+pub const MCIM_BASE: &str = "https://mod.mcimirror.top";
+
+/// 能走 MCIM 中转的 CDN 前缀（整域名替换，与 ZL2 的 REPLACE_MIRROR_HOLDERS 一致）。
+const MCIM_PREFIXES: [&str; 2] = [
+    "https://cdn.modrinth.com/",
+    "https://edge.forgecdn.net/",
+];
+
 /// 官方版本清单地址
 pub const OFFICIAL_MANIFEST: &str =
     "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -205,6 +233,19 @@ pub fn map(base: &str, url: &str) -> String {
 /// 这两类地址的包在 Maven Central 上都有，所以最后再挂一条 Central。
 pub fn candidate_urls(mirror_base: &str, url: &str) -> Vec<String> {
     let mut urls: Vec<String> = Vec::new();
+
+    // ① Modrinth / CurseForge → MCIM 中转（**放最前**，国内直连这两个 CDN 只有几十 KB/s）。
+    //
+    // 这一条和我们自己的 mirror_base 无关：BMCLAPI 本来就不镜像这两个域名，
+    // 即使用户选了「BMCLAPI」，map() 也匹配不到，最终还是会直连。
+    // 中转失败会回退到下面的官方 URL，所以不会让下载失败。
+    for prefix in MCIM_PREFIXES {
+        if let Some(rest) = url.strip_prefix(prefix) {
+            urls.push(format!("{MCIM_BASE}/{rest}"));
+            break;
+        }
+    }
+
     if !mirror_base.is_empty() {
         let mapped = map(mirror_base, url);
         if mapped != url {

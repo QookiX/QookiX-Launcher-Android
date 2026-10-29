@@ -115,7 +115,15 @@ class SettingsRepo(private val api: QookixApi) {
             mirror = str(json, "mirror", "mirror", "official"),
 
             // 下载
-            downloadThreads = int(json, "downloadThreads", "download_threads", 4).coerceIn(1, 16),
+            // ⚠️ 2026-10-29：默认 4 → 8、上限 16 → 32，和 Rust 侧对齐。
+            //
+            // 之前这里读不到字段时给 4，而 Rust 的 `settings.rs` / `download.rs`
+            // 默认是 8 —— 于是**界面一打开就把 4 写回给 Rust**（乐观更新 + patch），
+            // 实际下载并发被压到 4。
+            //
+            // 用户反馈「导入整合包远慢于 ZL2 / PCL」，这是一个直接原因：
+            // 4 路并发下，几百个小文件的包完全吃不满带宽。
+            downloadThreads = int(json, "downloadThreads", "download_threads", 8).coerceIn(1, 32),
             downloadChunkThreads = int(json, "downloadChunkThreads", "download_chunk_threads", 4)
                 .coerceIn(1, 16),
             autoUpdate = bool(json, "autoUpdate", "auto_update", true),

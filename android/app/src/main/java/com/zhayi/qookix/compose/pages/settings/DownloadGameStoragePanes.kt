@@ -93,8 +93,11 @@ fun DownloadPane(
                 Slider(
                     value = state.downloadThreads.toFloat(),
                     onValueChange = { onChange(SettingsPatch.DownloadThreads(it.toInt())) },
-                    valueRange = 1f..16f,
-                    steps = 14,
+                    // 上限 16 → 32：和 Rust 的 FILE_CONCURRENCY_MAX 对齐。
+                    // 原来 UI 只能拖到 16，而下器支持 32 —— 手机上下几百个小文件的
+                    // 整合包时，16 路仍会被单连接延迟拖住（用户反馈比 ZL2 慢）。
+                    valueRange = 1f..32f,
+                    steps = 30,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
