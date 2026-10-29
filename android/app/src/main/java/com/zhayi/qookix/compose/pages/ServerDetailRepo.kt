@@ -137,6 +137,29 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         }
     }
 
+    /**
+     * 只拉「会变」的运行时状态（轮询用）。
+     *
+     * ⚠️ 2026-10-29（外部审计 B18）：详情页原来每 2 秒调一次 [load]，
+     * 而 [load] 内部并发 4 条命令（runtime / address / coreInstalled / getHostedServer），
+     * 加上日志就是 5 条 —— 其中 address、coreInstalled、eula 基本不变，纯浪费；
+     * 而且不校验上一轮是否返回，服务端慢的时候请求会积压。
+     * 轮询现在只调这一条（+日志），其余字段靠首屏加载和操作后的主动刷新。
+     */
+    fun loadRuntime(
+        id: String,
+        onResult: (Result<Pair<Boolean, String?>>) -> Unit,
+    ) {
+        api.hostedServerRuntime(id) { r ->
+            onResult(
+                r.mapCatching { o ->
+                    o.optBoolean("running", false) to
+                        o.optString("exitNote").takeIf { it.isNotBlank() }
+                }
+            )
+        }
+    }
+
     /** 读日志（返回字符串数组，不是单个字符串）。 */
     fun loadLogs(id: String, onResult: (Result<List<String>>) -> Unit) {
         api.callRaw("read_hosted_server_log", JSONObject().put("id", id)) { r ->

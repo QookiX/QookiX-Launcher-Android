@@ -135,6 +135,14 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
         this.onChange = onChange
         this.onExit = onExit
 
+        // ⚠️ 2026-10-29（外部审计 B25 核实成立）：重复调用 start() 时，
+        // 下面只调了 unsubscribe()（退订事件），**没停旧心跳** ——
+        // 紧接着又 new 一个 Handler 覆盖引用，旧 Handler 上的 tick 仍在跑，
+        // 而且 tick 里 `heartbeat?.postDelayed` 指向了新 Handler，于是两个
+        // 循环互相续命，越 start 越多：CPU 翻倍、同一份状态被重复 emit。
+        heartbeat?.removeCallbacksAndMessages(null)
+        heartbeat = null
+
         // 重复 start（页面重进）时先退掉上一轮，免得同一事件被处理两次。
         unsubscribe()
         subs += bridge.listen("install://progress") { payload -> onInstall(payload) }

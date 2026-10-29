@@ -207,6 +207,11 @@ fun ServerDetailRoute(
                     running = it.running,
                     address = it.address,
                     coreInstalled = it.coreInstalled,
+                    // ⚠️ 2026-10-29（外部审计 B17）：Repo 明明读了 exitNote / eulaAgreed，
+                    // 这里却没复制进 state —— 于是「上次退出原因」永远不显示、
+                    // EULA 永远显示未同意（Rust 启动前会因此拒绝，用户找不到已勾过的状态）。
+                    exitNote = it.exitNote,
+                    eulaAgreed = it.eulaAgreed,
                 )
             }
             r.onFailure {
@@ -239,24 +244,34 @@ fun ServerDetailRoute(
         refreshPlugins()
     }
 
-    // 轮询：状态 + 日志
+    // 轮询：只拉「会变」的状态 + 日志
+    //
+    // ⚠️ 2026-10-29（外部审计 B18 核实成立）：原来每 2 秒调一次 `repo.load`，
+    // 那是 4 条并发命令（runtime / address / coreInstalled / getHostedServer），
+    // 加日志共 5 条 —— address、coreInstalled、eula 基本不变，纯浪费；
+    // 而且 `while (true) { delay(2000); ... }` 不等上一轮返回，
+    // 服务端慢的时候请求会一轮轮堆起来。
+    // 现在：只拉 runtime + 日志，并用序号丢弃过期响应。
+    var pollSeq by remember(serverId) { mutableStateOf(0) }
     LaunchedEffect(bridgeReady, serverId) {
         if (!bridgeReady) return@LaunchedEffect
         while (true) {
             kotlinx.coroutines.delay(2000)
-            repo.load(serverId) { r ->
-                r.onSuccess {
-                    state = state.copy(
-                        running = it.running,
-                        address = it.address,
-                        coreInstalled = it.coreInstalled,
-                    )
+            val seq = ++pollSeq
+            repo.loadRuntime(serverId) { r ->
+                r.onSuccess { (running, note) ->
+                    // 序号不等 = 期间又发过新请求，这份是旧数据，丢掉
+                    if (seq == pollSeq) {
+                        state = state.copy(running = running, exitNote = note)
+                    }
                 }
             }
             repo.loadLogs(serverId) { r ->
                 r.onSuccess { logs ->
-                    // 只保留最近 2000 行：控制台不需要全量，且越长重组越慢
-                    state = state.copy(logs = logs.takeLast(2000))
+                    if (seq == pollSeq) {
+                        // 只保留最近 2000 行：控制台不需要全量，且越长重组越慢
+                        state = state.copy(logs = logs.takeLast(2000))
+                    }
                 }
             }
         }

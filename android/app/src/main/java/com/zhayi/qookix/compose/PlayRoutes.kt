@@ -215,16 +215,29 @@ internal fun SkinRoute(
             )
         }
         // 顺带读一下当前账号（用于「应用到账号」按钮）
-        api.listAccounts { r ->
-            r.onSuccess { arr ->
-                val acc = arr.optJSONObject(0) ?: return@onSuccess
-                val isOnline = acc.optString("type").contains("microsoft", ignoreCase = true)
-                val accName = acc.optString("username").ifBlank { acc.optString("name") }
-                state = state.copy(
-                    accountUuid = acc.optString("uuid"),
-                    accountName = accName,
-                    accountOnline = isOnline,
-                )
+        //
+        // ⚠️ 2026-10-29（外部审计 B21 核实成立）：原来直接取 `listAccounts`
+        // 返回数组的**第一个**，完全不看 `settings.selected_account` ——
+        // 多账号时皮肤会应用到错的账号（预览的是 A，实际写进 B）。
+        // 现在按「selected_account → 第一个」的顺序选，和启动游戏时
+        // Rust 侧的优先级（实例 account_id → settings.selected_account → 第一个）对齐。
+        api.getSettings { sr ->
+            val preferUuid = sr.getOrNull()?.let { s ->
+                s.optString("selected_account").ifBlank { s.optString("selectedAccount") }
+            }.orEmpty()
+            api.listAccounts { r ->
+                r.onSuccess { arr ->
+                    val all = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                    val acc = all.firstOrNull { it.optString("uuid") == preferUuid }
+                        ?: all.firstOrNull()
+                        ?: return@onSuccess
+                    val isOnline = acc.optString("type").contains("microsoft", ignoreCase = true)
+                    val accName = acc.optString("username").ifBlank { acc.optString("name") }
+                    state = state.copy(
+                        accountUuid = acc.optString("uuid"),
+                        accountName = accName,
+                        accountOnline = isOnline,
+                    )
                 // ⚠️ 2026-10-18 加（修「正版账号皮肤页永远显示未选择皮肤」）：
                 // 正版账号的皮肤在 Mojang 服务器上，本地皮肤库是空的 ——
                 // 界面只能显示「未选择皮肤」，用户以为皮肤功能坏了。
@@ -257,6 +270,7 @@ internal fun SkinRoute(
                         }
                     }
                 }
+            }
             }
         }
     }

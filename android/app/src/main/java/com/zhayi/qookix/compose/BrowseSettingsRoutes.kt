@@ -887,6 +887,16 @@ internal fun BrowseRoute(
     // 两处各维护一份的话必然改一处漏一处。
     var installTarget by remember { mutableStateOf<ProjectUi?>(null) }
 
+    /**
+     * 搜索请求代际。
+     *
+     * ⚠️ 2026-10-29（外部审计 B19 核实成立）：原来回调里无条件
+     * `state = state.copy(items = it, ...)` —— 用户在 A 的请求还没回来时
+     * 又搜了 B（或换了类型 / 加载器 / 排序），A 的响应后到就会把 B 的结果
+     * 覆盖掉，界面显示的是上一次的关键词的列表，点进去对不上。
+     */
+    var searchSeq by remember { mutableStateOf(0) }
+
     fun doSearch() {
         if (!ready) return
         // ⚠️ 空关键词**允许**：进内容中心要能直接看到热门内容，
@@ -902,7 +912,10 @@ internal fun BrowseRoute(
         page = 0
         hasMore = true
         state = state.copy(loading = true, error = null)
+        val seq = ++searchSeq
         repo.search(q, state.type, page = 0, loader = state.loader, sort = state.sort) { r ->
+            // 期间又发起过搜索 → 这份是过期结果，丢掉（见 searchSeq 注释）
+            if (seq != searchSeq) return@search
             state = r.fold(
                 onSuccess = { state.copy(items = it, loading = false) },
                 onFailure = { state.copy(loading = false, error = context.getString(R.string.search_failed, friendlyError(context, it))) },
@@ -971,8 +984,12 @@ internal fun BrowseRoute(
         val next = page + 1
         // type/loader 一起带上：用户在翻页途中换了筛选，
         // 请求必须和当前列表同源，否则会把别的内容追加进来。
+        // 翻页也用同一个代际：翻到一半换筛选/重新搜索时，这一页的结果已经不属于
+        // 当前列表了，追加进去会把别的类型的条目混进来（审计 B19 的另一半）。
+        val seq = searchSeq
         repo.search(state.query.trim(), state.type, page = next, loader = state.loader, sort = state.sort) { r ->
             loadingMore = false
+            if (seq != searchSeq) return@search
             r.fold(
                 onSuccess = { more ->
                     // 不满一页 ⇒ 到底了（对齐旧 BrowseView 的

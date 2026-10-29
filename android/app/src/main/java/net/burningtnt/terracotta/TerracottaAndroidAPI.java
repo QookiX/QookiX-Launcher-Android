@@ -430,10 +430,22 @@ public final class TerracottaAndroidAPI {
             long value = fd.get();
             if (value == FD_PENDING) {
                 if (System.currentTimeMillis() - timestamp >= 30000) {
+                    // ⚠️ 2026-10-29（外部审计 B32）：超时必须清 pendingRequest ——
+                    // 不清的话，下一次 onVpnServiceStateChanged 进来会命中开头的
+                    // `if (pendingRequest != null) throw new AssertionError`，
+                    // 之后所有联机房间都起不来。
+                    pendingRequest = null;
                     Log.wtf("TerracottaAndroidAPI", "VpnService Request hasn't been fulfilled in 30s.");
                     throw new IllegalStateException();
                 }
-                Thread.yield();
+                // 原来 Thread.yield() 忙等：只是让出时间片，仍然 100% 占一个核最多 30 秒。
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException ie) {
+                    pendingRequest = null;
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(ie);
+                }
             } else if (value == FD_REJECT) {
                 pendingRequest = null;
                 throw new IllegalStateException();

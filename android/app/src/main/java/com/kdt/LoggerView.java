@@ -171,6 +171,12 @@ public class LoggerView extends ConstraintLayout {
         if (mLogFile == null || !mLogFile.isFile()) return;
         try (RandomAccessFile raf = new RandomAccessFile(mLogFile, "r")) {
             long len = raf.length();
+            // ⚠️ 2026-10-29（外部审计 B35）：日志被截断/轮转后 len 会小于 mOffset，
+            // 原来只判 `len <= mOffset` 就 return —— 于是 mOffset 永远大于文件长度，
+            // 面板从此再也不更新（要退出重进才恢复）。截断就从头读。
+            if (len < mOffset) {
+                mOffset = 0;
+            }
             if (len <= mOffset) return;
             raf.seek(mOffset);
             int want = (int) Math.min(len - mOffset, 64 * 1024);
@@ -188,7 +194,15 @@ public class LoggerView extends ConstraintLayout {
                     break;
                 }
             }
-            if (lastNl < 0) return;
+            if (lastNl < 0) {
+                // ⚠️ 2026-10-29（外部审计 B35）：这 64KB 里**没有换行** ——
+                // 单行超过 64KB（base64、大段堆栈 dump 都会出现）。
+                // 原来直接 return，mOffset 不前进，下一轮又读同一段，
+                // 于是永远卡在这一行上，日志面板从此不动。整段吃掉继续。
+                mOffset += n;
+                appendText(new String(buf, 0, n, "UTF-8"));
+                return;
+            }
             mOffset += lastNl + 1;
             appendText(new String(buf, 0, lastNl, "UTF-8"));
         } catch (IOException ignored) {

@@ -550,8 +550,27 @@ async fn stream_to_file_once(
         .await
         .map_err(|e| StreamFail::Retry(anyhow::anyhow!("Failed to download {url}: {e}")))?;
 
+    // ⚠️ 2026-10-29（外部审计 B12 核实成立）：这里原来**完全不看状态码** ——
+    // 服务器返回 404/403/500 时，错误页面（HTML）会被当成内容写进 .part，
+    // 拿不到 sha1 的资源（多数 CurseForge 文件、第三方镜像）就此"下载成功"，
+    // 装进实例的是一个几 KB 的 HTML。现在非 2xx 一律拒绝。
+    let status = response.status();
+    if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && existing > 0 {
+        // 本地 .part 比服务端文件还大（服务端换过包/截断过）→ 丢掉重来
+        let _ = fs::remove_file(&part).await;
+        return Err(StreamFail::Retry(anyhow::anyhow!(
+            "断点已失效（416），已重置后重试：{url}"
+        )));
+    }
+    if !status.is_success() {
+        return Err(StreamFail::Retry(anyhow::anyhow!(
+            "下载失败：HTTP {}（{url}）",
+            status.as_u16()
+        )));
+    }
+
     // 只有服务端真的从断点接了（206）才算续传；否则（200 / 不支持 Range）从头写
-    let resumed = existing > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+    let resumed = existing > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
 
     let total_size = if resumed {
         response
