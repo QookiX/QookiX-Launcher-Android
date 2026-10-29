@@ -48,10 +48,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 3) 上传 zip（不许覆盖）
+#
+# ⚠️ 2026-10-29（外部审计 B37 核实成立）：原来上传失败只 Write-Warning 就继续，
+# 后面第 4 步再用 --clobber 覆盖 manifest —— 结果 manifest 指向一批**不存在的 zip**，
+# 手机端刷新清单后看到新版本、点下载 404。
+# 现在任何一个 zip 上传失败都直接中止，不碰 manifest。
 foreach ($z in $zips) {
     gh release upload $Tag $z.FullName --repo $Repo
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "「$($z.Name)」上传失败 —— 多半是同名文件已存在。请把版本号升一位后重新打包，不要覆盖旧 zip。"
+        throw "「$($z.Name)」上传失败 —— 多半是同名文件已存在。请把版本号升一位后重新打包（不覆盖旧 zip）；本次已中止，manifest 未被修改。"
     }
 }
 

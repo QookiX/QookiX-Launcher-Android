@@ -38,7 +38,24 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $root = Split-Path -Parent $PSScriptRoot
-$main = Join-Path $root "src-tauri\gen\android\app\src\main"
+
+# ⚠️ 2026-10-29（外部审计 B37 核实成立）：
+# 这里原来指向 `src-tauri\gen\android\app\src\main` —— 那是 Tauri 时代生成的空壳，
+# 里面的 assets-components / jniLibs **都不存在**（实测 Test-Path 全 False）。
+# 真实资源早就在仓库根的 `android\app\src\main`。
+# 指向空目录的后果：下面每一处 Copy-Item 都失败，脚本仍然继续，
+# 最后产出一批**空的插件包 + 一份不完整的 manifest**，而且退出码是成功。
+$main = Join-Path $root "android\app\src\main"
+
+if (-not (Test-Path $main)) {
+    throw "找不到 Android 资源目录：$main（打包脚本路径需要更新）"
+}
+foreach ($required in @("assets-components\components\lwjgl3\3.4.1", "jniLibs")) {
+    if (-not (Test-Path (Join-Path $main $required))) {
+        throw "缺少必要目录：$(Join-Path $main $required) —— 拒绝生成空插件包"
+    }
+}
+
 $outDir = Join-Path $root "dist-plugins"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
