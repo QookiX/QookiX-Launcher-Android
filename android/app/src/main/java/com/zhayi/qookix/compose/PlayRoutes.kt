@@ -186,8 +186,15 @@ internal fun SkinRoute(
     bridge: RustBridge,
     bridgeReady: Boolean,
     activity: ComposeMainActivity? = null,
-    /** 3D 预览渲染方式（compose=省电 / webview=流畅）。 */
-    previewMode: String = "compose",
+    /**
+     * 3D 预览渲染方式（compose=省电 / webview=流畅）。
+     *
+     * 2026-10-29 默认改 webview：compose 模式是「渲染 → readPixels → PNG →
+     * base64 → Kotlin 解码 → 画图」，单帧约 40ms，**天花板 25fps**；
+     * webview 模式让 three.js 自己合成，rAF 驱动 → 60fps。
+     * 想省电可以在外观设置里切回 compose。
+     */
+    previewMode: String = "webview",
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
@@ -417,10 +424,18 @@ internal fun SkinRoute(
         // 的位置/尺寸 —— 那是「直接渲染」模式的实际画面来源。
         // compose 模式回调 null（收回隐形）。
         onPreviewBoxChanged = { visible, x, y, w, h ->
+            android.util.Log.i("SkinRoute", "boxChanged visible=$visible rect=$x,$y ${w}x$h mode=$previewMode")
+            // ⚠️ 2026-10-29：原来调的是 `activity.setSkinPreviewVisible(...)` ——
+            // 那是**旧 Tauri Activity** 的方法（调整 wry WebView 的位置/尺寸），
+            // 纯 Compose 版本里根本没有这个方法，所以「直接渲染」模式一直没生效，
+            // 皮肤页只能走 readPixels 回传（25fps 天花板）。
+            //
+            // 现在交给 Skin3dHost：WebView 常驻全屏+透明，画面位置由 JS 里 canvas 的
+            // transform 决定（见 skin3d.js 的 setDirectDisplay 注释）。
             if (visible == true) {
-                activity?.setSkinPreviewVisible(true, x, y, w, h)
+                host3d?.setDirectDisplay(true, x, y, w, h)
             } else {
-                activity?.setSkinPreviewVisible(false, 0, 0, 0, 0)
+                host3d?.setDirectDisplay(false, 0, 0, 0, 0)
             }
         },
         onPreview3dAutoRotate = { on ->
@@ -428,13 +443,16 @@ internal fun SkinRoute(
             host3d?.setAutoRotate(on)
         },
         onPreview3dDrag = { dx, dy ->
-            // 拖动：**一次调用**完成「旋转 + 取帧」（orbitSnap），
-            // 并且用拖动专用的小尺寸（128×160）。
-            //
-            // 之前是 orbit() + snapshot() 两次 evaluateJavascript 往返，
-            // 每帧多付一次 binder + JS 调度，拖动起来就是「卡」。
-            host3d?.orbitSnap(dx, dy) { r ->
-                r.onSuccess { preview3d = it.asImageBitmap() }
+            if (previewMode == "webview") {
+                // 直接显示模式（60fps）：画面由 JS 的 rAF 循环自己渲染，
+                // 这里只需要把位移告诉它。**绝对不能取帧** —— 一旦走
+                // readPixels + PNG + base64 + Kotlin 解码，就回到 25fps 天花板。
+                host3d?.orbit(dx, dy) { }
+            } else {
+                // compose 模式：合并成一次调用（省一次 binder 往返）
+                host3d?.orbitSnap(dx, dy) { r ->
+                    r.onSuccess { preview3d = it.asImageBitmap() }
+                }
             }
         },
         capes = capes,

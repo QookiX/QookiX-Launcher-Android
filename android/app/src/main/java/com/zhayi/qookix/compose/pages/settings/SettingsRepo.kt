@@ -94,7 +94,13 @@ class SettingsRepo(private val api: QookixApi) {
             // 读进来会直接把布局撑坏，而且用户很难自己调回去（自锁）。
             uiScale = int(json, "uiScale", "ui_scale", 100).coerceIn(60, 150),
             sidebarWidth = int(json, "sidebarWidth", "sidebar_width", 168).coerceIn(140, 260),
-            previewRenderMode = str(json, "previewRenderMode", "preview_render_mode", "compose"),
+            // 2026-10-29：默认 compose → webview。
+            //
+            // compose 模式是「渲染 → readPixels → PNG → base64 → Kotlin 解码 → 画图」，
+            // 每一环都是固定成本，单帧约 40ms，**天花板 25fps**，再怎么优化语法也到不了 60。
+            // webview 模式让 three.js 自己合成，rAF 驱动 → 60fps。
+            // 想省电可以在这里切回 "compose"（外观页有开关）。
+            previewRenderMode = str(json, "previewRenderMode", "preview_render_mode", "webview"),
             backgroundImage = str(json, "backgroundImage", "background_image", ""),
             showHomeDownloads = bool(json, "showHomeDownloads", "show_home_downloads", true),
             showHomeRecent = bool(json, "showHomeRecent", "show_home_recent", true),

@@ -688,9 +688,20 @@ class ComposeMainActivity : ComponentActivity() {
         prefs().edit().putBoolean(KEY_BROWSE_COMPACT, compact).apply()
     }
 
-    /** 读取 3D 预览渲染方式：compose（省电，默认）/ webview（流畅）。 */
+    /**
+     * 读取 3D 预览渲染方式：compose（省电）/ webview（流畅）。
+     *
+     * ⚠️ 2026-10-29 默认值 compose → webview。
+     *
+     * compose 模式是「WebView 渲染 → readPixels → PNG → base64 → Kotlin 解码 →
+     * Compose 画图」，每一环都是固定成本，单帧约 40ms，**天花板 25fps**，
+     * 再怎么优化语法也到不了 60。
+     *
+     * webview 模式让 three.js 自己合成（rAF 驱动），画面完全不经过 Kotlin → 60fps。
+     * 代价是 WebView 会常驻（铺满整屏但透明），想省电可在设置里切回 compose。
+     */
     fun previewRenderModePref(): String =
-        prefs().getString(KEY_PREVIEW_MODE, "compose") ?: "compose"
+        prefs().getString(KEY_PREVIEW_MODE, "webview") ?: "webview"
 
     /** 写入 3D 预览渲染方式（设置页切换时调）。 */
     fun setPreviewRenderModePref(mode: String) {

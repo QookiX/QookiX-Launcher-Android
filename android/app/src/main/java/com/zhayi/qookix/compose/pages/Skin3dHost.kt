@@ -125,7 +125,12 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
     private fun ensureWebView(): WebView? {
         cachedWv?.let { return it }
         return try {
-            val wv = WebView(activity)
+            // ⚠️ 触摸必须**穿透**：这个 WebView 会铺满整屏（为了 60fps 直接显示），
+            // 如果它消费触摸，整个界面都点不动了。返回 false 后 decorView 会
+            // 继续把事件分发给下层的 ComposeView。
+            val wv = object : WebView(activity) {
+                override fun onTouchEvent(event: android.view.MotionEvent): Boolean = false
+            }
             wv.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -138,16 +143,91 @@ class Skin3dHost(private val bridge: RustBridge, private val activity: android.a
                 allowUniversalAccessFromFileURLs = true
             }
             wv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            wv.layoutParams = android.view.ViewGroup.LayoutParams(1, 1)
-            wv.alpha = 0f
+            // 铺满整屏、完全透明：画面位置由 JS 里 canvas 的 transform 决定
+            // （见 skin3d.js 的 setDirectDisplay 注释 —— 这样只有 canvas 那一块
+            //  有内容，其余透明，不会盖住任何控件）。
+            wv.layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            )
             (activity.window?.decorView as? android.view.ViewGroup)?.addView(wv)
             wv.loadUrl("file:///android_asset/skin3d/index.html")
             cachedWv = wv
-            Log.i(TAG, "已创建离屏 WebView，加载 skin3d/index.html")
+            Log.i(TAG, "已创建全屏透明 WebView，加载 skin3d/index.html")
             wv
         } catch (e: Throwable) {
             Log.w(TAG, "WebView 创建失败", e)
             null
+        }
+    }
+
+    /**
+     * 「直接显示」模式：让 three.js 自己以 60fps 渲染到屏幕上的指定矩形。
+     *
+     * ## 为什么这是唯一能到 60fps 的路径
+     *
+     * 默认（compose 模式）是「渲染 → readPixels → PNG → base64 → Kotlin 解码 →
+     * Compose 画图」，每一个环节都是固定成本，单帧 40ms 左右，**天花板就在 25fps**，
+     * 再怎么优化语法也到不了 60。
+     *
+     * 直接显示模式里画面**完全不经过 Kotlin**：WebView 自己合成，
+     * rAF 驱动 → 60fps。
+     *
+     * @param visible 是否显示（false = 把 canvas 藏起来、恢复成纯透明）
+     * @param x/y/w/h 预览框在**窗口**里的像素矩形
+     */
+    fun setDirectDisplay(visible: Boolean, x: Int, y: Int, w: Int, h: Int, onResult: (Boolean) -> Unit = {}) {
+        val wv = webView
+        if (wv == null) {
+            onResult(false)
+            return
+        }
+        // 记住最新请求：宿主可能还没加载完（真机日志：WebView 创建后 30ms 就调了
+        // setDirectDisplay(false)，那时 QkSkin3D 还是 undefined → 直接失败，
+        // 而预览框的位置之后不会再上报，结果「直接显示」永远没生效）。
+        lastDirectRect = if (visible) intArrayOf(x, y, w, h) else null
+        if (!hostReady) {
+            probe { ready ->
+                if (ready) replayDirectDisplay()
+                onResult(ready)
+            }
+            return
+        }
+        applyDirectDisplay(visible, x, y, w, h, onResult)
+    }
+
+    /** 最近一次「直接显示」的请求矩形（null = 不显示）。宿主就绪后补发用。 */
+    private var lastDirectRect: IntArray? = null
+
+    private fun replayDirectDisplay() {
+        val r = lastDirectRect ?: return
+        applyDirectDisplay(true, r[0], r[1], r[2], r[3]) {}
+    }
+
+    private fun applyDirectDisplay(
+        visible: Boolean,
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int,
+        onResult: (Boolean) -> Unit,
+    ) {
+        val wv = cachedWv ?: run { onResult(false); return }
+        val js = if (visible) {
+            "window.QkSkin3D ? window.QkSkin3D.setDirectDisplay(true, $w, $h, $x, $y) : false"
+        } else {
+            "window.QkSkin3D ? window.QkSkin3D.setDirectDisplay(false, 0, 0, 0, 0) : false"
+        }
+        wv.evaluateJavascript(js) { r ->
+            // ⚠️ 成功时 JS 返回的是**状态串**（"ok canvas=… dpr=… vp=…"），不是 "true"。
+            // 按 == "true" 判断会永远认为失败。
+            val ok = r?.contains("ok") == true
+            if (ok) {
+                Log.i(TAG, "setDirectDisplay($visible): ${r?.take(140)}")
+            } else {
+                Log.w(TAG, "setDirectDisplay($visible) 失败：$r")
+            }
+            onResult(ok)
         }
     }
 
