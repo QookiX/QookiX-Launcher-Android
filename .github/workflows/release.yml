@@ -181,7 +181,19 @@ jobs:
             } >> $GITHUB_ENV
             echo "使用 Secrets 提供的密钥签名"
           else
-            echo "未配置 QOOKIX_KEYSTORE_BASE64，退回 debug 签名"
+            # ⚠️ 2026-10-29（审计 A14）：**标签发布不允许退回 debug 签名**。
+            #
+            # 原来这里是「没密钥就退回 debug 签名」，然后照样发布 Release。
+            # 后果很实在：已用正式签名安装的用户**装不上这个包**（签名不匹配），
+            # 只能卸载 —— 而卸载会丢掉应用私有目录里的共享资源。
+            #
+            # 手动触发（workflow_dispatch）只是验证 main 没坏，允许用 debug 签名；
+            # 但只要是**打标签发布**，缺密钥就必须失败，而不是发一个装不上的包。
+            if [ "${{ github.ref_type }}" = "tag" ]; then
+              echo "::error::标签发布必须提供正式签名密钥（QOOKIX_KEYSTORE_BASE64 / PASSWORD / KEY_ALIAS / KEY_PASSWORD），拒绝退回 debug 签名"
+              exit 1
+            fi
+            echo "未配置签名密钥；本次为手动验证构建（非标签发布），使用 debug 签名"
           fi
 
       # ③ Gradle 打包（arm64 / x86_64 两个 flavor；universal 缺 armeabi-v7a、x86 的 Rust 库，不出）

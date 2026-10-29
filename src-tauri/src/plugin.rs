@@ -734,6 +734,30 @@ fn now_secs() -> i64 {
 }
 
 /// 读 zip 里的 `plugin.json`（本地安装用；也接受根目录下一层的同名文件）。
+/// 校验插件的 `id` / `version` 是**单层安全名称**。
+///
+/// 2026-10-29（审计 A01）：这两个字段会直接参与目录拼接，必须挡住
+/// 路径分隔符、`..`、`.` 和控制字符。
+fn safe_segment(name: &str, what: &str) -> Result<String, String> {
+    let v = name.trim();
+    if v.is_empty() {
+        return Err(format!("plugin.json 缺少 {what}"));
+    }
+    if v == "." || v == ".." {
+        return Err(format!("plugin.json 的 {what} 不能是「{v}」"));
+    }
+    if v.contains('/') || v.contains('\\') {
+        return Err(format!("plugin.json 的 {what} 不能包含路径分隔符：{v}"));
+    }
+    if !v
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "-_.+".contains(c))
+    {
+        return Err(format!("plugin.json 的 {what} 含非法字符：{v}"));
+    }
+    Ok(v.to_string())
+}
+
 async fn read_descriptor(zip_path: &Path) -> Result<PluginDescriptor, String> {
     let path = zip_path.to_path_buf();
     tokio::task::spawn_blocking(move || -> Result<PluginDescriptor, String> {
@@ -751,12 +775,20 @@ async fn read_descriptor(zip_path: &Path) -> Result<PluginDescriptor, String> {
                     .map_err(|e| format!("读取 plugin.json 失败：{e}"))?;
                 let mut d: PluginDescriptor = serde_json::from_str(&text)
                     .map_err(|e| format!("plugin.json 格式不正确：{e}"))?;
-                if d.id.trim().is_empty() {
-                    return Err("plugin.json 缺少 id".to_string());
-                }
                 if d.version.trim().is_empty() {
                     d.version = "1.0.0".to_string();
                 }
+                // ⚠️ 2026-10-29（审计 A01）：id / version 会**直接参与目录拼接**
+                // （`root.join(id).join(version)`），而这里原先只检查了 id 非空。
+                //
+                // `id=demo, version=../../accounts` 时最终目录落到 `<data>/accounts`，
+                // 安装流程里那句 `remove_dir_all` 就会**删掉账号数据** ——
+                // 而且不需要运行插件代码，安装阶段就够了。
+                //
+                // 插件本来就是可执行扩展，「恶意插件能执行代码」不算漏洞；
+                // 这里要堵的是**安装阶段就越界删除**。
+                d.id = safe_segment(&d.id, "id")?;
+                d.version = safe_segment(&d.version, "version")?;
                 return Ok(d);
             }
         }
@@ -1038,4 +1070,27 @@ pub fn renderer_libs_dir(data_dir: &str, key: &str) -> Option<PathBuf> {
         .into_iter()
         .find(|(k, _)| k == key)
         .map(|(_, dir)| dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_segment;
+
+    /// 审计 A01：插件的 id / version 必须是单层安全名称。
+    /// 它们直接参与目录拼接，version=../../accounts 能让最终目录落到
+    /// 别的数据目录上，安装流程的 remove_dir_all 就会删掉它。
+    #[test]
+    fn safe_segment_rejects_path_components() {
+        assert!(safe_segment("demo", "id").is_ok());
+        assert!(safe_segment("1.0.0", "version").is_ok());
+        assert!(safe_segment("mod-name_2.0+1", "version").is_ok());
+
+        assert!(safe_segment("", "id").is_err());
+        assert!(safe_segment("   ", "id").is_err());
+        assert!(safe_segment(".", "id").is_err());
+        assert!(safe_segment("..", "id").is_err());
+        assert!(safe_segment("../../accounts", "version").is_err());
+        assert!(safe_segment("a/b", "id").is_err());
+        assert!(safe_segment("a b", "id").is_err());
+    }
 }

@@ -137,6 +137,18 @@ pub fn delete_entry(base: &Path, rel: &str, label: &str) -> Result<(), String> {
         return Err(format!("不能删除{label}根目录"));
     }
     let path = resolve_in_dir(base, rel, label)?;
+    // ⚠️ 2026-10-29（审计 A02）：`resolve_in_dir` **允许结果等于根目录**
+    // （它的越界判断是 `c != root && !c.starts_with(&root)`）。
+    // 于是 rel = "." / "sub/.." / "./" 这类输入会解析到根，
+    // 紧接着的 `remove_dir_all` 就把**整个实例/服务器目录**删掉了。
+    //
+    // 删根必须在这里显式拒绝 —— 这是破坏性操作的最后一道闸。
+    let canonical_root = base
+        .canonicalize()
+        .map_err(|e| format!("{label}目录不可用: {e}"))?;
+    if path == canonical_root {
+        return Err(format!("不能删除{label}根目录"));
+    }
     if !path.exists() {
         return Err("文件或文件夹不存在".into());
     }
@@ -291,3 +303,44 @@ pub fn write_text_atomic(path: &Path, content: &str) -> std::io::Result<()> {
     result
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 审计 A02：删除操作不能以根目录为目标。
+    /// resolve_in_dir 允许结果等于根，所以 "." / "sub/.." 会一路走到
+    /// remove_dir_all，把整个实例目录删掉。
+    #[test]
+    fn delete_entry_never_removes_root() {
+        let dir = std::env::temp_dir().join("qookix_fsutil_delete_root_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("keep.txt"), "x").unwrap();
+
+        for bad in [".", "./", "sub/..", "sub/../", "..", "/"] {
+            assert!(delete_entry(&dir, bad, "实例").is_err(), "删除 {bad:?} 应当被拒绝");
+        }
+        assert!(dir.exists(), "根目录被删了");
+        assert!(dir.join("keep.txt").exists(), "根目录里的文件被删了");
+
+        std::fs::create_dir_all(dir.join("child")).unwrap();
+        assert!(delete_entry(&dir, "child", "实例").is_ok());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 正常路径解析仍然可用（别把功能改坏了）。
+    #[test]
+    fn resolve_in_dir_accepts_normal_children() {
+        let dir = std::env::temp_dir().join("qookix_fsutil_resolve_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("a/b")).unwrap();
+
+        assert!(resolve_in_dir(&dir, "a/b", "实例").is_ok());
+        assert!(resolve_in_dir(&dir, "a/b/c.txt", "实例").is_ok());
+        assert!(resolve_in_dir(&dir, "../escape", "实例").is_err());
+        assert!(resolve_in_dir(&dir, "a/../../escape", "实例").is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

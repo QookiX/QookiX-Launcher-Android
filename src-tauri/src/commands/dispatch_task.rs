@@ -30,10 +30,40 @@ pub(crate) const HANDLED: &[&str] = &[
 
 /// 下载目标是否落在「游戏目录」或「应用数据目录」之内（审查 A-P2-9）。
 ///
-/// 只做前缀判断（不做 canonicalize）：目标文件通常还不存在，canonicalize 会失败；
-/// 而 `..` 穿越在这里没有意义 —— 前缀匹配失败就直接拒绝。
+/// ⚠️ 2026-10-29（审计 A04）：**前缀判断不能替代路径规范化**。
+///
+/// 原来这里只做前缀匹配，并注释说「`..` 穿越在这里没有意义 —— 前缀匹配失败就
+/// 直接拒绝」。实现与注释相反：`/sdcard/QookiX/../Download/probe` 以
+/// `root + "/"` 开头，前缀判断**放行**，但系统实际把它解析到
+/// `/sdcard/Download/probe` —— 已经在授权根之外。
+///
+/// 现在：先按路径组件消掉 `.` / `..`（纯词法，不碰文件系统，避免符号链接误判），
+/// 消不掉（试图越过根）直接拒绝；再用**规范化后**的路径做前缀判断。
+///
+/// 仍然不做 canonicalize：目标文件通常还不存在，canonicalize 会失败。
 fn dest_allowed(dest: &str) -> bool {
     let d = dest.replace('\\', "/");
+    let mut parts: Vec<&str> = Vec::new();
+    for part in d.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                // 弹不出已有段 = 想越过根，直接拒绝
+                if parts.pop().is_none() {
+                    return false;
+                }
+            }
+            p => parts.push(p),
+        }
+    }
+    // ⚠️ 不能无条件加前导 "/"：root 可能是 "C:/Users/…" 这种没有前导斜杠的
+    // 路径（Windows / 测试环境），硬加会让 dest 和 root 永远匹配不上 ——
+    // 等于把所有下载都拒了。这里保留 dest **原本**有没有前导分隔符。
+    let had_leading = d.starts_with("/");
+    let mut normalized = parts.join("/");
+    if had_leading {
+        normalized.insert(0, '/');
+    }
     [
         crate::settings::game_root_sync(),
         crate::settings::data_dir_sync(),
@@ -42,7 +72,7 @@ fn dest_allowed(dest: &str) -> bool {
     .flatten()
     .map(|r| r.replace('\\', "/").trim_end_matches('/').to_string())
     .filter(|r| !r.is_empty())
-    .any(|root| d == root || d.starts_with(&format!("{root}/")))
+    .any(|root| normalized == root || normalized.starts_with(&format!("{root}/")))
 }
 
 pub(crate) async fn dispatch(cmd: &str, p: &Value) -> Option<String> {
@@ -199,5 +229,28 @@ async fn run(cmd: &str, p: &Value) -> String {
             }
         }
         other => err(format!("native_invoke 未实现的命令：{other}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dest_allowed;
+
+    /// 审计 A04：".." 不能绕过「下载目标必须在授权根内」的前缀判断。
+    /// /sdcard/QookiX/../Download/probe 以 root + "/" 开头，纯前缀判断会放行，
+    /// 但系统实际解析到 /sdcard/Download/probe。
+    #[test]
+    fn dest_allowed_rejects_parent_traversal() {
+        assert!(!dest_allowed("../escape.txt"));
+        assert!(!dest_allowed("/sdcard/QookiX/../Download/probe"));
+
+        if let Some(dir) = crate::settings::data_dir_sync() {
+            let base = dir.replace(std::path::MAIN_SEPARATOR, "/").trim_end_matches(0x2f as char).to_string();
+            if !base.is_empty() {
+                assert!(dest_allowed(&format!("{base}/ok.txt")), "正常目标应放行");
+                assert!(!dest_allowed(&format!("{base}/../escape.txt")), "越界目标应拒绝");
+                assert!(!dest_allowed(&format!("{base}/a/../../escape.txt")));
+            }
+        }
     }
 }
