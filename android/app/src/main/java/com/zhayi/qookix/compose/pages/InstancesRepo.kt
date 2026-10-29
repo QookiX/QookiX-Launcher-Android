@@ -71,21 +71,28 @@ object InstancesRepo {
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
                 val id = o.optString("id")
-                val name = o.optString("name").ifBlank { o.optString("version_id") }
+                // ⚠️ 2026-10-29（外部审计 B15 核实成立）：
+                // `optString` 遇到 JSON null 返回**字面量 "null"**（非空！），
+                // `.ifBlank { null }` 拦不住。后果：
+                //   · groupId = "null" → 有分组时这些实例落到一个叫 null 的"未知组"
+                //   · iconPath = "null" → 图标加载一个叫 null 的路径失败，
+                //     连首字母回退都没了（正是真机上「图标变成空白」的原因）
+                // 统一改用 optText（null / 空串 / "null" 都返回 null）。
+                val name = o.optText("name") ?: o.optText("version_id") ?: ""
                 if (id.isBlank() && name.isBlank()) return@mapNotNull null
 
                 InstanceUi(
                     id = id,
                     name = name,
                     subtitle = subtitleOf(context, o),
-                    colorHex = o.optString("icon_color").ifBlank { null },
+                    colorHex = o.optText("icon_color"),
                     // 分组归属：`list_instances` 的元素带 `group`。
                     // ⚠️ 以前这里不解析，PageHost 只好**再发一次** list_instances
                     // 专门取这个字段（冷启动白白多扫一遍实例目录）。
-                    groupId = o.optString("group").ifBlank { null },
+                    groupId = o.optText("group"),
                     // ⚠️ 2026-10-29：这个字段以前完全没解析，导致「换图标」保存成功
                     // 但界面永远不显示（详见 InstanceUi.iconPath 的注释）。
-                    iconPath = o.optString("icon").ifBlank { null },
+                    iconPath = o.optText("icon"),
                 )
             }
         } catch (e: Exception) {

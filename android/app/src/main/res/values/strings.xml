@@ -1195,6 +1195,7 @@
     <string name="skin_delete_failed">删除失败：%1$s</string>
     <string name="settings_read_failed">读取设置失败：%1$s</string>
     <string name="settings_save_failed">保存失败：%1$s</string>
+    <string name="instance_settings_save_need_load">还没读到当前配置，请稍后重试（避免用默认值覆盖）</string>
     <string name="appearance_bg_import_failed">背景图导入失败：%1$s</string>
     <string name="update_checking">正在检查…</string>
     <string name="speedtest_no_mirrors">没有可用的镜像列表。</string>

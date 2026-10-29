@@ -46,9 +46,24 @@ class InstanceSettingsController(
      * 读一次真实配置。失败时 `loaded` 保持 false —— 下次再进这个 tab 会重试，
      * 而不是拿默认值去覆盖用户真正的配置。
      */
+    /**
+     * 是否已经成功读到真实配置。
+     *
+     * ⚠️ 2026-10-29（外部审计 B09 核实成立）：`save()` 原来只看 `saving`，
+     * 没有 `loaded` 保护 —— 读取还没回来（或读取失败）时点保存，
+     * 会把界面上的**初始默认值**（2048MB / 空 JVM 参数）写回实例，
+     * 直接覆盖用户真实配置。这条是数据丢失级别的。
+     */
+    private var loadedOk = false
+
+    /** 读取进行中：防止重复进入（每次切 tab 都会调 ensureLoaded）。 */
+    private var loading = false
+
     fun ensureLoaded() {
-        if (loaded) return
+        if (loaded || loading) return
+        loading = true
         api.getInstance(instanceId) { r ->
+            loading = false
             r.fold(
                 onSuccess = { o ->
                     value = InstanceSettingsUiState(
@@ -66,6 +81,7 @@ class InstanceSettingsController(
                         renderer = o.optString("renderer").ifBlank { "auto" },
                     )
                     loaded = true
+                    loadedOk = true
                     error = null
                 },
                 onFailure = { e ->
@@ -96,6 +112,11 @@ class InstanceSettingsController(
     /** 提交。命令名是 `update_instance`（不是 update_instance_settings）。 */
     fun save() {
         if (saving) return
+        // ⚠️ 没读到真实配置就保存 = 拿默认值覆盖用户配置（见 loadedOk 的注释）
+        if (!loadedOk) {
+            error = context.getString(R.string.instance_settings_save_need_load)
+            return
+        }
         saving = true
         error = null
         val s = value
@@ -114,7 +135,14 @@ class InstanceSettingsController(
             saving = false
             r.fold(
                 onSuccess = {
-                    value = value.copy(dirty = false)
+                    // 只有「当前值仍是提交那一刻的值」才算已保存。
+                    // 原来无条件 dirty = false：保存期间用户又改了东西，
+                    // 回调一回来就把未保存的改动也标成已保存（审计 B09）。
+                    value = if (value == s) {
+                        value.copy(dirty = false)
+                    } else {
+                        value.copy(dirty = true)
+                    }
                     hint = context.getString(R.string.saved)
                 },
                 onFailure = { e ->

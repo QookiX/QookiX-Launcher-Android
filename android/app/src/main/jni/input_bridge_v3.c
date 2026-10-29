@@ -73,6 +73,10 @@ static void init_glfw_bridge_env(JNIEnv *vmEnv) {
     jfieldID field_keyDownBuffer = (*vmEnv)->GetStaticFieldID(vmEnv, pojav_environ->vmGlfwClass, "keyDownBuffer", "Ljava/nio/ByteBuffer;");
     jobject keyDownBufferJ = (*vmEnv)->GetStaticObjectField(vmEnv, pojav_environ->vmGlfwClass, field_keyDownBuffer);
     pojav_environ->keyDownBuffer = (*vmEnv)->GetDirectBufferAddress(vmEnv, keyDownBufferJ);
+    // 2026-10-29（审计 B26）：记住真实容量，critical_send_key 写入前校验
+    pojav_environ->keyDownBufferLen = keyDownBufferJ == NULL
+        ? 0
+        : (*vmEnv)->GetDirectBufferCapacity(vmEnv, keyDownBufferJ);
     jfieldID field_mouseDownBuffer = (*vmEnv)->GetStaticFieldID(vmEnv, pojav_environ->vmGlfwClass, "mouseDownBuffer", "Ljava/nio/ByteBuffer;");
     jobject mouseDownBufferJ = (*vmEnv)->GetStaticObjectField(vmEnv, pojav_environ->vmGlfwClass, field_mouseDownBuffer);
     pojav_environ->mouseDownBuffer = (*vmEnv)->GetDirectBufferAddress(vmEnv, mouseDownBufferJ);
@@ -668,7 +672,21 @@ void noncritical_send_cursor_pos(__attribute__((unused)) JNIEnv* env, __attribut
      _a > _b ? _a : _b; })
 void critical_send_key(jint key, jint scancode, jint action, jint mods) {
     if (pojav_environ->GLFW_invoke_Key && pojav_environ->isInputReady) {
-        pojav_environ->keyDownBuffer[max(0, key-31)] = (jbyte) action;
+        // ⚠️ 2026-10-29（审计 B26）：这里原来没有任何边界检查，
+        // key 来自用户可导入的布局 JSON，越界就是堆越界写。
+        // 现在按 GLFW 侧 ByteBuffer 的真实容量钳制：越界的键码**跳过缓冲写入**，
+        // 但事件继续转发（游戏仍然收得到按键，不会因为校验而丢输入）。
+        if (pojav_environ->keyDownBuffer != NULL) {
+            jint idx = key - 31;
+            if (idx < 0) idx = 0;
+            if (pojav_environ->keyDownBufferLen <= 0 ||
+                idx < pojav_environ->keyDownBufferLen) {
+                pojav_environ->keyDownBuffer[idx] = (jbyte) action;
+            } else {
+                LOGW("键码越界，跳过 keyDownBuffer 写入：key=%d idx=%d cap=%d",
+                     (int) key, (int) idx, (int) pojav_environ->keyDownBufferLen);
+            }
+        }
         if (pojav_environ->isUseStackQueueCall) {
             sendData(EVENT_TYPE_KEY, key, scancode, action, mods);
         } else {

@@ -2476,7 +2476,18 @@ pub async fn apply_update(
     // 成败都要报给前端（失败时把原因一起带上，前端会显示）
     emit_update_finished(old_filename, &result);
     let result = result.map_err(|e| e.to_string())?;
-    // 移除旧文件 + 记录（若与新版文件名不同）
+    // ⚠️ 2026-10-29（外部审计 B08 核实成立）：原来**无条件**删 old_filename。
+    // 新版本文件名叫同一个名字时（重新上传、或是同一版本的修复包），
+    // 刚装好的文件会被这一行当场删掉，记录也被移除 —— 接口还返回成功。
+    // 现在只在新旧文件名确实不同时才清理。
+    let new_filename = result
+        .get("filename")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if !new_filename.is_empty() && new_filename == old_filename {
+        return Ok(result);
+    }
     let dir = settings::instance_dir(instance_id)
         .await
         .map_err(|e| e.to_string())?

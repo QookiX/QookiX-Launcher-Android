@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -89,7 +91,13 @@ fun QkImageWithSkeleton(
             .build(),
     )
 
-    val state = painter.state
+    // ⚠️ 2026-10-29（外部审计 B05 核实成立）：
+    // Coil 3.0.4 的 `AsyncImagePainter.state` 是 **StateFlow<State>**，不是 State。
+    // 原来写 `val state = painter.state` 再 `is State.Loading` —— Kotlin 只给
+    // 「check for instance is always false」的 warning，编译照过，但**恒为 false**：
+    // 骨架和错误占位从来没显示过，加载中/加载失败都是一块空白
+    //（用户反馈的「新闻卡片配图位置一片空白」就是这么来的）。
+    val state by painter.state.collectAsState()
     Box(modifier = modifier.clip(RoundedCornerShape(cornerRadius))) {
         when (state) {
             is AsyncImagePainter.State.Loading, is AsyncImagePainter.State.Empty -> {

@@ -58,6 +58,17 @@ struct pojav_environ_s {
     jclass vmGlfwClass;
     jboolean isGrabbing;
     jbyte* keyDownBuffer;
+    /**
+     * keyDownBuffer 的字节数（2026-10-29 加，外部审计 B26）。
+     *
+     * 原来 `critical_send_key` 直接 `keyDownBuffer[max(0, key-31)] = action`，
+     * 没有任何上界检查；而 key 来自**用户可导入的布局 JSON**（keycode 字段），
+     * 一个越界的大数就是一次堆越界写。GLFW 自己的常量是 317 字节
+     *（`GLFW.java` 里 allocateDirect(317)），合法 MENU=348 的下标就已经是
+     * 317 —— 连合法键码都能踩到边界。
+     * 现在在 setup 里存下真实容量，写入前逐次校验。
+     */
+    jsize keyDownBufferLen;
     jbyte* mouseDownBuffer;
     JavaVM* runtimeJavaVMPtr;
     JNIEnv* glfwThreadVmEnv;
