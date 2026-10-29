@@ -735,9 +735,9 @@
     snapshotAsync: function (outW, outH) {
       window.__QK_SKIN3D_RESULT = "";   // 清空，避免读到上一帧
       try {
-        // 先同步取像素（复用 snapshot 的逻辑，它会顺手把像素留在全局）
-        var sync = QkSkin3D.snapshot(outW, outH);
-        if (!sync) {
+        // 先取像素（skipEncode=true：不做那遍会被丢掉的 stored PNG 编码）
+        var ok = QkSkin3D.snapshot(outW, outH, true);
+        if (!ok) {
           window.__QK_SKIN3D_RESULT = "nosnap";
           return false;
         }
@@ -745,8 +745,8 @@
         var w = window.__QK_SKIN3D_LAST_W;
         var h = window.__QK_SKIN3D_LAST_H;
         if (!px) {
-          // 拿不到像素就退回同步结果（至少能用）
-          window.__QK_SKIN3D_RESULT = sync;
+          // 拿不到像素 → 退回完整同步路径（至少能用，只是慢）
+          window.__QK_SKIN3D_RESULT = QkSkin3D.snapshot(outW, outH) || "nosnap";
           return true;
         }
 
@@ -761,7 +761,8 @@
 
         deflateRaw(raw).then(function (zlibBytes) {
           if (!zlibBytes || zlibBytes.length === 0) {
-            window.__QK_SKIN3D_RESULT = sync;   // 压缩不可用 → 用同步结果
+            // 压缩不可用 → 退回完整同步编码（这里必须重新编一遍）
+            window.__QK_SKIN3D_RESULT = QkSkin3D.snapshot(outW, outH) || "nosnap";
             return;
           }
           var t0 = (typeof performance !== "undefined" && performance.now)
@@ -773,7 +774,8 @@
           window.__QK_SKIN3D_PERF = perf;
           window.__QK_SKIN3D_RESULT = out || "nosnap";
         }).catch(function () {
-          window.__QK_SKIN3D_RESULT = sync;
+          // 压缩/编码炸了 → 退回完整同步路径（这里必须重新编，不能再引用旧变量）
+          window.__QK_SKIN3D_RESULT = QkSkin3D.snapshot(outW, outH) || "nosnap";
         });
         return true;
       } catch (e) {
@@ -1163,7 +1165,14 @@
      * @param {number} outH 输出高度
      * @return {string} data URL，失败返回空串
      */
-    snapshot: function (outW, outH) {
+    /**
+     * 取一帧。
+     *
+     * @param outW 输出宽（0 = 用画布尺寸）
+     * @param outH 输出高
+     * @param skipEncode 只读像素、不做 PNG 编码（供 snapshotAsync 用，见下方注释）
+     */
+    snapshot: function (outW, outH, skipEncode) {
       if (!ensure() || !viewer) return "";
       // 计时（性能诊断用）—— 卡顿时靠它定位是哪一段慢。
       var t0 = (typeof performance !== "undefined" && performance.now)
@@ -1327,6 +1336,28 @@
           var id2 = t2.getImageData(0, 0, outW, outH);
           out = new Uint8Array(id2.data.buffer.slice(0));
           ow = outW; oh = outH;
+        }
+
+        // ⚠️ 2026-10-29（外部审计 B41 核实成立）：异步路径（snapshotAsync）只要像素，
+        // 但原来这里无条件先做一遍 **stored（不压缩）PNG 编码** —— 256×320 就是
+        // 16ms + 一个 427KB 的 base64 字符串，然后调用方拿到像素就把它整段丢掉，
+        // 紧接着压缩、再 encodePng 一遍。纯白干。
+        // skipEncode = true 时只把像素留在全局，直接返回。
+        if (skipEncode) {
+          var _nowSkip = (typeof performance !== "undefined" && performance.now)
+            ? performance.now() : Date.now();
+          window.__QK_SKIN3D_PERF = {
+            read: Math.round(tRead),
+            encode: 0,
+            total: Math.round(_nowSkip - t0),
+            srcW: sw, srcH: sh, outW: ow, outH: oh,
+            b64: 0,
+            mode: "raw",
+          };
+          window.__QK_SKIN3D_LAST_PIXELS = out;
+          window.__QK_SKIN3D_LAST_W = ow;
+          window.__QK_SKIN3D_LAST_H = oh;
+          return "raw";
         }
 
         // ── 编码耗时打点 ─────────────────────────────────────────────
