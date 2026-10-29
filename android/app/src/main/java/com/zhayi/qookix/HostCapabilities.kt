@@ -460,6 +460,30 @@ class HostCapabilities(private val activity: Activity) {
         } else if (uri != null) {
             Log.w(TAG, "目录 URI 无法解析成路径（provider=${uri.authority}）")
         }
+        // ⚠️ 2026-10-29（真机实测挖到的第二层根因）：
+        // Rust 的 `take_picked_game_dir` 读的是**文件** `<files>/game-dir-pick.json`
+        //（见 game_dir.rs 的注释与实现），不是这个 Kotlin 内存字段。
+        // 原来只写内存 → 前端 poll 到的一直是空 → 选完目录界面毫无变化
+        //（日志里能同时看到「游戏目录已选: /storage/emulated/0/QookiX」
+        //  和 take_picked_game_dir 持续返回空）。
+        // 这里补上文件写入，格式与 Rust 侧约定一致：{"path": "..."} / {"error": "..."}。
+        runCatching {
+            val f = java.io.File(activity.filesDir, "game-dir-pick.json")
+            val o = org.json.JSONObject()
+            if (path != null) {
+                o.put("path", path)
+            } else {
+                o.put("path", org.json.JSONObject.NULL)
+                if (uri != null) {
+                    o.put(
+                        "error",
+                        "选中的目录无法转换成文件路径（provider=${uri.authority}）",
+                    )
+                }
+            }
+            f.writeText(o.toString())
+            Log.i(TAG, "已写 game-dir-pick.json（path=$path）")
+        }.onFailure { Log.w(TAG, "写 game-dir-pick.json 失败", it) }
     }
 
     /**

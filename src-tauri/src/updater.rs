@@ -50,6 +50,14 @@ struct PendingRelease {
     url: String,
     size: u64,
     sums_url: Option<String>,
+    /// 远程资产的文件名（如 `QookiX-Launcher-Android-v0.2.1-rc2-arm64.apk`）。
+    ///
+    /// ⚠️ 2026-10-29（外部审计 B14 核实成立）：本地落盘用的是
+    /// `local_apk_path()` 自己拼的名字，和 release 资产名不同；
+    /// 原来拿**本地名**去 `SHA256SUMS.txt` 里找期望值，永远找不到 →
+    /// `find_sha256` 返回 None → 校验被静默跳过（代码注释写的是
+    /// 「拿不到只警告」，实际连警告都没有）。现在记下资产原名用于校验。
+    asset_name: String,
 }
 
 static PENDING: Mutex<Option<PendingRelease>> = Mutex::new(None);
@@ -143,7 +151,8 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
     }
 
     // 挑 arm64 的 APK；顺带找 SHA256SUMS 用于校验
-    let mut apk: Option<(String, u64)> = None;
+    // (url, 资产原名, 大小) —— 资产原名要留着给 SHA256SUMS 比对（见 B14）
+    let mut apk: Option<(String, String, u64)> = None;
     let mut sums_url: Option<String> = None;
     if let Some(assets) = body.get("assets").and_then(|v| v.as_array()) {
         for asset in assets {
@@ -157,13 +166,14 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
             } else if name.contains(ASSET_APK_HINT.0) && name.ends_with(ASSET_APK_HINT.1) {
                 apk = Some((
                     url.to_string(),
+                    name.to_string(),
                     asset.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
                 ));
             }
         }
     }
 
-    let Some((apk_url, size)) = apk else {
+    let Some((apk_url, apk_asset_name, size)) = apk else {
         return Err("这个版本里没有 arm64 的 APK 产物".to_string());
     };
 
@@ -177,6 +187,7 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
         url: apk_url,
         size,
         sums_url,
+        asset_name: apk_asset_name,
     });
 
     Ok(UpdateInfo {
@@ -276,15 +287,33 @@ pub async fn download_update(
     // 官方同版本发布里带 SHA256SUMS.txt，能拿到就校验（拿不到只警告不失败）
     if let Some(sums_url) = &pending.sums_url {
         if let Ok(sums) = fetch_text(&client()?, sums_url).await {
-            let file_name = target
+            // ⚠️ 用**远程资产原名**，不是本地落盘名（B14）：
+            // 本地是 local_apk_path() 拼的名字，去 SHA256SUMS 里永远找不到，
+            // 于是校验被静默跳过、装的是没有校验过的包。
+            let local_name = target
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
-            if let Some(expected) = find_sha256(&sums, &file_name) {
-                let actual = format!("{:x}", hasher.finalize());
-                if actual != expected {
+            let file_name = if pending.asset_name.is_empty() {
+                local_name.as_str()
+            } else {
+                pending.asset_name.as_str()
+            };
+            match find_sha256(&sums, file_name) {
+                Some(expected) => {
+                    let actual = format!("{:x}", hasher.finalize());
+                    if actual != expected {
+                        let _ = std::fs::remove_file(&part);
+                        return Err(format!("校验失败（期望 {expected}，实际 {actual}）"));
+                    }
+                    crate::util::log_line(&format!("更新包校验通过：{file_name}"));
+                }
+                None => {
+                    // 以前这里是静默跳过，出了问题完全看不出来。
                     let _ = std::fs::remove_file(&part);
-                    return Err(format!("校验失败（期望 {expected}，实际 {actual}）"));
+                    return Err(format!(
+                        "SHA256SUMS.txt 里没有找到 {file_name} 的校验值，拒绝安装未校验的更新包"
+                    ));
                 }
             }
         }
@@ -309,10 +338,18 @@ async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, Strin
 }
 
 /// 从 `SHA256SUMS.txt` 里找出某个文件名的期望值。
+///
+/// ⚠️ 2026-10-29 修：原来第一行就用 `parts.next()?` —— 遇到空行直接
+/// `return None`，后面的行全都不再看。`sha256sum *.apk > SHA256SUMS.txt`
+/// 的产物末尾带空行，如果校验值正好排在空行后面就永远查不到。
 fn find_sha256(sums: &str, file_name: &str) -> Option<String> {
     for line in sums.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
         let mut parts = line.split_whitespace();
-        let hash = parts.next()?;
+        let Some(hash) = parts.next() else { continue };
         let name = parts.next().unwrap_or("").trim_start_matches('*');
         if name == file_name {
             return Some(hash.to_ascii_lowercase());

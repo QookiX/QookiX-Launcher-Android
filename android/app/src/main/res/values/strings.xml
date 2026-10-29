@@ -722,6 +722,7 @@
     <string name="settings_storage_all_files_access_granted">已授权</string>
     <string name="settings_storage_all_files_access_missing">未授权，选外部目录可能失败</string>
     <string name="settings_storage_all_files_go">去授权</string>
+    <string name="settings_game_dir_need_all_files">切换到外部目录需要「所有文件访问」权限：请点上面的「去授权」开启后重试</string>
     <string name="settings_storage_options_group">可选目录</string>
     <string name="settings_storage_free_space">剩余 %1$s / 共 %2$s</string>
     <string name="settings_storage_removable">可插拔存储</string>

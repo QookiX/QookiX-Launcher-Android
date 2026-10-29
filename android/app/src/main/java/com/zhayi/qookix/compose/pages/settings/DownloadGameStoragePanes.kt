@@ -655,10 +655,25 @@ fun StoragePane(
         val a = api ?: return@LaunchedEffect
         a.getGameDirState { r ->
             r.onSuccess { o ->
+                // ⚠️ 2026-10-29（真机实测挖到）：Rust 的 `GameDirState` 是
+                // #[serde(rename_all = "camelCase")]，JSON 里是 customRoot /
+                // instancesDir / allFilesAccess。这里原来读的全是 snake_case，
+                // **三个字段一个都读不到** —— 于是：
+                //   · 「游戏目录」副标题恒为「默认」（切完也不变）
+                //   · 「实例目录」空着
+                //   · 「所有文件访问」恒为未授权（用户说的「授权了硬说我没授权」就是这个）
+                // 两种写法都认，避免以后哪边再改一次命名又静默失效。
                 gameDirRoot = o.optString("root")
-                gameDirInstances = o.optString("instances_dir")
-                allFilesAccess = o.optBoolean("all_files_access", false)
-                customRoot = o.optString("custom_root")
+                gameDirInstances = o.optText("instancesDir")
+                    ?: o.optText("instances_dir")
+                    ?: ""
+                allFilesAccess = o.optBoolean(
+                    "allFilesAccess",
+                    o.optBoolean("all_files_access", false),
+                )
+                customRoot = o.optText("customRoot")
+                    ?: o.optText("custom_root")
+                    ?: ""
             }
         }
         a.getGameDirOptions { r ->
@@ -680,11 +695,15 @@ fun StoragePane(
 
     LaunchedEffect(pickSeq) {
         if (pickSeq == 0 || api == null) return@LaunchedEffect
-        // 用户可能在人系统弹窗里停留很久；给 2 分钟窗口，选完就立刻返回
-        val deadline = System.currentTimeMillis() + 120_000L
+        // ⚠️ 2026-10-29（真机实测踩到）：原来是 2 分钟窗口。
+        // 系统目录选择器里翻目录、找对文件夹、点「使用此文件夹」再确认，
+        // 稍慢一点就超过 2 分钟 —— 轮询已经结束，选完的结果没人取，
+        // 回到设置页还是「默认（应用私有目录）」，看起来就是「选了没用」。
+        // 现在放宽到 10 分钟，并把间隔调到 1 秒（少一半 IPC）。
+        val deadline = System.currentTimeMillis() + 10 * 60_000L
         var handled = false
         while (!handled && System.currentTimeMillis() < deadline) {
-            delay(500)
+            delay(1000)
             val picked = suspendCancellableCoroutine<String?> { cont ->
                 api.takePickedGameDir { r ->
                     val v = r.getOrNull()
@@ -705,10 +724,20 @@ fun StoragePane(
                             dirReloadKey++
                         },
                         onFailure = { e ->
-                            dirMessage = context.getString(
-                                R.string.settings_game_dir_change_failed,
-                                friendlyError(context, e),
-                            )
+                            dirMessage = buildString {
+                                append(
+                                    context.getString(
+                                        R.string.settings_game_dir_change_failed,
+                                        friendlyError(context, e),
+                                    )
+                                )
+                                // 没有「所有文件访问」时切外部目录必然失败，
+                                // 光说「读写失败」用户不知道该干嘛
+                                if (!allFilesAccess) {
+                                    append("\n")
+                                    append(context.getString(R.string.settings_game_dir_need_all_files))
+                                }
+                            }
                         },
                     )
                 }
@@ -833,10 +862,18 @@ fun StoragePane(
                                             dirReloadKey++
                                         },
                                         onFailure = { e ->
-                                            dirMessage = context.getString(
-                                                R.string.settings_game_dir_change_failed,
-                                                friendlyError(context, e),
-                                            )
+                                            dirMessage = buildString {
+                                                append(
+                                                    context.getString(
+                                                        R.string.settings_game_dir_change_failed,
+                                                        friendlyError(context, e),
+                                                    )
+                                                )
+                                                if (!allFilesAccess) {
+                                                    append("\n")
+                                                    append(context.getString(R.string.settings_game_dir_need_all_files))
+                                                }
+                                            }
                                         },
                                     )
                                 }

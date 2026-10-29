@@ -106,6 +106,35 @@ class ServerDocsProvider : DocumentsProvider() {
     return f
   }
 
+  /**
+   * 由「父目录 + 客户端给的名字」构造子文件，并校验不越出 servers/ 根。
+   *
+   * ⚠️ 2026-10-29（外部审计 B02 核实成立）：
+   * `createDocument` / `renameDocument` 原来直接 `File(parent, displayName)` ——
+   * displayName 完全来自调用方（文件管理器新建/改名/粘贴），带 `../` 或 `/`
+   * 就能把文件写到已授权服务器目录**之外**（比如别的实例、配置目录）。
+   * `fileOf()` 有 canonical 校验，但这两条路径没走它。
+   *
+   * 这里统一：拒绝空名 / `.` / `..` / 路径分隔符 / 控制字符，再用 canonical
+   * 前缀做第二道校验（防止符号链接之类绕过）。
+   */
+  private fun safeChild(parent: File, rawName: String): File {
+    val name = rawName.trim()
+    if (name.isEmpty() || name == "." || name == "..") {
+      throw FileNotFoundException("非法的文件名：$rawName")
+    }
+    if (name.contains('/') || name.contains('\\') || name.any { it.isISOControl() }) {
+      throw FileNotFoundException("非法的文件名：$rawName")
+    }
+    val target = File(parent, name)
+    val base = baseDir().canonicalFile
+    val canonical = target.canonicalFile
+    if (canonical != base && !canonical.path.startsWith(base.path + File.separator)) {
+      throw FileNotFoundException("越界路径：$rawName")
+    }
+    return target
+  }
+
   private fun docIdOf(file: File): String {
     val base = baseDir().canonicalFile
     val rel = file.canonicalFile.toRelativeString(base).trim('/')
@@ -213,7 +242,7 @@ class ServerDocsProvider : DocumentsProvider() {
   ): String {
     val parent = fileOf(parentDocumentId)
     if (!parent.isDirectory) throw FileNotFoundException("父级不是目录：$parentDocumentId")
-    var target = File(parent, displayName)
+    var target = safeChild(parent, displayName)
     // 同名不覆盖：按系统惯例改成「name (1).ext」——文件管理器「粘贴」到已有同名文件时
     // 直接覆盖会把用户的世界/配置悄悄冲掉。
     if (target.exists()) target = uniqueName(parent, displayName)
@@ -233,7 +262,8 @@ class ServerDocsProvider : DocumentsProvider() {
 
   override fun renameDocument(documentId: String, displayName: String): String {
     val f = fileOf(documentId)
-    val dest = File(f.parentFile, displayName)
+    // 改名同样要防越界：displayName 来自调用方
+    val dest = safeChild(f.parentFile ?: throw FileNotFoundException("无父目录：$documentId"), displayName)
     if (dest.exists()) throw FileNotFoundException("已存在同名项：$displayName")
     if (!f.renameTo(dest)) throw FileNotFoundException("重命名失败：${f.name}")
     return docIdOf(dest)
