@@ -773,7 +773,11 @@ public class GLFW
     // Generated stub callback methods
     public static GLFWCharCallback glfwSetCharCallback(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWcharfun") GLFWCharCallbackI cbfun) {
         GLFWCharCallback lastCallback = mGLFWCharCallback;
-        if (cbfun == null) mGLFWCharCallback = null;
+        if (cbfun == null) {
+            mGLFWCharCallback = null;
+            // 审计 B27：不告诉 native，C 侧会继续调用已释放的回调
+            nglfwSetCharCallback(window, 0L);
+        }
         else mGLFWCharCallback = GLFWCharCallback.createSafe(nglfwSetCharCallback(window, memAddressSafe(cbfun)));
 
         return lastCallback;
@@ -781,7 +785,11 @@ public class GLFW
 
     public static GLFWCharModsCallback glfwSetCharModsCallback(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWcharmodsfun") GLFWCharModsCallbackI cbfun) {
         GLFWCharModsCallback lastCallback = mGLFWCharModsCallback;
-        if (cbfun == null) mGLFWCharModsCallback = null;
+        if (cbfun == null) {
+            mGLFWCharModsCallback = null;
+            // 审计 B27：不告诉 native，C 侧会继续调用已释放的回调
+            nglfwSetCharModsCallback(window, 0L);
+        }
         else mGLFWCharModsCallback = GLFWCharModsCallback.createSafe(nglfwSetCharModsCallback(window, memAddressSafe(cbfun)));
 
         return lastCallback;
@@ -789,7 +797,11 @@ public class GLFW
 
     public static GLFWCursorEnterCallback glfwSetCursorEnterCallback(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWcursorenterfun") GLFWCursorEnterCallbackI cbfun) {
         GLFWCursorEnterCallback lastCallback = mGLFWCursorEnterCallback;
-        if (cbfun == null) mGLFWCursorEnterCallback = null;
+        if (cbfun == null) {
+            mGLFWCursorEnterCallback = null;
+            // 审计 B27：不告诉 native，C 侧会继续调用已释放的回调
+            nglfwSetCursorEnterCallback(window, 0L);
+        }
         else mGLFWCursorEnterCallback = GLFWCursorEnterCallback.createSafe(nglfwSetCursorEnterCallback(window, memAddressSafe(cbfun)));
 
         return lastCallback;
@@ -797,7 +809,11 @@ public class GLFW
 
     public static GLFWCursorPosCallback glfwSetCursorPosCallback(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWcursorposfun") GLFWCursorPosCallbackI cbfun) {
         GLFWCursorPosCallback lastCallback = mGLFWCursorPosCallback;
-        if (cbfun == null) mGLFWCursorPosCallback = null;
+        if (cbfun == null) {
+            mGLFWCursorPosCallback = null;
+            // 审计 B27：不告诉 native，C 侧会继续调用已释放的回调
+            nglfwSetCursorPosCallback(window, 0L);
+        }
         else mGLFWCursorPosCallback = GLFWCursorPosCallback.createSafe(nglfwSetCursorPosCallback(window, memAddressSafe(cbfun)));
 
         return lastCallback;
@@ -838,7 +854,11 @@ public class GLFW
 
     public static GLFWKeyCallback glfwSetKeyCallback(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWkeyfun") GLFWKeyCallbackI cbfun) {
         GLFWKeyCallback lastCallback = mGLFWKeyCallback;
-        if (cbfun == null) mGLFWKeyCallback = null;
+        if (cbfun == null) {
+            mGLFWKeyCallback = null;
+            // 审计 B27：不告诉 native，C 侧会继续调用已释放的回调
+            nglfwSetKeyCallback(window, 0L);
+        }
         else mGLFWKeyCallback = GLFWKeyCallback.createSafe(nglfwSetKeyCallback(window, memAddressSafe(cbfun)));
 
         return lastCallback;
@@ -854,7 +874,11 @@ public class GLFW
 
     public static GLFWMouseButtonCallback glfwSetMouseButtonCallback(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWmousebuttonfun") GLFWMouseButtonCallbackI cbfun) {
         GLFWMouseButtonCallback lastCallback = mGLFWMouseButtonCallback;
-        if (cbfun == null) mGLFWMouseButtonCallback = null;
+        if (cbfun == null) {
+            mGLFWMouseButtonCallback = null;
+            // 审计 B27：不告诉 native，C 侧会继续调用已释放的回调
+            nglfwSetMouseButtonCallback(window, 0L);
+        }
         else mGLFWMouseButtonCallback = GLFWMouseButtonCallback.createSafe(nglfwSetMouseButtonCallback(window, memAddressSafe(cbfun)));
 
         return lastCallback;
@@ -862,7 +886,11 @@ public class GLFW
 
     public static GLFWScrollCallback glfwSetScrollCallback(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWscrollfun") GLFWScrollCallbackI cbfun) {
         GLFWScrollCallback lastCallback = mGLFWScrollCallback;
-        if (cbfun == null) mGLFWScrollCallback = null;
+        if (cbfun == null) {
+            mGLFWScrollCallback = null;
+            // 审计 B27：不告诉 native，C 侧会继续调用已释放的回调
+            nglfwSetScrollCallback(window, 0L);
+        }
         else mGLFWScrollCallback = GLFWScrollCallback.createSafe(nglfwSetScrollCallback(window, memAddressSafe(cbfun)));
 
         return lastCallback;

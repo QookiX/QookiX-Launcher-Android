@@ -1038,6 +1038,7 @@
     <string name="server_detail_core_installed_notice">服务端核心已就绪</string>
     <string name="server_detail_install_core_failed">安装失败：%1$s</string>
     <string name="server_detail_share_stopped">已停止陶瓦联机</string>
+    <string name="server_detail_share_owned_by">当前房间属于「%1$s」，要在这里开房请先到那台服务器关闭分享</string>
     <string name="server_detail_share_stop_failed">停止分享失败：%1$s</string>
     <string name="server_detail_share_need_running">请先启动服务器</string>
     <string name="server_detail_share_preparing">正在准备隧道…</string>

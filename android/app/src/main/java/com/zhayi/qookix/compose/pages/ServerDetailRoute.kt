@@ -48,16 +48,8 @@ fun ServerDetailRoute(
     val repo = remember(api) { ServerDetailRepo(api, ctx) }
 
     var state by remember(serverId) { mutableStateOf(ServerDetailUiState(id = serverId)) }
-    // ── 监听 server://stage（2026-10-17 补，审计 H-4）─────────────────
-    //
-    // Rust 侧 servers.rs（4 处）+ sleep.rs（4 处）都通过
-    // progress::emit_server_stage 发这个事件，payload = { id, stage }。
-    //
-    // 原来 Compose 只靠 2 秒轮询 hosted_server_runtime 查运行态 ——
-    // 但"正在生成补丁 / 正在下原版包"这种**过程**不在运行态里，
-    // 用户看到的只是按钮转圈，几十秒里完全不知道在干什么。
-    //
-    // ⚠️ 必须按 serverId 过滤：同一时刻可能有多台服务器在启动。
+    // ── 监听 server://stage（审计 H-4）：Rust 的「正在生成补丁 / 下原版包」
+    // 这类过程不在运行态里，只靠轮询查不到。必须按 serverId 过滤（可能多台在启动）。
     androidx.compose.runtime.DisposableEffect(bridge, serverId) {
         val sub = bridge.listen("server://stage") { payload ->
             runCatching {
@@ -197,9 +189,22 @@ fun ServerDetailRoute(
     // 首屏：拉详情 + 日志 + 配置 + 插件
     LaunchedEffect(bridgeReady, serverId) {
         if (!bridgeReady) return@LaunchedEffect
-        // 找回「分享中」：隧道在别的进程里跑，离开页面不停（审查 P1-17）
+        // 找回「分享中」（P1-17），但先确认房间是不是本服务器的（B24）
         repo.tunnelState { st, room ->
-            if (st == "hosting" || st == "host-scanning") state = state.copy(shareOn = true, shareRoom = room)
+            if (st != "hosting" && st != "host-scanning") return@tunnelState
+            if (TunnelSharing.ownedByOther(serverId)) {
+                state = state.copy(
+                    shareOn = false,
+                    shareRoom = "",
+                    error = ctx.getString(
+                        R.string.server_detail_share_owned_by,
+                        TunnelSharing.ownerServerName,
+                    ),
+                )
+            } else {
+                TunnelSharing.claim(serverId, serverName.ifBlank { ctx.getString(R.string.server_detail_untitled) })
+                state = state.copy(shareOn = true, shareRoom = room)
+            }
         }
         repo.load(serverId) { r ->
             r.onSuccess {
@@ -244,14 +249,7 @@ fun ServerDetailRoute(
         refreshPlugins()
     }
 
-    // 轮询：只拉「会变」的状态 + 日志
-    //
-    // ⚠️ 2026-10-29（外部审计 B18 核实成立）：原来每 2 秒调一次 `repo.load`，
-    // 那是 4 条并发命令（runtime / address / coreInstalled / getHostedServer），
-    // 加日志共 5 条 —— address、coreInstalled、eula 基本不变，纯浪费；
-    // 而且 `while (true) { delay(2000); ... }` 不等上一轮返回，
-    // 服务端慢的时候请求会一轮轮堆起来。
-    // 现在：只拉 runtime + 日志，并用序号丢弃过期响应。
+    // 轮询：只拉「会变」的状态 + 日志（审计 B18：原来每 2 秒 5 条命令、不等上轮返回）
     var pollSeq by remember(serverId) { mutableStateOf(0) }
     LaunchedEffect(bridgeReady, serverId) {
         if (!bridgeReady) return@LaunchedEffect
@@ -422,6 +420,7 @@ fun ServerDetailRoute(
                 repo.stopShare { r ->
                     r.fold(
                         onSuccess = {
+                            TunnelSharing.release(serverId) // 房间停了，归属清空（B24）
                             state = state.copy(
                                 shareOn = false,
                                 shareRoom = "",
@@ -461,6 +460,7 @@ fun ServerDetailRoute(
                 shareMessage = ctx.getString(R.string.server_detail_share_preparing),
                 error = null,
             )
+            TunnelSharing.claim(serverId, serverName.ifBlank { ctx.getString(R.string.server_detail_untitled) })
             repo.startShare(
                 id = serverId,
                 port = state.port,

@@ -371,6 +371,10 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         mHasFocus = true;
         mNextNativeState = NativeState.INIT;
         mCurrentNativeState = NativeState.INIT;
+
+        // 审计 B28：初值 true 而置 false 的那段（原 onCreate）在移植时被整段注释，
+        // 导致 notifyAppResume/Pause 等十几个入口直接 return。能走到这里说明库已加载。
+        mBrokenLibraries = false;
     }
 
     public static SDLSurface getSDLSurface() {
@@ -2288,25 +2292,9 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 class SDLMain implements Runnable {
     @Override
     public void run() {
-//        // Runs SDLActivity.main()
-//
-//        try {
-//            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY);
-//        } catch (Exception e) {
-//            Log.v("SDL", "modify thread properties failed " + e.toString());
-//        }
-//
-//        SDLActivity.nativeInitMainThread();
-//        SDLActivity.mSingleton.main();
-//        SDLActivity.nativeCleanupMainThread();
-//
-//        if (SDLActivity.mSingleton != null && !SDLActivity.mSingleton.isFinishing()) {
-//            // Let's finish the Activity
-//            SDLActivity.mSDLThread = null;
-//            SDLActivity.mSDLMainFinished = true;
-//            SDLActivity.mSingleton.finish();
-//        }  // else: Activity is already being destroyed
-//
+//        // 原版在这里跑 SDLActivity.main()：nativeInitMainThread → main() →
+//        // nativeCleanupMainThread，然后 finish()。本工程由 Java 侧直接驱动
+//        // 渲染循环，不走这条主线，故整段停用。
     }
 }
 

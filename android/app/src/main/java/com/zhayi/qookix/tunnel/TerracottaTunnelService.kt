@@ -84,15 +84,9 @@ class TerracottaTunnelService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        // 按需重绑：`:tunnel` 进程会被 libterracotta 的原生线程一直吊着（Service 停了进程
-        // 也不退出），所以完全可能出现「进程在、但 HTTP 套接字已经被关掉」的状态 ——
-        // 真机踩过：`tunnel_port` 里留着旧端口，可那个端口**根本没有进程在监听**
-        // （/proc/net/tcp 里查不到），于是主进程每次请求都吃「连接被拒」，
-        // 界面表现就是点「开启房间」报一条看不懂的错、怎么重试都一样。
-        // 这里让每次 startService 都顺手确认一下套接字，Rust 侧探测到连不上时
-        // 再 startService 一次就能自愈，不必用户「完全退出应用」。
-        // 套接字健康也要把端口文件补写回去：文件可能被清掉、或者是被上一代进程写的
-        // （主进程就是靠这个文件找我们，它拿着一个旧端口来连必然吃连接被拒）。
+        // 按需重绑（真机踩过）：`:tunnel` 进程被原生线程吊着，会出现「进程在、
+        // 但套接字已被关」的状态，`tunnel_port` 里留着没人监听的旧端口，
+        // 主进程每次请求都吃「连接被拒」。这里顺手确认套接字并补写端口文件。
         if (!running.get()) startEverything()
         else if (serverSocket?.isClosed != false) startHttpServer()
         else rewritePortFile()
@@ -229,8 +223,7 @@ class TerracottaTunnelService : Service() {
 
     private fun startEverything() {
         running.set(true)
-        // **预热 VPN 服务**：`VpnService.Builder` 只能由一个已运行的 VpnService 实例创建，
-        // 而 `startService` 是异步的 —— 不预热的话，Terracotta 回调到达时 instance 还是 null，
+        // 预热 VPN：VpnService.Builder 只能由已运行的实例创建，而 startService 是异步的
         // 只能拒绝（真机日志：「VPN 服务实例还没起来 → 拒绝本次请求」，而服务在 20ms 后才创建）。
         runCatching { startService(Intent(this, TerracottaVpnService::class.java)) }
         // 加载 + 启动 Terracotta 放后台线程：initialize() 内部要初始化 EasyTier，
@@ -262,7 +255,9 @@ class TerracottaTunnelService : Service() {
         // 本地 HTTP 服务（主进程唯一的通信入口）
         Thread({
             try {
-                val ss = ServerSocket(0) // 让系统分配空闲端口
+                // 必须显式绑回环（B01）：`ServerSocket(0)` 绑 0.0.0.0，
+                // 同网段设备就能访问这个无鉴权接口（读状态 / 触发 host、guest）
+                val ss = ServerSocket(0, 16, java.net.InetAddress.getLoopbackAddress())
                 serverSocket = ss
                 // 端口写进共享数据目录，主进程（Rust）读文件即可，无需新增 JNI
                 java.io.File(filesDir, PORT_FILE).writeText(ss.localPort.toString())
@@ -287,9 +282,7 @@ class TerracottaTunnelService : Service() {
         serverSocket = null
         running.set(false)
         runCatching { stopForeground(true) }
-        // **必须删掉端口文件**：套接字关了但文件还在的话，主进程会继续抱着一个
-        // 「看起来很对」的死端口去连，报连接被拒。删掉之后它至少能给出
-        // 「隧道服务还没启动」这种能看懂的提示。
+        // 必须删掉端口文件：留着的话主进程会一直去连一个死端口，只报「连接被拒」
         runCatching { java.io.File(filesDir, PORT_FILE).delete() }
     }
 
@@ -436,10 +429,14 @@ class TerracottaTunnelService : Service() {
                 sock.soTimeout = 5000
                 val input = BufferedReader(InputStreamReader(sock.getInputStream(), StandardCharsets.UTF_8))
                 val requestLine = input.readLine() ?: return
-                // 把请求头读干净
+                // 读干净请求头；必须限长（B01）：原来无边读，一个连接就能吃满内存
+                if (requestLine.length > MAX_REQUEST_LINE) return
+                var headerBytes = 0
                 while (true) {
                     val line = input.readLine() ?: break
                     if (line.isEmpty()) break
+                    headerBytes += line.length
+                    if (headerBytes > MAX_HEADER_BYTES) return
                 }
                 val parts = requestLine.split(" ")
                 if (parts.size < 2) return
@@ -582,6 +579,9 @@ class TerracottaTunnelService : Service() {
         private const val TAG = "TcTunnel"
         private const val CHANNEL_ID = "tunnel_channel"
         private const val NOTIFICATION_ID = 4202
+        // HTTP 请求行 / 请求头上限（正常请求只有几十字节，纯粹防滥用）
+        private const val MAX_REQUEST_LINE = 8 * 1024
+        private const val MAX_HEADER_BYTES = 16 * 1024
 
         /** 动作常量（供主进程用 Intent 触发） */
         const val ACTION_STOP = "com.zhayi.qookix.tunnel.STOP"
