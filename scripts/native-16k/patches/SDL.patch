@@ -1,0 +1,35 @@
+--- a/src/dynapi/SDL_dynapi.h
++++ b/src/dynapi/SDL_dynapi.h
+@@ -47,8 +47,8 @@
+ #define SDL_DYNAMIC_API 0
+ #elif defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE // probably not useful on iOS.
+ #define SDL_DYNAMIC_API 0
+-#elif defined(SDL_PLATFORM_ANDROID) // probably not useful on Android.
+-#define SDL_DYNAMIC_API 0
++#elif defined(SDL_PLATFORM_ANDROID) // Preserve the original library dynamic API entry.
++#define SDL_DYNAMIC_API 1
+ #elif defined(SDL_PLATFORM_EMSCRIPTEN) // probably not useful on Emscripten.
+ #define SDL_DYNAMIC_API 0
+ #elif defined(SDL_PLATFORM_PS2) && SDL_PLATFORM_PS2
+--- a/src/dynapi/SDL_dynapi.c
++++ b/src/dynapi/SDL_dynapi.c
+@@ -38,6 +38,9 @@
+ #endif
+ 
+ #include <SDL3/SDL.h>
++#if defined(__ANDROID__)
++#include <jni.h>
++#endif
+ #define SDL_MAIN_NOIMPL // don't drag in header-only implementation of SDL_main
+ #include <SDL3/SDL_main.h>
+ #include "../core/SDL_core_unsupported.h"
+@@ -597,6 +600,9 @@
+ #else // SDL_DYNAMIC_API
+ 
+ #include <SDL3/SDL.h>
++#if defined(__ANDROID__)
++#include <jni.h>
++#endif
+ 
+ Sint32 SDL_DYNAPI_entry(Uint32 apiver, void *table, Uint32 tablesize);
+ Sint32 SDL_DYNAPI_entry(Uint32 apiver, void *table, Uint32 tablesize)

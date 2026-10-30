@@ -1,0 +1,81 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 6f6f511..413e043 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -137,7 +137,7 @@ SET(GL_H
+     ${CMAKE_CURRENT_SOURCE_DIR}/gl/wrap/stub.h
+ )
+ 
+-if(${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND NOT NO_LOADER)
++if((${CMAKE_SYSTEM_NAME} MATCHES "Linux" OR ANDROID) AND NOT NO_LOADER)
+     include_directories(glx)
+ #    aux_source_directory(glx GLX_SOURCES)
+ #    list(APPEND GL_SOURCES ${GLX_SOURCES})
+diff --git a/src/gl/stubs.c b/src/gl/stubs.c
+index 807d388..d1f360a 100644
+--- a/src/gl/stubs.c
++++ b/src/gl/stubs.c
+@@ -4,3 +4,6 @@
+ #define STUB errorShim(GL_INVALID_VALUE);
+ 
+ NonAliasExportDecl(void,glClampColorARB,(GLenum target, GLenum clamp)){STUB}
++
++NonAliasExportDecl(void,glGetMinmaxParameterfv,(GLenum target, GLenum pname, GLfloat *params)){STUB}
++NonAliasExportDecl(void,glGetMinmaxParameteriv,(GLenum target, GLenum pname, GLint *params)){STUB}
+diff --git a/src/glx/glx_stubs.c b/src/glx/glx_stubs.c
+index 4ba4de5..bd4e07f 100644
+--- a/src/glx/glx_stubs.c
++++ b/src/glx/glx_stubs.c
+@@ -5,16 +5,16 @@
+ 
+ #if defined(NOX11) && defined(GLX_STUBS)
+ //#define WARN_GLX_STUB() LOGD("Warning, stubbed %s\n", __FUNCTION__); return NULL;
+-#define WARN_GLX_STUB() return NULL;
++#define WARN_GLX_STUB() return 0;
+ 
+ GLXContext  gl4es_glXCreateContext(Display *display, XVisualInfo *visual, GLXContext shareList, Bool isDirect){ WARN_GLX_STUB(); }
+ GLXContext  gl4es_glXCreateContextAttribsARB(Display *display, GLXFBConfig config, GLXContext share_context, Bool direct, const int *attrib_list){ WARN_GLX_STUB(); }
+-void  gl4es_glXDestroyContext(Display *display, GLXContext ctx){ WARN_GLX_STUB(); }
++void  gl4es_glXDestroyContext(Display *display, GLXContext ctx){ return; }
+ Display  *gl4es_glXGetCurrentDisplay(){ WARN_GLX_STUB(); }
+ XVisualInfo  *gl4es_glXChooseVisual(Display *display, int screen, int *attributes){ WARN_GLX_STUB(); }
+ Bool  gl4es_glXMakeCurrent(Display *display, GLXDrawable drawable, GLXContext context){ WARN_GLX_STUB(); }
+ Bool  gl4es_glXMakeContextCurrent(Display *display, int drawable, int readable, GLXContext context){ WARN_GLX_STUB(); }
+-void  gl4es_glXSwapBuffers(Display *display, GLXDrawable drawable){ WARN_GLX_STUB(); }
++void  gl4es_glXSwapBuffers(Display *display, GLXDrawable drawable){ return; }
+ int  gl4es_glXGetConfig(Display *display, XVisualInfo *visual, int attribute, int *value){ WARN_GLX_STUB(); }
+ int  gl4es_glXQueryContext( Display *dpy, GLXContext ctx, int attribute, int *value){ WARN_GLX_STUB(); }
+ GLXContext  gl4es_glXGetCurrentContext(){ WARN_GLX_STUB(); }
+@@ -24,23 +24,23 @@ GLXFBConfig  *gl4es_glXGetFBConfigs(Display *display, int screen, int *count){ W
+ int  gl4es_glXGetFBConfigAttrib(Display *display, GLXFBConfig config, int attribute, int *value){ WARN_GLX_STUB(); }
+ XVisualInfo  *gl4es_glXGetVisualFromFBConfig(Display *display, GLXFBConfig config){ WARN_GLX_STUB(); }
+ GLXContext  gl4es_glXCreateNewContext(Display *display, GLXFBConfig config, int render_type, GLXContext share_list, Bool is_direct){ WARN_GLX_STUB(); }
+-void  gl4es_glXSwapIntervalEXT(Display *display, int drawable, int interval){ WARN_GLX_STUB(); }
+-void  gl4es_glXCopyContext(Display *display, GLXContext src, GLXContext dst, GLuint mask){ WARN_GLX_STUB(); }
++void  gl4es_glXSwapIntervalEXT(Display *display, int drawable, int interval){ return; }
++void  gl4es_glXCopyContext(Display *display, GLXContext src, GLXContext dst, GLuint mask){ return; }
+ Window  gl4es_glXCreateWindow(Display *display, GLXFBConfig config, Window win, int *attrib_list){ WARN_GLX_STUB(); }
+-void  gl4es_glXDestroyWindow(Display *display, void *win){ WARN_GLX_STUB(); }
++void  gl4es_glXDestroyWindow(Display *display, void *win){ return; }
+ GLXDrawable  gl4es_glXGetCurrentDrawable(){ WARN_GLX_STUB(); }
+ Bool  gl4es_glXIsDirect(Display * display, GLXContext ctx){ WARN_GLX_STUB(); }
+-void  gl4es_glXUseXFont(Font font, int first, int count, int listBase){ WARN_GLX_STUB(); }
++void  gl4es_glXUseXFont(Font font, int first, int count, int listBase){ return; }
+ int  gl4es_glXQueryDrawable(Display *dpy, GLXDrawable draw, int attribute, unsigned int *value){ WARN_GLX_STUB(); }
+-void  gl4es_glXDestroyPbuffer(Display * dpy, GLXPbuffer pbuf){ WARN_GLX_STUB(); }
++void  gl4es_glXDestroyPbuffer(Display * dpy, GLXPbuffer pbuf){ return; }
+ GLXPbuffer  gl4es_glXCreatePbuffer(Display * dpy, GLXFBConfig config, const int * attrib_list){ WARN_GLX_STUB(); }
+ GLXPixmap  gl4es_glXCreateGLXPixmap(Display *display, XVisualInfo * visual, Pixmap pixmap){ WARN_GLX_STUB(); }
+ GLXPixmap  gl4es_glXCreatePixmap(Display * dpy, GLXFBConfig config, Pixmap pixmap, const int * attrib_list){ WARN_GLX_STUB(); }
+-void  gl4es_glXDestroyGLXPixmap(Display *display, void *pixmap){ WARN_GLX_STUB(); }
+-void  gl4es_glXDestroyPixmap(Display *display, void *pixmap){ WARN_GLX_STUB(); }
++void  gl4es_glXDestroyGLXPixmap(Display *display, void *pixmap){ return; }
++void  gl4es_glXDestroyPixmap(Display *display, void *pixmap){ return; }
+ GLXContext  gl4es_glXCreateContextAttribs(Display *dpy, GLXFBConfig config, GLXContext share_context, Bool direct, const int *attrib_list){ WARN_GLX_STUB(); }
+-void  gl4es_glXSwapIntervalMESA(int interval){ WARN_GLX_STUB(); }
+-void  gl4es_glXSwapIntervalSGI(int interval){ WARN_GLX_STUB(); }
++void  gl4es_glXSwapIntervalMESA(int interval){ return; }
++void  gl4es_glXSwapIntervalSGI(int interval){ return; }
+ 
+ AliasExport(GLXContext,glXCreateContext,,(Display *display, XVisualInfo *visual, GLXContext shareList, Bool isDirect));
+ AliasExport(GLXContext,glXCreateContextAttribs,ARB,(Display *display, GLXFBConfig config, GLXContext share_context, Bool direct, const int *attrib_list));

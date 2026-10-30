@@ -1,0 +1,44 @@
+[
+  {
+    "name": "SDL",
+    "url": "https://github.com/libsdl-org/SDL.git",
+    "commit": "fa2c02bb6e21974a89ea9824bc53c9932abe5f9c",
+    "patch": "patches/SDL.patch"
+  },
+  {
+    "name": "freetype",
+    "url": "https://github.com/freetype/freetype.git",
+    "commit": "42608f77f20749dd6ddc9e0536788eaad70ea4b5",
+    "patch": null
+  },
+  {
+    "name": "openal-soft",
+    "url": "https://github.com/kcat/openal-soft.git",
+    "commit": "d3875f333fb6abe2f39d82caca329414871ae53b",
+    "patch": null
+  },
+  {
+    "name": "spirv-cross",
+    "url": "https://github.com/KhronosGroup/SPIRV-Cross.git",
+    "commit": "57e4efcc84112abcd426dc5ec248b5339bee04f2",
+    "patch": null
+  },
+  {
+    "name": "pojav-gl4es",
+    "url": "https://github.com/PojavLauncherTeam/gl4es.git",
+    "commit": "3d8906d46a93066f21ea01aeaf1a36ec972efd15",
+    "patch": "patches/pojav-gl4es.patch"
+  },
+  {
+    "name": "lwjgl3",
+    "url": "https://github.com/AngelAuraMC/lwjgl3.git",
+    "commit": "702c2102a2876cdf67d1d57f6819fa2d458217d9",
+    "patch": "patches/lwjgl3.patch"
+  },
+  {
+    "name": "libffi",
+    "url": "https://github.com/libffi/libffi.git",
+    "commit": "e2eda0cf72a0598b44278cc91860ea402273fa29",
+    "patch": "patches/libffi.patch"
+  }
+]
