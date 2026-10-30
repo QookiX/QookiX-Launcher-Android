@@ -186,6 +186,25 @@ patch(
     new RegExp(`versionCode\\s*=\\s*${versionCode}\\b`).test(c),
 );
 
+// 4. package-lock.json（审计 B43：锁文件里的 version 一直停在旧版，
+//    npm ci 会提示清单与锁文件不一致）
+patch(
+  "package-lock.json",
+  (c) => {
+    const lock = JSON.parse(c);
+    lock.version = newVersion;
+    if (lock.packages && lock.packages[""]) lock.packages[""].version = newVersion;
+    return JSON.stringify(lock, null, 2) + "\n";
+  },
+  (c) => {
+    const lock = JSON.parse(c);
+    return (
+      lock.version === newVersion &&
+      (!lock.packages || !lock.packages[""] || lock.packages[""].version === newVersion)
+    );
+  },
+);
+
 if (process.exitCode) {
   console.error(`版本号同步未全部成功（安卓 versionCode 目标值=${versionCode}）。`);
 } else {
