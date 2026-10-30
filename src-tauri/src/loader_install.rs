@@ -41,6 +41,10 @@ use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 
+// classpath 组装规则（含「桌面 LWJGL 剔除」）拆到了 `loader_classpath`，
+// 这里只做转发，调用方仍然写 `crate::loader_install::profile_library_paths`。
+pub use crate::loader_classpath::{profile_library_names, profile_library_paths};
+
 /// 加载器安装结果。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LoaderInstallResult {
@@ -212,60 +216,6 @@ pub fn profile_main_class(profile_dir: &Path) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// 收集加载器 profile 里声明的库路径（相对 `libraries/`），供 classpath 使用。
-///
-/// 只收存在的文件：installer 声明的依赖可能还没下载，
-/// 缺失的交给「补全文件」流程，classpath 里放不存在的路径会让 JVM 静默忽略
-/// 但日志难查，所以这里直接过滤掉并计数返回。
-pub fn profile_library_paths(
-    profile_dir: &Path,
-    libraries_dir: &Path,
-) -> (Vec<PathBuf>, usize) {
-    let mut paths = Vec::new();
-    let mut missing = 0usize;
-    let mut skipped_lwjgl = 0usize;
-    let Some(name) = profile_dir.file_name().map(|n| n.to_string_lossy().to_string()) else {
-        return (paths, missing);
-    };
-    let json = profile_dir.join(format!("{name}.json"));
-    let Ok(text) = std::fs::read_to_string(&json) else {
-        return (paths, missing);
-    };
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return (paths, missing);
-    };
-    let Some(libs) = v.get("libraries").and_then(|l| l.as_array()) else {
-        return (paths, missing);
-    };
-    for lib in libs {
-        let name = lib.get("name").and_then(|n| n.as_str()).unwrap_or("");
-        if is_desktop_lwjgl(name) {
-            skipped_lwjgl += 1;
-            continue;
-        }
-        let Some(path_rel) = lib
-            .get("downloads")
-            .and_then(|d| d.get("artifact"))
-            .and_then(|a| a.get("path"))
-            .and_then(|p| p.as_str())
-        else {
-            continue;
-        };
-        let full = libraries_dir.join(path_rel);
-        if full.exists() {
-            paths.push(full);
-        } else {
-            missing += 1;
-        }
-    }
-    if skipped_lwjgl > 0 {
-        crate::util::log_line(&format!(
-            "[loader] 跳过 {skipped_lwjgl} 个加载器声明的桌面 LWJGL 条目（安卓上用随包组件）"
-        ));
-    }
-    (paths, missing)
-}
-
 /// 把加载器 profile 的 libraries 解析成 [crate::version::Library]。
 ///
 /// `download_libraries` 只接受这个结构，而 profile 是原始 JSON ——
@@ -326,55 +276,6 @@ pub fn profile_libraries(profile_dir: &Path) -> Vec<crate::version::Library> {
         ));
     }
     out
-}
-
-/// 读加载器 profile 里所有库的 Maven 坐标（`group:artifact:version`）。
-///
-/// 用途：启动时把原版 classpath 里**同名 artifact** 的旧版本剔掉，
-/// 避免「同一份类的两个版本同时在 classpath 上」——
-/// Fabric 会直接抛 `duplicate ASM classes found on classpath`。
-pub fn profile_library_names(profile_dir: &Path) -> Vec<String> {
-    let mut out = Vec::new();
-    let Some(name) = profile_dir.file_name().map(|n| n.to_string_lossy().to_string()) else {
-        return out;
-    };
-    let json = profile_dir.join(format!("{name}.json"));
-    let Ok(text) = std::fs::read_to_string(&json) else {
-        return out;
-    };
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return out;
-    };
-    let Some(libs) = v.get("libraries").and_then(|l| l.as_array()) else {
-        return out;
-    };
-    for lib in libs {
-        if let Some(n) = lib.get("name").and_then(|n| n.as_str()) {
-            if !n.is_empty() && !is_desktop_lwjgl(n) {
-                out.push(n.to_string());
-            }
-        }
-    }
-    out
-}
-
-/// 加载器 profile 里声明的桌面 LWJGL（`org.lwjgl:lwjgl*`）。
-///
-/// 这些是桌面版 natives，安卓上根本跑不起来；把它们留在 classpath 上只有一种
-/// 结果 —— 和随包的 LWJGL 组件（老版本的单体 jar / 26.3+ 的 3.4.1 组件集）
-/// 同时存在两份 `org.lwjgl.*`：
-///
-/// - 26.2 + NeoForge 实测 `NoSuchMethodError: GLFW.glfwPlatformSupported(int)`：
-///   MC 26.x 要的是 3.4 的 API，被加载的却是没这个方法的旧 jar（崩溃报告里
-///   `Backend library: LWJGL version 3.3.3-snapshot`）。
-/// - 26.1 + NeoForge 实测 `GLFW error callback has unexpectedly changed`：
-///   fork 里 `glfwSetErrorCallback` 只是覆盖静态字段 `mGLFWErrorCallback`，
-///   两份 `GLFW` 类各有各的静态字段，MC 26.x 的 `GLFWErrorScope` 一比对就炸。
-///
-/// 原版 classpath 早就在 `launch.rs::build_classpath` 里做过同样的剔除，
-/// 加载器这一侧一直漏着。
-fn is_desktop_lwjgl(name: &str) -> bool {
-    name.starts_with("org.lwjgl:") || name.starts_with("org.lwjgl.lwjgl:")
 }
 
 /// classpath 里的一条路径是否对应某个 Maven 坐标的 artifact。
@@ -695,17 +596,6 @@ pub fn profile_arguments(
 mod tests {
     use super::*;
     use std::fs;
-
-    // ── 桌面 LWJGL 剔除（26.2 glfwPlatformSupported / 26.1 错误回调被换）──
-    #[test]
-    fn desktop_lwjgl_entries_are_recognised() {
-        assert!(is_desktop_lwjgl("org.lwjgl:lwjgl:3.3.3"));
-        assert!(is_desktop_lwjgl("org.lwjgl:lwjgl-glfw:3.3.3"));
-        assert!(is_desktop_lwjgl("org.lwjgl.lwjgl:lwjgl:2.9.4"));
-        assert!(!is_desktop_lwjgl("net.neoforged:neoforge:26.2.0"));
-        assert!(!is_desktop_lwjgl("cpw.mods:securejarhandler:3.0.8"));
-        assert!(!is_desktop_lwjgl(""));
-    }
 
     // ── strip_module（把 earlydisplay 从 -p 里摘掉，否则 NeoForge 闪退）──
     #[test]

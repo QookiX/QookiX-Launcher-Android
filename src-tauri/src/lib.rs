@@ -49,6 +49,7 @@ mod game_dir;
 mod natives;
 mod jvm_launcher;
 mod loader_install;
+mod loader_classpath;
 mod terracotta;
 mod render_bridge;
 // input_bridge 已删除（2026-10-26 审查 B-P1-3）：那 521 行是「Rust 版输入桥」，
@@ -61,6 +62,7 @@ mod groups;
 mod mirror;
 mod mcping;
 mod util;
+mod launch_log;
 mod skins;
 mod world_backup;
 mod playtime;

@@ -19,9 +19,9 @@
 
 ## [Unreleased]
 
-## [0.2.2-beta2] - 2026-10-30
+## [0.2.2-beta3] - 2026-10-30
 
-> **预览版**：可直接覆盖 0.2.2-beta1（versionCode 20221 > 20220）。
+> **预览版**：可直接覆盖 0.2.2-beta1（versionCode 20222 > 20220）。
 
 0. **NeoForge / Forge**：修复了实例启动时加载器声明的桌面版 LWJGL 也被塞进 classpath、26.x 报 `glfwPlatformSupported` 找不到方法的问题
 1. **NeoForge / Forge**：修复了实例启动时报「GLFW 错误回调在作用域内被改动」的问题
