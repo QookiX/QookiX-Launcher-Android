@@ -80,6 +80,7 @@ mod updater_version;
 /// 控制布局里「按键透传」的读取与修改。
 mod controls;
 mod control_import;
+mod jre_bundled;
 mod jre_download;
 /// 局域网直传同步：安卓端 HTTP 客户端（连桌面端起的 HTTP 服务拉实例）。
 mod lan_sync;

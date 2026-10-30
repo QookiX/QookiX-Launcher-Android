@@ -719,7 +719,7 @@ pub async fn ensure_lwjgl341(data_dir: &str) -> std::io::Result<LwjglComponents>
 /// 与 `extract_native_libs_from_apk` 的区别：那个专抽 `lib/<abi>/*.so` 并跳过
 /// 系统自加载的库；这个走 assets 通道，jar 与 .so 都能抽（LWJGL 3.4.1 的
 /// natives 就是以 assets 形式随包分发的）。
-async fn extract_asset_files(
+pub(crate) async fn extract_asset_files(
     apk: &str,
     prefix: &str,
     dest: &Path,

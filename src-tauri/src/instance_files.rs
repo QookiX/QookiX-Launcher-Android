@@ -455,6 +455,9 @@ pub(crate) async fn ensure_instance_java(instance_id: &str) -> Result<String, St
         return Ok(rt.path);
     }
 
+    // 21 的运行时随 APK 内置，能解压就不下载（GitHub 那条线国内实测 55KB/s）
+    if let Some(p) = crate::jre_bundled::try_install(required).await { return Ok(p); }
+
     let arch = crate::java::get_device_arch();
     // 先确认这个版本**下得下来**：镜像表里没有对应包时要直说，
     // 不然用户会以为是自己没装。

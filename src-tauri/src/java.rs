@@ -349,10 +349,33 @@ impl JreManager {
         crate::jre_download::download_with_retry(&mirror.url, &archive_path, mirror.size, &download_progress).await?;
 
         on_phase("正在解压 Java 运行时…");
-        Self::extract_tar_xz(&archive_path, &runtime_dir).await?;
+        let runtime = Self::install_from_archive(java_version, arch, &archive_path).await?;
+        // 下载占 0~0.7，解压完才补到 1.0（解压本身没有百分比）
+        progress(1.0);
+        Ok(runtime)
+    }
+
+    /// 把一份 `tar.xz` 装成运行时（下载路径与「随 APK 内置」路径共用这一步）。
+    ///
+    /// 拆出来的原因：`jre_bundled` 要在**没有任何网络**的情况下装同一个包，
+    /// 解压 / 规范化根目录 / `libjli.so` 校验 / 写 `release` 登记文件这几步
+    /// 必须和下载路径**完全一致**，否则内置来的运行时会被 `get_runtimes` 当成坏目录。
+    pub async fn install_from_archive(
+        java_version: i32,
+        arch: &str,
+        archive_path: &Path,
+    ) -> Result<Runtime> {
+        let data_dir = get_data_dir().await?;
+        let runtime_name = format!("JRE-{}", java_version);
+        let runtime_dir = Path::new(&data_dir).join("runtimes").join(&runtime_name);
+        fs::create_dir_all(&runtime_dir).await.with_context(|| {
+            format!("Failed to create runtime directory: {}", runtime_dir.display())
+        })?;
+
+        Self::extract_tar_xz(archive_path, &runtime_dir).await?;
         Self::normalize_runtime_root(&runtime_dir).await;
 
-        let _ = fs::remove_file(&archive_path).await;
+        let _ = fs::remove_file(archive_path).await;
 
         // 解压后**先验证再登记**。以前不管解压结果都写 release，
         // 于是一份残缺的运行时也会被 get_runtimes 当成可用，
@@ -380,7 +403,6 @@ impl JreManager {
         fs::write(&release_file, content).await
             .with_context(|| format!("Failed to write release file: {}", release_file.display()))?;
 
-        progress(1.0);
         Ok(runtime)
     }
 

@@ -214,6 +214,30 @@ jobs:
       #
       # --max-workers=2 与 gradle.properties 的 org.gradle.workers.max=2 一致，
       # 显式写出来是为了不依赖 properties 是否被正确读取。
+      # ③b 把 Java 21 运行时（27MB）内置进 APK。
+      #
+      # 为什么内置：运行时只有 GitHub Releases 一个源，国内实测单连接 55KB/s，
+      # 几分钟后掉到 0.3KB/s（同一时刻同一条线路 Modrinth 47MB/s）——
+      # 27MB 要爬十分钟以上。内置后「首次进游戏」不再联网，APK 48MB → 约 75MB。
+      # 参考实现 Zalith Launcher 2 是四个 JRE 全内置（arm64 包 172MB），
+      # 这里只放覆盖面最大的 21。
+      #
+      # 为什么不入库：27MB 二进制只为本地构建方便就进 git 不划算，
+      # Actions 的出口带宽本来就快。大小必须与 java.rs 里 JRE_MIRRORS 登记的
+      # 28675516 一致，对不上直接让构建失败（否则发出去的包缺运行时，用户又要等）。
+      - name: 内置 Java 21 运行时
+        run: |
+          mkdir -p android/app/src/main/assets/jre/jre-21
+          OUT=android/app/src/main/assets/jre/jre-21/jre21-android-arm64.tar.xz
+          curl -fL --retry 3 --retry-delay 5 -o "$OUT" \
+            https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre21/jre21-android-arm64.tar.xz
+          ACTUAL=$(stat -c%s "$OUT")
+          if [ "$ACTUAL" != "28675516" ]; then
+            echo "内置运行时大小不符：$ACTUAL != 28675516" >&2
+            exit 1
+          fi
+          ls -lh "$OUT"
+
       - name: Gradle 打包
         working-directory: android
         timeout-minutes: 45
