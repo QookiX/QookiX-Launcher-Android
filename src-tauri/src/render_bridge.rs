@@ -467,8 +467,15 @@ impl RenderBridge {
                 ctx.release();
             }
         }
-        if let Some(_lib) = self.translator.take() {
-            tracing::info!("Released GL translator");
+        if let Some(lib) = self.translator.take() {
+            // ⚠️ 不能让它 Drop —— `Library` 的 Drop 会 **dlclose**（gl4es / MobileGlues）。
+            // `release()` 可能发生在游戏 JVM 还没退干净的瞬间（`kill_game` 是先拆 EGL、
+            // 再让 JVM 退出的），而游戏的渲染线程此刻还可能在这份 .so 里跑：
+            // dlclose 之后它下一次 GL 调用就跳进已释放的代码段 → SIGSEGV，
+            // 表现是「回到启动器一瞬间闪退，日志里什么都没有」。
+            // 与 `jvm_launcher` 故意不 dlclose libjli.so 同理：句柄留着，随进程退出一起放。
+            tracing::info!("Released GL translator（不 dlclose，说明见注释）");
+            std::mem::forget(lib);
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.zhayi.qookix.services
 
+import android.app.Activity
 import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -157,6 +158,42 @@ class GameGuardService : Service() {
 
         /** 标记文件放在 filesDir：独立进程与主进程共享同一份（不需要 ContentProvider） */
         fun markerFile(ctx: Context): File = File(ctx.filesDir, MARKER_NAME)
+
+        /**
+         * 游戏退出后重启应用进程（`launch://exit` 到达时由启动器调用）。
+         *
+         * ## 为什么必须重启进程
+         *
+         * 同一个进程里**只能启动一次游戏**：`JNI_CreateJavaVM` 只能成功一次，
+         * 而且第二次启动时 LWJGL 会报 `liblwjgl.so already loaded in another
+         * classloader`。所以游戏一退出就得换个进程。
+         *
+         * ## 为什么本进程里**不能**先 startActivity
+         *
+         * 以前这里先 `startActivity(launcher intent)` 再延迟 `exit(0)` ——
+         * 那个界面是**本进程**里的新实例，几毫秒后就被 `exit(0)` 一起带走，
+         * 用户看到的就是「回到启动器 → 立刻消失 → 又被拉起来一次」。
+         * 守护进程（`:guard`，独立进程，400ms 轮询标记 + 主进程存活性）本来就
+         * 负责这件事，让它做**唯一一次**拉起，界面只出现一次。
+         */
+        fun restartLauncherProcess(activity: Activity) {
+            Log.i(TAG, "游戏已退出 → 重启应用进程（JVM / 原生库只能在一个进程里用一次）")
+            val guardArmed = runCatching { markerFile(activity).exists() }.getOrDefault(false)
+            if (!guardArmed) {
+                // 没有守护兜底（游戏没走到 GameService 那一步）：只能自己拉起，这一次会闪
+                runCatching {
+                    activity.packageManager.getLaunchIntentForPackage(activity.packageName)?.let { i ->
+                        i.addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                        )
+                        activity.startActivity(i)
+                    }
+                }.onFailure { Log.w(TAG, "拉起自身失败", it) }
+            }
+            // 有守护 → 主进程消失后它会在 400ms 内拉起启动器，这里没必要多等
+            android.os.Handler(activity.mainLooper)
+                .postDelayed({ Runtime.getRuntime().exit(0) }, if (guardArmed) 100L else 800L)
+        }
 
         /** 游戏启动时调用：写标记 + 起守护（独立进程） */
         fun arm(ctx: Context) {

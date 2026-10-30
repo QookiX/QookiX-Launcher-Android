@@ -1439,7 +1439,7 @@
     <string name="account_code_label">登录代码</string>
     <string name="layout_rename_title">重命名布局</string>
     <string name="layout_rename_label">新名称</string>
-    <string name="layout_rename_confirm">重命名</string>    <string name="control_import_done">导入成功：%1$d 个按钮</string>
+    <string name="layout_rename_confirm">重命名</string>    <string name="control_import_done">已导入为「%1$s」</string>
     <string name="server_detail_tab_settings">服务器设置</string>
     <string name="server_settings_eula_title">同意 Minecraft EULA</string>
     <string name="server_settings_eula_pending">未同意 —— 服务端启动前必须勾选</string>

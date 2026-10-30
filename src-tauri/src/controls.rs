@@ -155,7 +155,7 @@ fn current_layout_name() -> String {
 
 /// 布局名要当文件名用，所以挡掉路径分隔符与 Windows 保留字符；
 /// 中文、空格、`_ - .` 都允许（玩家自己起名时常见）。
-fn validate_name(name: &str) -> Result<String, String> {
+pub(crate) fn validate_name(name: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("名字不能为空".to_string());
@@ -172,7 +172,7 @@ fn validate_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-fn layout_file(name: &str) -> Result<PathBuf, String> {
+pub(crate) fn layout_file(name: &str) -> Result<PathBuf, String> {
     Ok(controlmap_dir()?.join(format!("{name}.json")))
 }
 
@@ -293,14 +293,22 @@ pub async fn pick_control_layout() -> Result<(), String> {
     Ok(())
 }
 
-/// 取回导入结果（原生侧校验完写进临时文件，这里取走即删）。
+/// 取回导入结果（原生侧校验完写进中转文件）。
+///
+/// ⚠️ 光「取回」不算导入完成：中转文件是 `TMP_IMPORT_FILE.json`，而列表刻意
+/// 跳过 `TMP_IMPORT*`。落名这一步在 [`crate::control_import::finalize`] 里补。
 pub async fn take_control_import() -> Result<Option<serde_json::Value>, String> {
     #[cfg(target_os = "android")]
     {
         let Some(s) = crate::android_bridge::take_control_import() else {
             return Ok(None);
         };
-        return Ok(serde_json::from_str(&s).ok());
+        let mut v: serde_json::Value = match serde_json::from_str(&s) {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        };
+        crate::control_import::finalize(&mut v);
+        return Ok(Some(v));
     }
     #[cfg(not(target_os = "android"))]
     Ok(None)

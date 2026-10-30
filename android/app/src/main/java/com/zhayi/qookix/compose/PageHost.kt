@@ -1170,7 +1170,7 @@ private fun InstanceDetailRoute(
             keysReload += 1
             android.widget.Toast.makeText(
                 context,
-                context.getString(R.string.control_import_done, o.optInt("buttons")),
+                context.getString(R.string.control_import_done, o.optString("saved_as", "")),
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
         } else if (o.has("error")) {

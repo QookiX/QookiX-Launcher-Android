@@ -127,18 +127,9 @@ class ComposeMainActivity : ComponentActivity() {
     }
 
     private fun restartForNextLaunch() {
-        Log.i(TAG, "游戏已退出 → 重启应用进程（JVM / 原生库只能在一个进程里用一次）")
-        runCatching {
-            packageManager.getLaunchIntentForPackage(packageName)?.let { i ->
-                i.addFlags(
-                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                        android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP,
-                )
-                startActivity(i)
-            }
-        }.onFailure { Log.w(TAG, "拉起自身失败", it) }
-        // 给新界面一点启动时间再退出旧进程
-        android.os.Handler(mainLooper).postDelayed({ Runtime.getRuntime().exit(0) }, 800)
+        // 细节与「为什么不能在本进程里 startActivity」都在守护服务那侧，见
+        // GameGuardService.restartLauncherProcess 的注释。
+        com.zhayi.qookix.services.GameGuardService.restartLauncherProcess(this)
     }
 
     private var composeOverlayAttached = false
@@ -1277,7 +1268,7 @@ class ComposeMainActivity : ComponentActivity() {
                     old.name.endsWith(".json") && old.absolutePath != tmp.absolutePath) old.delete()
             }
             tmp.writeText(text)
-            org.json.JSONObject().put("ok", true).put("name", "TMP_IMPORT_FILE")
+            org.json.JSONObject().put("ok", true).put("name", importLayoutName(f.name))
                 .put("buttons", j.optJSONArray("mControlDataList")?.length() ?: 0)
                 .put("joysticks", j.optJSONArray("mJoystickDataList")?.length() ?: 0)
                 .put("drawers", j.optJSONArray("mDrawerDataList")?.length() ?: 0).toString()
@@ -1310,7 +1301,7 @@ class ComposeMainActivity : ComponentActivity() {
                     old.name.endsWith(".json") && old.absolutePath != tmp.absolutePath) old.delete()
             }
             tmp.writeText(text)
-            org.json.JSONObject().put("ok", true).put("name", "TMP_IMPORT_FILE")
+            org.json.JSONObject().put("ok", true).put("name", importLayoutName(queryDisplayName(uri)))
                 .put("buttons", j.optJSONArray("mControlDataList")?.length() ?: 0)
                 .put("joysticks", j.optJSONArray("mJoystickDataList")?.length() ?: 0)
                 .put("drawers", j.optJSONArray("mDrawerDataList")?.length() ?: 0).toString()
