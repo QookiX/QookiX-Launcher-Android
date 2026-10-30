@@ -15,6 +15,7 @@ mod settings;
 mod instances;
 mod version;
 mod launch;
+mod launch_gen;
 /// GL_VENDOR 品牌串覆盖（F3 里那行 `Display: … (厂商串)`）。
 ///
 /// 只对安卓有效：靠 `dlopen`/`dlsym` 拿渲染器里的 `glGetString`，

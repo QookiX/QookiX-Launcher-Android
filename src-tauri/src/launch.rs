@@ -23,6 +23,8 @@ fn init_statics() {
 }
 
 pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result<GameStatus> {
+    // 领一个启动代际（审计 B11）：后面的关键节点会回来看号还是不是自己的
+    let gen = crate::launch_gen::begin();
     // ⚠️ 排查「-6 双启动」：launch_game 每次进入都在日志留痕。
     // 正常情况一次点击只有一条；出现两条 = 上层有两个触发源。
     crate::util::log_line(&format!("[launcher] === launch_game 被调用 instance={instance_id} pid={}", std::process::id()));
@@ -130,7 +132,8 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             }
         };
 
-        if !JREValidator::validate(&runtime).await? {
+        crate::launch_gen::ensure(&gen)?;
+    if !JREValidator::validate(&runtime).await? {
             return Err(anyhow::anyhow!(
                 "JRE 校验失败（{}）：{} 下找不到 libjli.so/libjvm.so",
                 runtime.name,
@@ -206,9 +209,11 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         if use_lwjgl341 {
             tracing::info!("[launcher] 版本要求 LWJGL ≥3.4.1，启用 SDL3 组件集");
         }
-        let vendor = load_vendor_jars(&data_dir, runtime.java_version, use_lwjgl341).await?;
+        crate::launch_gen::ensure(&gen)?;
+    let vendor = load_vendor_jars(&data_dir, runtime.java_version, use_lwjgl341).await?;
 
-        let mut classpath = build_classpath(&version_info, &data_dir, &vendor).await?;
+        crate::launch_gen::ensure(&gen)?;
+    let mut classpath = build_classpath(&version_info, &data_dir, &vendor).await?;
 
         // ⚠️ 2026-10-19 加：把加载器 profile 的库并入 classpath。
         // 以前 classpath 只来自原版 version_info，装了 Fabric/Forge 也跑原版。
@@ -965,6 +970,8 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
 
 pub async fn kill_game() -> Result<()> {
     init_statics();
+    // 让还在准备阶段的流水线尽快退出（审计 B11）
+    crate::launch_gen::cancel_current();
 
     crate::render_bridge::release();
     JvmLauncher::shutdown()?;
@@ -989,26 +996,6 @@ pub fn get_game_status() -> GameStatus {
     crate::util::cell_lock(&GAME_STATUS).unwrap().clone()
 }
 
-/// 把本进程的 stdout/stderr 重定向到文件（追加），返回「恢复」闭包。
-///
-/// 游戏是**同进程 JNI** 启动的，JVM 的输出不走 logcat；真机上「启动后立刻退出」
-/// 因此毫无线索（无 crash-report / 无异常 / 无退出码）。用 `dup2` 把 fd 1/2 接到
-/// 文件上，跑完再恢复 —— 这是唯一能在不改启动方式的前提下拿到 JVM 死因的办法。
-///
-/// 只在 unix 下有效；其它平台返回 `None`（不影响启动）。
-/// 修正 `options.txt` 里**非法的布尔值**（`on` / `off` → `true` / `false`）。
-///
-/// ## 为什么需要（真机日志）
-///
-/// 整合包自带的 `options.txt` 里写着 `fullscreen:off`，游戏启动时报：
-///
-/// ```text
-/// Error parsing option value off for option Fullscreen: Not a boolean: "off"
-/// ```
-///
-/// 这不是致命错误，但会让该选项回落到默认值（用户改过的设置被悄悄丢掉 ✓），
-/// 而且日志里很难看出是"包里的文件不合法"✓。启动前顺手改掉即可。
-///
 /// 只动**已知的布尔键**，其它行原样保留（避免把 `key:on` 这种合法枚举误改 ✓）。
 fn normalize_options_txt(game_dir: &Path) {
     const BOOL_KEYS: [&str; 8] = [
@@ -1063,6 +1050,7 @@ fn normalize_options_txt(game_dir: &Path) {
     }
 }
 
+/// 把本进程的 stdout/stderr 重定向到文件（追加），返回「恢复」闭包。
 pub(crate) fn redirect_output_to_file(
     path: &std::path::Path,
     instance_id: &str,
