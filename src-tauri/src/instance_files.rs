@@ -462,28 +462,25 @@ pub(crate) async fn ensure_instance_java(instance_id: &str) -> Result<String, St
         format!("{mc_version} 需要 Java {required}，但镜像里没有 {arch} 对应的包（{e}）")
     })?;
 
-    crate::util::log_line(&format!(
-        "实例 {instance_id} 缺 Java {required} 运行时，开始下载（架构 {arch}）"
-    ));
+    crate::util::log_line(&format!("实例 {instance_id} 缺 Java {required} 运行时，开始下载（架构 {arch}）"));
     let ctx = crate::progress::TaskCtx::new(instance_id, &name, "Java 运行时");
-    crate::progress::emit_install(
-        &ctx,
-        "java",
-        &format!("正在下载 Java {required} 运行时（约 27MB）…"),
-        0,
-        1,
-    );
-    // 每 10% 记一行日志：JRE 下载慢，没进度用户以为卡死；记太密日志又没法看
+    crate::progress::emit_install(&ctx, "java", &format!("正在下载 Java {required} 运行时（约 27MB）…"), 0, 1);
+    // 每 5% 同时写日志 + 推 UI：JRE 走 GitHub CDN，国内实测只有 55KB/s，
+    // 27MB 要爬十分钟。原来进度只进日志（用户看不到），界面一直停在「0 / 1」，
+    // 看起来就是卡死 —— 这也是「下载这么慢」的直接观感来源。
     let last = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(-100));
     let last_p = last.clone();
+    let ui_ctx = ctx.clone();
     let installed = crate::java::JreManager::install(
         required,
         arch,
         move |p: f32| {
             let pct = (p * 100.0).round() as i32;
-            if pct - last_p.load(Ordering::Relaxed) >= 10 {
+            if pct - last_p.load(Ordering::Relaxed) >= 5 {
                 last_p.store(pct, Ordering::Relaxed);
-                crate::util::log_line(&format!("Java {required} 运行时下载中 {pct}%"));
+                let msg = format!("正在下载 Java {required} 运行时 {pct}%");
+                crate::util::log_line(&msg);
+                crate::progress::emit_install(&ui_ctx, "java", &msg, pct.max(0) as usize, 100);
             }
         },
         |phase| crate::util::log_line(&format!("Java 运行时：{phase}")),
