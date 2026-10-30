@@ -73,6 +73,7 @@ mod error_code;
 mod plugin;
 /// 启动器自更新（查 GitHub Release → 下 APK → 交给系统安装器）。
 mod updater;
+mod updater_version;
 /// 控制布局里「按键透传」的读取与修改。
 mod controls;
 /// 局域网直传同步：安卓端 HTTP 客户端（连桌面端起的 HTTP 服务拉实例）。

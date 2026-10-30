@@ -50,13 +50,8 @@ struct PendingRelease {
     url: String,
     size: u64,
     sums_url: Option<String>,
-    /// 远程资产的文件名（如 `QookiX-Launcher-Android-v0.2.1-rc2-arm64.apk`）。
-    ///
-    /// ⚠️ 2026-10-29（外部审计 B14 核实成立）：本地落盘用的是
-    /// `local_apk_path()` 自己拼的名字，和 release 资产名不同；
-    /// 原来拿**本地名**去 `SHA256SUMS.txt` 里找期望值，永远找不到 →
-    /// `find_sha256` 返回 None → 校验被静默跳过（代码注释写的是
-    /// 「拿不到只警告」，实际连警告都没有）。现在记下资产原名用于校验。
+    /// 远程资产原名（`QookiX-Launcher-Android-<tag>-arm64.apk`）。
+    /// 审计 B14：原来拿本地拼的名字去 SHA256SUMS 里查，永远查不到 → 校验被静默跳过。
     asset_name: String,
 }
 
@@ -70,21 +65,7 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("创建网络客户端失败：{e}"))
 }
 
-/// 把 `v1.2.3` / `1.2.3` / `1.2.3-beta.1` 解析成可比较的数字三元组。
-fn parse_version(raw: &str) -> (u32, u32, u32) {
-    let cleaned = raw.trim().trim_start_matches('v');
-    let core = cleaned.split(['-', '+']).next().unwrap_or(cleaned);
-    let mut parts = core.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
-    (
-        parts.next().unwrap_or(0),
-        parts.next().unwrap_or(0),
-        parts.next().unwrap_or(0),
-    )
-}
-
-fn is_newer(candidate: &str, current: &str) -> bool {
-    parse_version(candidate) > parse_version(current)
-}
+use crate::updater_version::{fetch_text, find_sha256, is_newer, parse_version_full, UpdateChannel};
 
 /// 下载目录：`<files>/updates`（与 Kotlin 侧 FileProvider 的 updates 路径一致）。
 pub fn updates_dir(data_dir: &str) -> PathBuf {
@@ -98,9 +79,17 @@ fn local_apk_path(data_dir: &str, version: &str) -> PathBuf {
 /// 检查更新。`data_dir` 用来判断这个版本的包是不是已经下过了。
 pub async fn check_for_update() -> Result<UpdateInfo, String> {
     let current = env!("CARGO_PKG_VERSION").to_string();
-    let url = format!("{API_LATEST}/{REPO}/releases/latest");
     let data_dir = crate::settings::data_dir_sync().unwrap_or_default();
 
+    let raw_settings = crate::settings::load_raw_settings_sync();
+    let channel = UpdateChannel::from_str(
+        &crate::settings::raw_str(&raw_settings, &["update_channel", "updateChannel"])
+            .unwrap_or_default(),
+    );
+
+    // 用列表接口而不是 `/releases/latest`：后者只给一个「最新」，
+    // 没法按渠道挑（正式版用户不该被推 beta）。
+    let url = format!("{API_LATEST}/{REPO}/releases?per_page=30");
     let resp = client()?
         .get(&url)
         .header("Accept", "application/vnd.github+json")
@@ -123,32 +112,48 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
         return Err(format!("GitHub 返回 {}", resp.status().as_u16()));
     }
 
-    let body: serde_json::Value = resp
+    let list: Vec<serde_json::Value> = resp
         .json()
         .await
-        .map_err(|e| format!("解析 Release 失败：{e}"))?;
+        .map_err(|e| format!("解析 Release 列表失败：{e}"))?;
 
-    let tag = body
-        .get("tag_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let version = tag.trim_start_matches('v').to_string();
+    let mut best: Option<(String, serde_json::Value)> = None;
+    for rel in list {
+        let tag = rel
+            .get("tag_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let v = tag.trim_start_matches('v').to_string();
+        if v.is_empty() {
+            continue;
+        }
+        let parsed = parse_version_full(&v);
+        if !channel.allows(parsed.3) || !is_newer(&v, &current) {
+            continue;
+        }
+        let better = match &best {
+            None => true,
+            Some((bv, _)) => parse_version_full(bv) < parsed,
+        };
+        if better {
+            best = Some((v, rel));
+        }
+    }
+
+    let Some((version, body)) = best else {
+        return Ok(UpdateInfo {
+            available: false,
+            version: None,
+            current_version: current,
+            notes: None,
+            size: None,
+            downloaded_path: None,
+        });
+    };
     let notes = body
         .get("body")
         .and_then(|v| v.as_str())
         .map(|s| s.trim().to_string());
-
-    if version.is_empty() || !is_newer(&version, &current) {
-        return Ok(UpdateInfo {
-            available: false,
-            version: Some(version),
-            current_version: current,
-            notes,
-            size: None,
-            downloaded_path: None,
-        });
-    }
 
     // 挑 arm64 的 APK；顺带找 SHA256SUMS 用于校验
     // (url, 资产原名, 大小) —— 资产原名要留着给 SHA256SUMS 比对（见 B14）
@@ -327,34 +332,3 @@ pub async fn download_update(
 pub fn install_update(path: String) -> Result<(), String> {
     crate::android_bridge::install_apk(&path)
 }
-
-async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, String> {
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("请求失败：{e}"))?;
-    resp.text().await.map_err(|e| format!("读取失败：{e}"))
-}
-
-/// 从 `SHA256SUMS.txt` 里找出某个文件名的期望值。
-///
-/// ⚠️ 2026-10-29 修：原来第一行就用 `parts.next()?` —— 遇到空行直接
-/// `return None`，后面的行全都不再看。`sha256sum *.apk > SHA256SUMS.txt`
-/// 的产物末尾带空行，如果校验值正好排在空行后面就永远查不到。
-fn find_sha256(sums: &str, file_name: &str) -> Option<String> {
-    for line in sums.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let mut parts = line.split_whitespace();
-        let Some(hash) = parts.next() else { continue };
-        let name = parts.next().unwrap_or("").trim_start_matches('*');
-        if name == file_name {
-            return Some(hash.to_ascii_lowercase());
-        }
-    }
-    None
-}
-

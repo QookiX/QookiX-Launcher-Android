@@ -61,12 +61,7 @@ import com.zhayi.qookix.compose.ui.QkImage
  *
  * 包含版本信息、开源许可、第三方声明。
  *
- * ⚠️ 第三方声明是 **GPL-3.0 的合规要求**，不是装饰：
- *   - 本项目以 GPL-3.0 发布
- *   - 其中 PojavLauncher 部分为 LGPL-3.0（独立动态库 libpojavexec.so）
- *   - Terracotta 为 AGPL-3.0（独立进程 + localhost HTTP 交互，未链接）
- * 旧界面的这条声明在 `SettingsView.vue` 的 about tab 里，
- * 见仓库根的 `THIRD_PARTY_NOTICES.md`。删除界面时必须保留这个入口。
+ * ⚠️ 第三方声明是 GPL-3.0 的合规要求（见 THIRD_PARTY_NOTICES.md），删界面时必须保留入口。
  */
 @Composable
 fun AboutPane(
@@ -81,14 +76,16 @@ fun AboutPane(
     /**
      * 检查更新（2026-10-18 补回）。
      *
-     * ⚠️ 旧 Vue 版「关于」页有个「更新」区块（检查更新 / 当前版本 / 自动检查开关），
-     * Compose 迁移时整个丢了 —— 但 Rust 侧 `updater.rs` 三个命令一直都在。
+     * ⚠️ 迁移 Compose 时「更新」区块整个丢过，Rust 侧 updater.rs 一直都在。
      */
     updateState: AppUpdateUiState = AppUpdateUiState(),
     onCheckUpdate: () -> Unit = {},
     onDownloadUpdate: () -> Unit = {},
     onInstallUpdate: (String) -> Unit = {},
     onToggleAutoCheck: ((Boolean) -> Unit)? = null,
+    /** 更新渠道：`stable` / `rc` / `beta`（设置里可改）。 */
+    updateChannel: String = "stable",
+    onPickChannel: ((String) -> Unit)? = null,
     /**
      * 社区贡献者名单。
      *
@@ -145,21 +142,13 @@ fun AboutPane(
             onDownload = onDownloadUpdate,
             onInstall = onInstallUpdate,
             onToggleAutoCheck = onToggleAutoCheck,
+            updateChannel = updateChannel,
+            onPickChannel = onPickChannel,
         )
 
         Spacer(Modifier.height(QkSpacing.sm))
 
         // ── 开发者 + 社区贡献（一个卡片）────────────────────────────────
-        //
-        // 2026-10-18 改：原来是两个独立 Surface 并排（像两块漂浮方块）。
-        // 用户要求「做成之前那种卡片的格式，给他们包起来」。
-        //
-        // 现在这**一个卡片**里有三段：
-        //   1. ZhaYi（开发者）
-        //   2. 维墨笙（协助开发者）
-        //   3. 社区贡献（默认折叠，点开才展开）
-        //
-        // 贡献者名单来自 `bootstrap-public/contributors.json` ——
         // 构建时打进 APK 的 assets/，用户改完重新打包即可，不需要联网。
         SettingsGroup {
             DeveloperRow(
@@ -183,11 +172,6 @@ fun AboutPane(
         Spacer(Modifier.height(QkSpacing.sm))
 
         // ── 链接按钮（两列网格，与截图一致）──────────────────────────
-        //
-        // 地址都取自旧 Vue 的 SettingsView.vue，不是我自己编的：
-        //   官网 https://www.qookix.cn/
-        //   仓库/反馈/更新日志 = GitHub
-        //   Q 群 https://qm.qq.com/q/91keQnJ8dy
         //   爱发电 = 用户指定的 https://afdian.com/a/weimosheng
         val aboutLinks = listOf(
             AboutLink(R.string.about_official_site, "https://www.qookix.cn/"),
@@ -791,6 +775,8 @@ private fun UpdateSection(
     onDownload: () -> Unit,
     onInstall: (String) -> Unit,
     onToggleAutoCheck: ((Boolean) -> Unit)?,
+    updateChannel: String,
+    onPickChannel: ((String) -> Unit)?,
 ) {
     SettingsGroup(stringResource(R.string.about_update_group)) {
         SettingsRow(
@@ -871,7 +857,7 @@ private fun UpdateSection(
             SettingsRow(
                 title = stringResource(R.string.about_update_auto),
                 subtitle = stringResource(R.string.about_update_auto_desc),
-                showDivider = false,
+                showDivider = onPickChannel != null,
                 trailing = {
                 Switch(
                     checked = state.autoCheck,
@@ -880,6 +866,9 @@ private fun UpdateSection(
                 },
             )
         }
+
+        onPickChannel?.let { UpdateChannelSettingsRow(updateChannel, it) }
+
     }
 }
 

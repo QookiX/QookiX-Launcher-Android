@@ -154,6 +154,7 @@ import com.zhayi.qookix.compose.pages.TasksRepo
 import com.zhayi.qookix.compose.pages.loadNews
 import com.zhayi.qookix.compose.pages.parseNews
 import com.zhayi.qookix.compose.pages.settings.AboutPane
+import com.zhayi.qookix.compose.pages.settings.rememberUpdateChannel
 import com.zhayi.qookix.compose.pages.settings.AppearancePane
 import com.zhayi.qookix.compose.pages.settings.ContentServicesPane
 import com.zhayi.qookix.compose.pages.settings.DownloadPane
@@ -307,6 +308,9 @@ internal fun SettingsRoute(
     var proxyError by remember { mutableStateOf<String?>(null) }
     val appVersion = currentAppVersion(androidx.compose.ui.platform.LocalContext.current)
 
+    // 更新渠道（stable / rc / beta），读取逻辑在 UpdateChannelRow.kt
+    val updateChannelState = rememberUpdateChannel(api, bridgeReady)
+
     // 外部改了设置（如「存储」子页切换游戏目录）后，靠这个 key 触发重拉
     var settingsReloadKey by remember { mutableStateOf(0) }
 
@@ -316,12 +320,6 @@ internal fun SettingsRoute(
             state = r.fold(
                 onSuccess = {
                     // ⚠️ 3D 预览渲染方式**不在 Rust 的 settings 里** ——
-                    // `Settings` 是强类型结构体（models.rs L355）没有这个字段，
-                    // 写进 settings.json 也读不回来。它存在 Android 的
-                    // SharedPreferences 里，所以这里单独覆盖一次，
-                    // 否则设置页的 chip 永远显示默认的「省电」。
-                    // ⚠️ 固定 compose：`webview` 那条链路已经死了（`findTauriWebView`
-                    // 恒 null），选它只会得到一块空白预览且没有任何说明（审查 P1-9）。
                     // 设置页的选项也一并撤掉了，等链路真的接通再放出来。
                     it.copy(loading = false, previewRenderMode = "compose")
                 },
@@ -408,12 +406,6 @@ internal fun SettingsRoute(
             is SettingsPatch.SidebarWidth -> onSidebarWidthChanged(patch.value)
 
             // ── 屏幕方向：除了写设置，还要**立刻下发到原生层** ──────────
-            //
-            // ⚠️ 2026-10-15 修（逐个核对设置项时发现）：
-            // `set_orientation` 这条命令在 API 层一直有，但**从没被调用过** ——
-            // 用户改方向后要**重启应用**才生效。
-            //
-            // 旧 UI 是即时的（`SettingsView.vue` L229 的注释原话：
             // 「立即下发到原生层，无需重启应用」）。这是迁移时漏掉的一步。
             is SettingsPatch.Orientation -> api.setOrientation(patch.value) { }
 
@@ -724,10 +716,7 @@ internal fun SettingsRoute(
                     state = state,
                     appVersion = appVersion,
                     onOpenLicenses = { showLicenses = true },
-                    // ⚠️ 仓库地址以 git remote 为准：
-                    //   https://github.com/QookiX/QookiX-Launcher-Android
-                    // 我原先按「weimosheng/QookiX-Launcher」写（那是桌面版仓库名，
-                    // 从注释里看到的），但本仓库的 remote 是上面这个。
+                    // 仓库地址以 git remote 为准（桌面版是另一个仓库）
                     onOpenProject = { openUrl?.invoke("https://github.com/QookiX/QookiX-Launcher-Android") },
                     // 开源依赖的仓库/协议链接（2026-10-17 补全清单后需要）
                     onOpenUrl = { url -> openUrl?.invoke(url) },
@@ -736,6 +725,16 @@ internal fun SettingsRoute(
                     },
                     // 检查更新（2026-10-18 补回：Rust updater 一直都在，只是前端没接）
                     updateState = updateState,
+                    updateChannel = updateChannelState.value,
+                    onPickChannel = { id ->
+                        updateChannelState.value = id
+                        api.updateSettings(org.json.JSONObject().put("update_channel", id)) { r ->
+                            r.onFailure { e ->
+                                onUpdateStateChange(updateState.copy(error = context.getString(
+                                    R.string.about_update_channel_failed, friendlyError(context, e))))
+                            }
+                        }
+                    },
                     onCheckUpdate = {
                         onUpdateStateChange(updateState.copy(checking = true, error = null))
                         api.checkForUpdate { r ->
@@ -760,8 +759,7 @@ internal fun SettingsRoute(
                     },
                     onDownloadUpdate = {
                         onUpdateStateChange(updateState.copy(downloading = true, error = null))
-                        // 把版本号带过去 —— 后端会校验与「检查时记下的版本」一致，
-                        // 防止中途又检查了别的版本导致下错（2026-10-18 修）
+                        // 带版本号：后端校验与「检查时记下的版本」一致，防止下错
                         api.downloadUpdate(updateState.latestVersion.orEmpty()) { r ->
                             r.fold(
                                 onSuccess = { path ->
@@ -776,9 +774,7 @@ internal fun SettingsRoute(
                             )
                         }
                     },
-                    // 安装结果必须冒泡：签名校验不过时原生侧会**删包并拒绝安装**，
-                    // 这里把空回调改成把原因写进 updateState.error ——
-                    // 否则用户点「安装」看着像没反应（正是「失败仍提示成功」那类坑）。
+                    // 安装结果必须冒泡：签名校验不过时原生侧会删包拒装，不能静默
                     onInstallUpdate = { path ->
                         api.installUpdate(path) { r ->
                             r.onFailure { e ->

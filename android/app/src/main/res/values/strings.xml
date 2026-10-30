@@ -1407,6 +1407,14 @@
     <string name="about_update_download">下载</string>
     <string name="about_update_install">安装</string>
     <string name="about_update_install_failed">安装失败：%1$s</string>
+    <string name="about_update_channel">更新渠道</string>
+    <string name="about_update_channel_stable">正式版</string>
+    <string name="about_update_channel_rc">RC</string>
+    <string name="about_update_channel_beta">Beta</string>
+    <string name="about_update_channel_stable_desc">只接收正式版更新，最稳妥</string>
+    <string name="about_update_channel_rc_desc">接收正式版与候选版（RC）：功能已冻结，只修问题</string>
+    <string name="about_update_channel_beta_desc">接收全部版本，包含 Beta：功能最新，也可能有新问题</string>
+    <string name="about_update_channel_failed">切换更新渠道失败：%1$s</string>
     <string name="about_update_auto">自动检查更新</string>
     <string name="about_update_auto_desc">启动时静默检查，有新版本才提示</string>
     <string name="about_links">官方链接</string>
