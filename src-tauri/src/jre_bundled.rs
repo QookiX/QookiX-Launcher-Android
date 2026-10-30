@@ -40,6 +40,22 @@ const ARCHIVE_NAME: &str = "jre21-android-arm64.tar.xz";
 /// `None` = 内置包用不上（版本不对 / ABI 不对 / APK 里没有 / 解压失败），
 /// 调用方应继续走下载。
 pub async fn try_install(required: i32) -> Option<String> {
+    // `android_env` 整个模块只在 Android 目标下存在（CI 的 host 单测会编译本文件），
+    // 所以这里必须按目标分开写，不能只写一份「反正运行时都在 Android 上」。
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = required;
+        None
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        try_install_android(required).await
+    }
+}
+
+#[cfg(target_os = "android")]
+async fn try_install_android(required: i32) -> Option<String> {
     if required != BUNDLED_JAVA || crate::java::get_device_arch() != BUNDLED_ARCH {
         return None;
     }
