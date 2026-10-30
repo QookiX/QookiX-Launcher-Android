@@ -325,11 +325,10 @@ pub async fn launch_game(instance_id: String, world: Option<String>, server: Opt
             return Err("INSTANCE_NOT_INSTALLED".to_string());
         }
 
-        let account_uuid = resolve_launch_account(&instance_id)
-            .await
-            .map(|a| a.uuid)
-            .unwrap_or_default();
-        crate::android_bridge::start_game_activity(&instance_id, &account_uuid)?;
+        let Some(acc) = resolve_launch_account(&instance_id).await else {
+            return Err("NO_ACCOUNT".to_string()); // 没账号就别拉 GameActivity：JVM 会因账号为空立刻退出，界面只闪一下
+        };
+        crate::android_bridge::start_game_activity(&instance_id, &acc.uuid)?;
         return Ok(launch::get_game_status());
     }
 

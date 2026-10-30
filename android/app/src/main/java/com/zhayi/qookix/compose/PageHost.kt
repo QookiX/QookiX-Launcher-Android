@@ -1681,10 +1681,10 @@ private fun InstanceDetailRoute(
                 // （`INSTANCE_NOT_INSTALLED` 直接甩给用户等于没说）
                 val raw = e.message.orEmpty()
                 state = state.copy(
-                    error = if (raw.contains("INSTANCE_NOT_INSTALLED")) {
-                        context.getString(R.string.launch_not_installed)
-                    } else {
-                        context.getString(R.string.launch_failed_msg, raw)
+                    error = when {
+                        raw.contains("INSTANCE_NOT_INSTALLED") -> context.getString(R.string.launch_not_installed)
+                        raw.contains("NO_ACCOUNT") -> context.getString(R.string.no_account_hint)
+                        else -> context.getString(R.string.launch_failed_msg, raw)
                     },
                 )
             }

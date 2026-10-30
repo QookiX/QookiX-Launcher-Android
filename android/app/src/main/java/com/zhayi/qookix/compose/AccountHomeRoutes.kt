@@ -542,10 +542,10 @@ internal fun HomeRoute(
                                 // 同 InstanceDetailRoute：把 INSTANCE_NOT_INSTALLED
                                 // 这类哨兵错误翻成用户能照做的提示。
                                 val raw = e.message.orEmpty()
-                                notice = if (raw.contains("INSTANCE_NOT_INSTALLED")) {
-                                    context.getString(R.string.launch_not_installed_short)
-                                } else {
-                                    context.getString(R.string.launch_failed_msg, raw)
+                                notice = when {
+                                    raw.contains("INSTANCE_NOT_INSTALLED") -> context.getString(R.string.launch_not_installed_short)
+                                    raw.contains("NO_ACCOUNT") -> context.getString(R.string.no_account_hint)
+                                    else -> context.getString(R.string.launch_failed_msg, raw)
                                 }
                             },
                         )

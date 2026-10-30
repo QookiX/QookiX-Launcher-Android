@@ -326,6 +326,9 @@ class InstanceDetailRepo(private val api: QookixApi, private val context: androi
                                 context.getString(R.string.launch_err_already_running)
                             raw.contains("INSTANCE_CONFIG_CORRUPT") ->
                                 context.getString(R.string.launch_err_config_broken)
+                            // 没账号时后端直接拒绝，不再拉起 GameActivity（见 commands.rs）
+                            raw.contains("NO_ACCOUNT") ->
+                                context.getString(R.string.no_account_hint)
                             else -> raw
                         },
                     )
