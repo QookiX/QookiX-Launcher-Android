@@ -90,21 +90,32 @@ pub fn resolve_in_dir(dir: &Path, rel: &str, label: &str) -> Result<PathBuf, Str
             Ok(c)
         }
         Err(_) => {
-            let mut depth = 0i32;
+            // ⚠️ 2026-10-30（审计 A03）：词法检查只能挡 `..`，挡不住符号链接。
+            // `root/evil -> /data/other` 时 `canonicalize(target)` 因为**最后一级
+            // 不存在**而失败、落到本分支，词法上看仍在 root 内，实际写入却落在
+            // 链接目标里。所以从 root 起逐级 canonicalize 已存在的前缀，
+            // 一旦跑出 root 立刻拒绝；返回的也是逐级解析后的真实路径。
+            let mut real = root.clone();
             for part in Path::new(cleaned).components() {
                 match part {
-                    Component::Normal(_) => depth += 1,
-                    Component::ParentDir => depth -= 1,
+                    Component::Normal(name) => {
+                        let next = real.join(name);
+                        real = next.canonicalize().unwrap_or(next);
+                        if real != root && !real.starts_with(&root) {
+                            return Err(format!("路径超出{label}目录范围"));
+                        }
+                    }
+                    Component::ParentDir => match real.parent() {
+                        Some(p) if p.starts_with(&root) => real = p.to_path_buf(),
+                        _ => return Err(format!("路径超出{label}目录范围")),
+                    },
                     Component::CurDir => {}
                     other => {
                         return Err(format!("非法路径: {}", other.as_os_str().to_string_lossy()))
                     }
                 }
-                if depth < 0 {
-                    return Err(format!("路径超出{label}目录范围"));
-                }
             }
-            Ok(target)
+            Ok(real)
         }
     }
 }
@@ -172,6 +183,17 @@ pub fn rename_entry(
     }
     validate_name(new_name)?;
     let path = resolve_in_dir(base, rel, label)?;
+    // ⚠️ 2026-10-30（审计 A02 的漏网项）：`resolve_in_dir` 允许解析结果**等于根目录**
+    // （它的越界判断是 `c != root && !c.starts_with(&root)`），于是 `rel = "."`
+    // 会解析到根；下面 `path.parent()` 拿到的就是**管理根的上一级**，
+    // 一次 rename 就能把整个实例/服务器目录搬走。
+    // `delete_entry` 早就加了这道闸，rename 一直漏着。
+    let canonical_root = base
+        .canonicalize()
+        .map_err(|e| format!("{label}目录不可用: {e}"))?;
+    if path == canonical_root {
+        return Err(format!("不能重命名{label}根目录"));
+    }
     if !path.exists() {
         return Err("文件或文件夹不存在".into());
     }
@@ -342,5 +364,58 @@ mod tests {
         assert!(resolve_in_dir(&dir, "a/../../escape", "实例").is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 审计 A02 的漏网项：`rel = "."` 会解析到管理根，而 rename 的
+    /// `path.parent()` 是根的**上一级** —— 一次 rename 就能把整个目录搬走。
+    #[test]
+    fn rename_entry_never_moves_root() {
+        let dir = std::env::temp_dir().join("qookix_fsutil_rename_root_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("child")).unwrap();
+        let sibling = std::env::temp_dir().join("qookix_fsutil_rename_hijacked");
+        let _ = std::fs::remove_dir_all(&sibling);
+
+        for bad in [".", "./", "", "child/..", "child/../"] {
+            assert!(
+                rename_entry(&dir, bad, "qookix_fsutil_rename_hijacked", "实例").is_err(),
+                "重命名 {bad:?} 应当被拒绝"
+            );
+        }
+        assert!(dir.exists(), "根目录被搬走了");
+        assert!(!sibling.exists(), "根目录被重命名到了同级");
+
+        // 正常改名仍然可用
+        assert!(rename_entry(&dir, "child", "renamed", "实例").is_ok());
+        assert!(dir.join("renamed").is_dir());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 审计 A03：目标不存在时，已存在的父目录若是符号链接，词法检查看不出来。
+    #[cfg(unix)]
+    #[test]
+    fn resolve_rejects_symlinked_parent_when_leaf_missing() {
+        use std::os::unix::fs::symlink;
+
+        let dir = std::env::temp_dir().join("qookix_fsutil_symlink_test");
+        let outside = std::env::temp_dir().join("qookix_fsutil_symlink_outside");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, dir.join("evil")).unwrap();
+
+        // evil 指向外部目录、末级 new.txt 不存在：以前会走词法分支放行
+        assert!(
+            resolve_in_dir(&dir, "evil/new.txt", "实例").is_err(),
+            "符号链接父目录下的新文件必须被拒绝"
+        );
+        // 已有的文件仍可正常解析（指向外部 → 同样拒绝）
+        std::fs::write(outside.join("real.txt"), "x").unwrap();
+        assert!(resolve_in_dir(&dir, "evil/real.txt", "实例").is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 }

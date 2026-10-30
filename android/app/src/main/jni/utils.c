@@ -105,17 +105,29 @@ JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_setLdLibraryPath(
 	
 	android_update_LD_LIBRARY_PATH_t android_update_LD_LIBRARY_PATH;
 	
+	// ⚠️ 2026-10-30（审计 B40）：原来 dlopen 不判空，两个 dlsym 都失败也只 LOGE
+	// 一句，随后照旧强转并**调用 NULL** —— 命中就是 SIGSEGV，日志里只留个空指针。
+	// 现在找不到符号就把 UnsatisfiedLinkError 抛回 Java 并**立刻返回**：
+	// ThrowNew 之后继续执行，等于拿着挂起的异常去调空指针。
 	void *libdl_handle = dlopen("libdl.so", RTLD_LAZY);
+	if (libdl_handle == NULL) {
+		LOGE("Error opening libdl.so: %s", dlerror());
+		return;
+	}
 	void *updateLdLibPath = dlsym(libdl_handle, "android_update_LD_LIBRARY_PATH");
 	if (updateLdLibPath == NULL) {
 		updateLdLibPath = dlsym(libdl_handle, "__loader_android_update_LD_LIBRARY_PATH");
-		if (updateLdLibPath == NULL) {
-			char *dl_error_c = dlerror();
-			LOGE("Error getting symbol android_update_LD_LIBRARY_PATH: %s", dl_error_c);
-			// (*env)->ThrowNew(env, exception_cls, dl_error_c);
-		}
 	}
-	
+	if (updateLdLibPath == NULL) {
+		LOGE("Error getting symbol android_update_LD_LIBRARY_PATH: %s", dlerror());
+		jclass exception_cls = (*env)->FindClass(env, "java/lang/UnsatisfiedLinkError");
+		if (exception_cls != NULL) {
+			(*env)->ThrowNew(env, exception_cls,
+				"android_update_LD_LIBRARY_PATH 不存在：该系统不支持动态修改库搜索路径");
+		}
+		return;
+	}
+
 	android_update_LD_LIBRARY_PATH = (android_update_LD_LIBRARY_PATH_t) updateLdLibPath;
 	const char* ldLibPathUtf = (*env)->GetStringUTFChars(env, ldLibraryPath, 0);
 	android_update_LD_LIBRARY_PATH(ldLibPathUtf);

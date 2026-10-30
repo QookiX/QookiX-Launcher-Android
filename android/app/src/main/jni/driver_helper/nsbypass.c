@@ -74,9 +74,17 @@ static void* find_branch_label(void* func_start) {
             return NULL;
         }
     }
-    // offset the address to find where the "branch to label" instrunction
+    // offset the address to find where the "branch to label" instruction
     // points to.
-    return ((char*)bl_addr) + (*bl_addr & BL_IM) * 4;
+    //
+    // ⚠️ 2026-10-30（审计 B38）：AArch64 的 BL 立即数是**有符号**的 imm26
+    // （±128MB）。原来按无符号取值再 ×4：只要目标位于这条 BL 之前（负偏移，
+    // 链接器把 helper 排在前面时很常见），算出来就是一个巨大正数 → 跳到野地址。
+    int32_t imm26 = (int32_t)(*bl_addr & BL_IM);
+    if (imm26 & (1 << 25)) {
+        imm26 |= ~(int32_t)BL_IM; // 符号扩展到 32 位
+    }
+    return ((char*)bl_addr) + imm26 * 4;
 }
 
 bool linker_ns_load(const char* lib_search_path) {
@@ -188,9 +196,12 @@ void* linker_ns_dlopen_unique(const char* tmpdir, const char* name, int flags) {
     return NULL;
 #else
     char pathbuf[PATH_MAX];
-    static uint16_t patch_id;
+    static uint32_t patch_id;
     int patch_fd, real_fd;
-    snprintf(pathbuf,PATH_MAX,"%s/%d_p.so", tmpdir, patch_id);
+    snprintf(pathbuf,PATH_MAX,"%s/%u_p.so", tmpdir, patch_id);
+    // ⚠️ 2026-10-30（审计 B38）：原来只声明不递增，每次加载都写同一个
+    // `0_p.so`，多个驱动按顺序加载时后一个会覆盖前一个的临时文件。
+    patch_id++;
     patch_fd = open(pathbuf, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if(patch_fd == -1) return NULL;
     snprintf(pathbuf,PATH_MAX,"%s/%s", SEARCH_PATH, name);
@@ -209,6 +220,12 @@ void* linker_ns_dlopen_unique(const char* tmpdir, const char* name, int flags) {
     extinfo.library_fd = patch_fd;
     extinfo.library_namespace = driver_namespace;
     snprintf(pathbuf, PATH_MAX, "/proc/self/fd/%d", patch_fd);
-    return android_dlopen_ext(pathbuf, flags, &extinfo);
+    void* handle = android_dlopen_ext(pathbuf, flags, &extinfo);
+    // ⚠️ 2026-10-30（审计 B38）：成功路径原来直接 return，两个 fd 都留着 ——
+    // 每加载一个驱动就泄漏 2 个（real_fd 只是用来读原 ELF 的）。
+    // dlopen 返回时已自行 dup 过 library_fd，这里关闭是安全的。
+    close(real_fd);
+    close(patch_fd);
+    return handle;
 #endif
 }
