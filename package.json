@@ -1,7 +1,7 @@
 {
   "name": "qookix-launcher",
   "private": true,
-  "version": "0.2.2-beta1",
+  "version": "0.2.2-beta2",
   "type": "module",
   "repository": {
     "type": "git",

@@ -121,22 +121,54 @@ fn log_path() -> std::path::PathBuf {
     std::env::temp_dir().join("qookix-install-debug.log")
 }
 
+/// 本次启动的日志文件（`<私有目录>/logs/launch-<实例>.log`）。
+///
+/// `log_line` 默认写的是 `qookix-install-debug.log`，而日志页与「分享日志」包
+/// 只读 `logs/launch-<实例>.log` 和实例里的 `logs/latest.log` —— 于是启动期间
+/// 最需要看的那些行（classpath 明细、加载器 mainClass、关键 jar 存在性）全都
+/// 落在用户看不到的文件里，表现就是「闪退后日志页啥也没有」。
+///
+/// 启动流程登记一次，`log_line` 就同时写两份；游戏退出后清掉。
+static LAUNCH_LOG: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+/// 登记本次启动的日志文件，之后的 `log_line` 会同时写进它。
+pub fn set_launch_log(path: std::path::PathBuf) {
+    if let Ok(mut g) = LAUNCH_LOG.lock() {
+        *g = Some(path);
+    }
+}
+
+/// 启动结束（游戏进程退出）后调用，避免后续日志继续写进上一次的启动日志。
+pub fn clear_launch_log() {
+    if let Ok(mut g) = LAUNCH_LOG.lock() {
+        *g = None;
+    }
+}
+
+fn append_line(path: &std::path::Path, line: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write;
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
 /// 落盘诊断日志（追加写）。
 /// 供 `log_debug` 命令与关键错误排查使用，避免 GUI 无控制台时无法定位问题。
 pub fn log_line(msg: &str) {
-    let path = log_path();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
     let line = format!("[{now}] {msg}\n");
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
-        use std::io::Write;
-        let _ = f.write_all(line.as_bytes());
+    append_line(&log_path(), &line);
+    if let Ok(g) = LAUNCH_LOG.lock() {
+        if let Some(path) = g.as_ref() {
+            append_line(path, &line);
+        }
     }
 }
 

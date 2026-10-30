@@ -728,6 +728,10 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
                 .join(format!("launch-{instance_id}.log"));
             crate::android_env::redirect_output(&log_path)
                 .with_context(|| format!("无法创建启动日志：{}", log_path.display()))?;
+            // `util::log_line` 默认只写 qookix-install-debug.log，而日志页读的是
+            // 这份 launch-<id>.log —— 登记一下，让两边都有一份（否则闪退后
+            // 用户翻日志只看到「暂无日志」）。
+            crate::util::set_launch_log(log_path.clone());
             crate::android_env::spawn_log_tail(log_path, instance_id.to_string());
 
             // 渲染器选择写进启动日志（必须在 redirect_output **之后**，否则进不了文件）：
@@ -738,6 +742,18 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
                 renderer_display_name(&renderer),
                 renderer_source,
                 instance.renderer.as_deref().unwrap_or("<空>")
+            );
+
+            // 这次到底用了哪套 LWJGL —— 判断「26.x 报 `glfwPlatformSupported`
+            // NoSuchMethodError」的第一现场。以前只有「启用 3.4.1」时才有日志，
+            // 走老 jar 的分支完全无声，等于把结论藏起来了。
+            println!(
+                "[launcher] LWJGL 组件：{}",
+                if use_lwjgl341 {
+                    "3.4.1 SDL3 组件集"
+                } else {
+                    "随包单体 jar（版本清单要求 <3.4.1）"
+                }
             );
 
             // 窗口尺寸决定触摸坐标换算是否准确，出问题时最需要看到它
@@ -946,6 +962,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             crate::progress::emit_launch_state(instance_id, "exited", 0, None);
             #[cfg(target_os = "android")]
             crate::android_env::stop_log_tail();
+            crate::util::clear_launch_log();
             return Err(e);
         }
     };
@@ -957,6 +974,8 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
     }
     #[cfg(target_os = "android")]
     crate::android_env::stop_log_tail();
+    // 游戏进程已退出，之后的 log_line 不该继续写进这次启动的日志
+    crate::util::clear_launch_log();
     crate::progress::emit_launch_log(instance_id, "out", &format!("JVM 已退出，退出码 {exit_code}"));
     crate::progress::emit_launch_exit(instance_id, exit_code);
     crate::progress::emit_launch_state(instance_id, "exited", 0, Some(exit_code));
