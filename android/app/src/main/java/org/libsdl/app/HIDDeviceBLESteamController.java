@@ -113,66 +113,75 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
             mDelayMs = delayMs;
         }
 
-        public void run() {
+        /** 提交给蓝牙栈；false = 当场被拒、不会再有 GATT 回调（审计 B33）。 */
+        public boolean run() {
             // This is executed in main thread
+            if (mGatt == null) {
+                mResult = false;
+                return false;
+            }
             BluetoothGattCharacteristic chr;
 
             switch (mOp) {
                 case CHR_READ:
                     chr = getCharacteristic(mUuid);
-                    //Log.v(TAG, "Reading characteristic " + chr.getUuid());
-                    if (!mGatt.readCharacteristic(chr)) {
-                        Log.e(TAG, "Unable to read characteristic " + mUuid.toString());
+                    if (chr == null || !mGatt.readCharacteristic(chr)) {
+                        Log.e(TAG, "Unable to read characteristic " + mUuid);
                         mResult = false;
-                        break;
+                        return false;
                     }
                     mResult = true;
-                    break;
+                    return true;
                 case CHR_WRITE:
                     chr = getCharacteristic(mUuid);
-                    //Log.v(TAG, "Writing characteristic " + chr.getUuid() + " value=" + HexDump.toHexString(value));
+                    if (chr == null) {
+                        Log.e(TAG, "Characteristic not found " + mUuid);
+                        mResult = false;
+                        return false;
+                    }
                     chr.setValue(mValue);
                     if (!mGatt.writeCharacteristic(chr)) {
-                        Log.e(TAG, "Unable to write characteristic " + mUuid.toString());
+                        Log.e(TAG, "Unable to write characteristic " + mUuid);
                         mResult = false;
-                        break;
+                        return false;
                     }
                     mResult = true;
-                    break;
+                    return true;
                 case ENABLE_NOTIFICATION:
                     chr = getCharacteristic(mUuid);
-                    //Log.v(TAG, "Writing descriptor of " + chr.getUuid());
-                    if (chr != null) {
-                        BluetoothGattDescriptor cccd = chr.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"));
-                        if (cccd != null) {
-                            int properties = chr.getProperties();
-                            byte[] value;
-                            if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) == BluetoothGattCharacteristic.PROPERTY_NOTIFY) {
-                                value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE;
-                            } else if ((properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) == BluetoothGattCharacteristic.PROPERTY_INDICATE) {
-                                value = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE;
-                            } else {
-                                Log.e(TAG, "Unable to start notifications on input characteristic");
-                                mResult = false;
-                                return;
-                            }
-
-                            mGatt.setCharacteristicNotification(chr, true);
-                            cccd.setValue(value);
-                            if (!mGatt.writeDescriptor(cccd)) {
-                                Log.e(TAG, "Unable to write descriptor " + mUuid.toString());
-                                mResult = false;
-                                return;
-                            }
-                            mResult = true;
-                        }
+                    BluetoothGattDescriptor cccd = chr == null ? null
+                            : chr.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"));
+                    if (cccd == null) {
+                        Log.e(TAG, "Notification descriptor not found " + mUuid);
+                        mResult = false;
+                        return false;
                     }
+                    int properties = chr.getProperties();
+                    byte[] value;
+                    if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) == BluetoothGattCharacteristic.PROPERTY_NOTIFY) {
+                        value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE;
+                    } else if ((properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) == BluetoothGattCharacteristic.PROPERTY_INDICATE) {
+                        value = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE;
+                    } else {
+                        Log.e(TAG, "Unable to start notifications on input characteristic");
+                        mResult = false;
+                        return false;
+                    }
+                    mGatt.setCharacteristicNotification(chr, true);
+                    cccd.setValue(value);
+                    if (!mGatt.writeDescriptor(cccd)) {
+                        Log.e(TAG, "Unable to write descriptor " + mUuid);
+                        mResult = false;
+                        return false;
+                    }
+                    mResult = true;
+                    return true;
+                default:
+                    return false;
             }
         }
 
-        public boolean finish() {
-            return mResult;
-        }
+        public boolean finish() { return mResult; }
 
         public int getDelayMs() { return mDelayMs; }
 
@@ -213,10 +222,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         mHasEnabledNotifications = false;
         mHasSeenInputUpdate = false;
         // final HIDDeviceBLESteamController finalThis = this;
-        // mHandler.postDelayed(new Runnable() {
-        //     @Override
-        //     void run() {
-        //         finalThis.checkConnectionForChromebookIssue();
         //     }
         // }, CHROMEBOOK_CONNECTION_CHECK_INTERVAL);
     }
@@ -421,9 +426,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         return false;
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void finishCurrentGattOperation() {
         GattOperation op = null;
@@ -458,14 +460,22 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         Runnable gattOperationRunnable = new Runnable() {
                 @Override
                 public void run() {
+                    boolean dispatched;
                     synchronized (mOperations) {
                         if (mCurrentOperation == null) {
                             Log.e(TAG, "Current operation null in executor?");
                             return;
                         }
-
-                        mCurrentOperation.run();
-                        // now wait for the GATT callback and when it comes, finish this operation
+                        // 成功提交 → 等 GATT 回调推进；被当场拒绝 → 不会再有回调
+                        dispatched = mCurrentOperation.run();
+                    }
+                    if (!dispatched) {
+                        // 原来这种操作会永久占住 mCurrentOperation，队列再也动不了
+                        Log.w(TAG, "GATT 操作被当场拒绝，跳过回调直接推进队列");
+                        synchronized (mOperations) {
+                            mCurrentOperation = null;
+                        }
+                        executeNextGattOperation();
                     }
                 }
             };
@@ -534,13 +544,10 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         queueGattOperation(op);
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////
     //////////////  BluetoothGattCallback overridden methods
-    //////////////////////////////////////////////////////////////////////////////////////////////////////
 
     @Override
     public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
-        //Log.v(TAG, "onConnectionStateChange status=" + status + " newState=" + newState);
         mIsReconnecting = false;
         if (newState == 2) {
             mIsConnected = true;
@@ -563,7 +570,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
 
     @Override
     public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-        //Log.v(TAG, "onServicesDiscovered status=" + status);
         if (status == 0) {
             if (gatt.getServices().size() == 0) {
                 Log.v(TAG, "onServicesDiscovered returned zero services; something has gone horribly wrong down in Android's Bluetooth stack.");
@@ -588,7 +594,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
 
     @Override
     public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-        //Log.v(TAG, "onCharacteristicRead status=" + status + " uuid=" + characteristic.getUuid());
 
         if (characteristic.getUuid().equals(reportCharacteristic) && !mFrozen) {
             mManager.HIDDeviceReportResponse(getId(), characteristic.getValue());
@@ -599,7 +604,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
 
     @Override
     public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-        //Log.v(TAG, "onCharacteristicWrite status=" + status + " uuid=" + characteristic.getUuid());
 
         if (characteristic.getUuid().equals(reportCharacteristic)) {
             // Only register controller with the native side once it has been fully configured
@@ -616,7 +620,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     @Override
     public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
     // Enable this for verbose logging of controller input reports
-        //Log.v(TAG, "onCharacteristicChanged uuid=" + characteristic.getUuid() + " data=" + HexDump.dumpHexString(characteristic.getValue()));
 
         if (characteristic.getUuid().equals(mInputCharacteristic) && !mFrozen) {
             mHasSeenInputUpdate = true;
@@ -626,7 +629,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
 
     @Override
     public void onDescriptorRead(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
-        //Log.v(TAG, "onDescriptorRead status=" + status);
     }
 
     private void enableValveMode()
@@ -654,7 +656,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     @Override
     public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
         BluetoothGattCharacteristic chr = descriptor.getCharacteristic();
-        //Log.v(TAG, "onDescriptorWrite status=" + status + " uuid=" + chr.getUuid() + " descriptor=" + descriptor.getUuid());
 
         if (chr.getUuid().equals(mInputCharacteristic)) {
             mHasEnabledNotifications = true;
@@ -666,22 +667,17 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
 
     @Override
     public void onReliableWriteCompleted(BluetoothGatt gatt, int status) {
-        //Log.v(TAG, "onReliableWriteCompleted status=" + status);
     }
 
     @Override
     public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
-        //Log.v(TAG, "onReadRemoteRssi status=" + status);
     }
 
     @Override
     public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
-        //Log.v(TAG, "onMtuChanged status=" + status);
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////
     //////// Public API
-    //////////////////////////////////////////////////////////////////////////////////////////////////////
 
     @Override
     public int getId() {
@@ -757,13 +753,11 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         if (feature) {
             // We need to skip the first byte, as that doesn't go over the air
             byte[] actual_report = Arrays.copyOfRange(report, 1, report.length);
-            //Log.v(TAG, "writeFeatureReport " + HexDump.dumpHexString(actual_report));
             writeCharacteristic(reportCharacteristic, actual_report);
             return report.length;
         } else {
             // If we're an original-recipe Steam Controller we just write to the characteristic directly.
             if (getProductId() == D0G_BLE2_PID) {
-                //Log.v(TAG, "writeOutputReport " + HexDump.dumpHexString(report));
                 writeCharacteristic(reportCharacteristic, report);
                 return report.length;
             }
@@ -774,7 +768,6 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
                 BluetoothGattCharacteristic targetedReportCharacteristic = mOutputReportChars.get(reportId);
                 if (targetedReportCharacteristic != null) {
                     byte[] actual_report = Arrays.copyOfRange(report, 1, report.length);
-                    //Log.v(TAG, "writeOutputReport 0x" + Integer.toString(reportId, 16) + " " + HexDump.dumpHexString(report));
                     writeCharacteristic(targetedReportCharacteristic.getUuid(), actual_report);
                     return report.length;
                 } else {
@@ -827,7 +820,13 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         mManager = null;
         mIsRegistered = false;
         mIsConnected = false;
-        mOperations.clear();
+        // ⚠️ 2026-10-30（审计 B33）：原来不清 mCurrentOperation 和延迟任务，
+        // enableNotification 的 1 秒重试会在 shutdown 之后又往队列塞操作。
+        synchronized (mOperations) {
+            mOperations.clear();
+            mCurrentOperation = null;
+        }
+        mHandler.removeCallbacksAndMessages(null);
     }
 
 }
