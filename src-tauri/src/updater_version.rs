@@ -98,6 +98,26 @@ pub fn kind_of(raw: &str) -> PreKind {
     parse_version_full(raw).3
 }
 
+/// `candidate` 的发布时间是否**晚于**当前版本。
+///
+/// ## 为什么不能只比版本号（2026-10-30 真机 bug）
+///
+/// 版本线重置过一次（`1.8.0` → `0.2.x`，见 `scripts/update-version.mjs` 的
+/// `--reset` 说明），语义化顺序从此不再等于时间顺序：`1.8.0` 发布于 10-22，
+/// 而 `0.2.2-beta4` 是 10-30 —— 可 `(1,8,0) > (0,2,2)` 恒成立，
+/// 于是每个 0.2.x 用户一开 App 都被提示「发现新版本 1.8.0」。
+///
+/// 现在把「发布时间」当成顺序依据：只接受**比当前这版更晚发布**的 Release。
+/// 日期用的是 GitHub 的 `published_at`（UTC RFC3339，定长），字典序就是时间序。
+/// 拿不到任一侧的日期时**不拦**（老版本可能早已滑出 `per_page=30` 的窗口，
+/// 这时退回原来的版本号比较，至少不会漏更新）。
+pub fn published_after(candidate: Option<&str>, current: Option<&str>) -> bool {
+    match (candidate, current) {
+        (Some(c), Some(cur)) => c > cur,
+        _ => true,
+    }
+}
+
 // ── 下载校验工具（原来在 updater.rs，一起搬过来压体量）──
 pub(crate) async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, String> {
     let resp = client
@@ -159,6 +179,19 @@ mod tests {
         assert!(!UpdateChannel::Rc.allows(kind_of("0.2.1-beta1")));
         // beta 渠道全认
         assert!(UpdateChannel::Beta.allows(kind_of("0.2.1-beta1")));
+    }
+
+    #[test]
+    fn legacy_line_is_not_newer_by_publish_date() {
+        // 版本线重置留下的 1.8.0（10-22）比 0.2.2-beta4（10-30）更早发布
+        let legacy = Some("2026-10-22T08:14:47Z");
+        let current = Some("2026-10-30T10:42:42Z");
+        assert!(is_newer("1.8.0", "0.2.2-beta4")); // 光看版本号就是错的
+        assert!(!published_after(legacy, current)); // 加上时间就不该认
+        assert!(published_after(current, legacy));
+        // 任一侧缺日期 → 不拦（老版本滑出 per_page 窗口时的退路）
+        assert!(published_after(None, current));
+        assert!(published_after(legacy, None));
     }
 
     #[test]

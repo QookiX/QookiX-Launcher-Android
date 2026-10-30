@@ -65,7 +65,9 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("创建网络客户端失败：{e}"))
 }
 
-use crate::updater_version::{fetch_text, find_sha256, is_newer, parse_version_full, UpdateChannel};
+use crate::updater_version::{
+    fetch_text, find_sha256, is_newer, parse_version_full, published_after, UpdateChannel,
+};
 
 /// 下载目录：`<files>/updates`（与 Kotlin 侧 FileProvider 的 updates 路径一致）。
 pub fn updates_dir(data_dir: &str) -> PathBuf {
@@ -117,6 +119,22 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
         .await
         .map_err(|e| format!("解析 Release 列表失败：{e}"))?;
 
+    // 先定位「当前这版」的发布时间。
+    //
+    // 版本线重置过一次（1.8.0 → 0.2.x），从此语义化顺序 ≠ 时间顺序：
+    // `(1,8,0) > (0,2,2)` 恒成立，所以光比版本号会让每个 0.2.x 用户
+    // 一开 App 就被提示「发现新版本 1.8.0」（2026-10-30 真机复现）。
+    // 以当前版本的发布时间为界，只认比它更晚发布的 Release。
+    let current_published = list.iter().find_map(|rel| {
+        let tag = rel.get("tag_name").and_then(|v| v.as_str())?;
+        if tag.trim_start_matches('v') != current {
+            return None;
+        }
+        rel.get("published_at")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
+
     let mut best: Option<(String, serde_json::Value)> = None;
     for rel in list {
         let tag = rel
@@ -128,7 +146,11 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
             continue;
         }
         let parsed = parse_version_full(&v);
-        if !channel.allows(parsed.3) || !is_newer(&v, &current) {
+        let published = rel.get("published_at").and_then(|v| v.as_str());
+        if !published_after(published, current_published.as_deref())
+            || !channel.allows(parsed.3)
+            || !is_newer(&v, &current)
+        {
             continue;
         }
         let better = match &best {
