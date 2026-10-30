@@ -346,7 +346,7 @@ impl JreManager {
         let archive_path = runtime_dir.join("jre.tar.xz");
 
         let download_progress = |p: f32| progress(p * 0.7);
-        Self::download_with_retry(&mirror.url, &archive_path, mirror.size, &download_progress).await?;
+        crate::jre_download::download_with_retry(&mirror.url, &archive_path, mirror.size, &download_progress).await?;
 
         on_phase("正在解压 Java 运行时…");
         Self::extract_tar_xz(&archive_path, &runtime_dir).await?;
@@ -384,92 +384,6 @@ impl JreManager {
         Ok(runtime)
     }
 
-    async fn download_with_retry(
-        url: &str,
-        dest: &Path,
-        expected_size: u64,
-        progress: &(impl Fn(f32) + Send + Sync),
-    ) -> Result<()> {
-        let client = crate::util::http_client().await;
-
-        let max_retries = 3;
-        let mut last_error = None;
-
-        for attempt in 1..=max_retries {
-            match Self::download_once(&client, url, dest, expected_size, progress).await {
-                Ok(()) => return Ok(()),
-                Err(e) => {
-                    tracing::warn!("JRE download attempt {} failed: {}", attempt, e);
-                    // 删掉半截文件：失败路径留 27MB 垃圾会一直占着存储
-                    let _ = fs::remove_file(dest).await;
-                    last_error = Some(e);
-                }
-            }
-        }
-
-        Err(anyhow::anyhow!(
-            "JRE_DOWNLOAD_FAILED: download failed after {} retries: {}",
-            max_retries,
-            last_error.unwrap_or_else(|| anyhow::anyhow!("unknown error"))
-        ))
-    }
-
-    async fn download_once(
-        client: &reqwest::Client,
-        url: &str,
-        dest: &Path,
-        expected_size: u64,
-        progress: &(impl Fn(f32) + Send + Sync),
-    ) -> Result<()> {
-        let mut resp = client.get(url).send().await
-            .context("Failed to send download request")?;
-
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("HTTP {}", resp.status()));
-        }
-
-        // 服务器没给 Content-Length（分块传输）时，退回用镜像表里的 size：
-        // 它既是进度条的分母，也是下面「下完没有」的校验值。
-        let total = match resp.content_length() {
-            Some(n) if n > 0 => n,
-            _ => expected_size,
-        };
-
-        use tokio::io::AsyncWriteExt;
-        let mut file = fs::File::create(dest).await
-            .with_context(|| format!("Failed to create file: {}", dest.display()))?;
-
-        // 边收边写。以前这里是 `resp.bytes()` 把 27MB **整包先进内存**：
-        // 低内存机型直接 OOM，而且进度只在收完之后更新一次 ——
-        // 用户看到的就是「卡在某个百分比一动不动」。
-        let mut written: u64 = 0;
-        let mut last_report = std::time::Instant::now();
-        loop {
-            let chunk = match resp.chunk().await.context("Failed to read response body")? {
-                Some(c) => c,
-                None => break,
-            };
-            file.write_all(&chunk).await.context("Failed to write data")?;
-            written += chunk.len() as u64;
-            if total > 0 && last_report.elapsed() >= JRE_PROGRESS_INTERVAL {
-                last_report = std::time::Instant::now();
-                progress(written as f32 / total as f32);
-            }
-        }
-        file.flush().await.context("Failed to flush file")?;
-        drop(file);
-
-        // 断了也算「成功」是以前的一个坑：残缺的 tar.xz 解压后是个残废的 JRE，
-        // 而且坏目录会一直留着，重试也不会重新下载。这里按字节数拦掉。
-        if total > 0 && written != total {
-            return Err(anyhow::anyhow!(
-                "JRE download incomplete: got {written} bytes, expected {total}"
-            ));
-        }
-        progress(1.0);
-        Ok(())
-    }
-
     async fn extract_tar_xz(archive_path: &Path, dest_dir: &Path) -> Result<()> {
         let archive = archive_path.to_path_buf();
         let dest = dest_dir.to_path_buf();
@@ -492,8 +406,13 @@ fn extract_tar_xz_sync(archive_path: &Path, dest_dir: &Path) -> Result<()> {
     let decompressor = xz2::read::XzDecoder::new(file);
     let mut archive = tar::Archive::new(decompressor);
 
-    archive.unpack(dest_dir)
-        .context("Failed to unpack tar.xz archive")?;
+    let mut budget = crate::zip_guard::ZipBudget::new();
+    for entry in archive.entries().context("Failed to read runtime archive")? {
+        let mut entry = entry?;
+        let name = entry.path()?.to_string_lossy().into_owned();
+        budget.admit(&name, entry.size()).map_err(anyhow::Error::msg)?;
+        if !entry.unpack_in(dest_dir)? { anyhow::bail!("Unsafe runtime archive path: {name}"); }
+    }
 
     Ok(())
 }
