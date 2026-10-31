@@ -44,6 +44,8 @@ public class EditControlSideDialog extends SideDialogView {
         @Override
         public void onLayoutChange(View v, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
 
             internalChanges = true;
             int width = (int) (safeParseFloat(mWidthEditText.getText().toString()));
@@ -376,6 +378,8 @@ public class EditControlSideDialog extends SideDialogView {
     private void setupRealTimeListeners() {
         mNameEditText.addTextChangedListener((SimpleTextWatcher) s -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
 
             mCurrentlyEditedButton.getProperties().name = s.toString();
 
@@ -385,6 +389,8 @@ public class EditControlSideDialog extends SideDialogView {
 
         mWidthEditText.addTextChangedListener((SimpleTextWatcher) s -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
 
             float width = safeParseFloat(s.toString());
             if (width >= 0) {
@@ -399,6 +405,8 @@ public class EditControlSideDialog extends SideDialogView {
 
         mHeightEditText.addTextChangedListener((SimpleTextWatcher) s -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
 
             float height = safeParseFloat(s.toString());
             if (height >= 0) {
@@ -413,24 +421,34 @@ public class EditControlSideDialog extends SideDialogView {
 
         mSwipeableSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().isSwipeable = isChecked;
         });
         mToggleSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().isToggle = isChecked;
         });
         mPassthroughSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().passThruEnabled = isChecked;
         });
         mForwardLockSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             if(mCurrentlyEditedButton.getProperties() instanceof ControlJoystickData){
                 ((ControlJoystickData) mCurrentlyEditedButton.getProperties()).forwardLock = isChecked;
             }
         });
         mAbsoluteTrackingSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             if(mCurrentlyEditedButton.getProperties() instanceof ControlJoystickData){
                 ((ControlJoystickData) mCurrentlyEditedButton.getProperties()).absolute = isChecked;
             }
@@ -438,6 +456,8 @@ public class EditControlSideDialog extends SideDialogView {
 
         mAlphaSeekbar.setOnSeekBarChangeListener((SimpleSeekBarListener) (seekBar, progress, fromUser) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().opacity = mAlphaSeekbar.getProgress() / 100f;
             mCurrentlyEditedButton.getControlView().setAlpha(mAlphaSeekbar.getProgress() / 100f);
             setPercentageText(mAlphaPercentTextView, progress);
@@ -445,6 +465,8 @@ public class EditControlSideDialog extends SideDialogView {
 
         mStrokeWidthSeekbar.setOnSeekBarChangeListener((SimpleSeekBarListener) (seekBar, progress, fromUser) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().strokeWidth = mStrokeWidthSeekbar.getProgress() / 10F;
             mCurrentlyEditedButton.setBackground();
             setPercentageText(mStrokePercentTextView, progress);
@@ -452,6 +474,8 @@ public class EditControlSideDialog extends SideDialogView {
 
         mCornerRadiusSeekbar.setOnSeekBarChangeListener((SimpleSeekBarListener) (seekBar, progress, fromUser) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().cornerRadius = mCornerRadiusSeekbar.getProgress();
             mCurrentlyEditedButton.setBackground();
             setPercentageText(mCornerRadiusPercentTextView, progress);
@@ -465,11 +489,14 @@ public class EditControlSideDialog extends SideDialogView {
             mKeycodeSpinners[i].setOnItemSelectedListener((SimpleItemSelectedListener) (parent, view, position, id) -> {
                 // Side note, spinner listeners are fired later than all the other ones.
                 // Meaning the internalChanges bool is useless here.
+                int previousKey = mCurrentlyEditedButton.getProperties().keycodes[finalI];
                 if (position < mSpecialArray.size()) {
                     mCurrentlyEditedButton.getProperties().keycodes[finalI] = mKeycodeSpinners[finalI].getSelectedItemPosition() - mSpecialArray.size();
                 } else {
                     mCurrentlyEditedButton.getProperties().keycodes[finalI] = EfficientAndroidLWJGLKeycode.getValueByIndex(mKeycodeSpinners[finalI].getSelectedItemPosition() - mSpecialArray.size());
                 }
+                if (previousKey != mCurrentlyEditedButton.getProperties().keycodes[finalI])
+                    mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 mKeycodeTextviews[finalI].setText((String) mKeycodeSpinners[finalI].getSelectedItem());
             });
         }
@@ -480,24 +507,33 @@ public class EditControlSideDialog extends SideDialogView {
             // Meaning the internalChanges bool is useless here.
 
             if (mCurrentlyEditedButton instanceof ControlDrawer) {
+                Object previousOrientation = ((ControlDrawer) mCurrentlyEditedButton).drawerData.orientation;
                 ((ControlDrawer) mCurrentlyEditedButton).drawerData.orientation = ControlDrawerData.intToOrientation(mOrientationSpinner.getSelectedItemPosition());
+                if (previousOrientation != ((ControlDrawer) mCurrentlyEditedButton).drawerData.orientation)
+                    mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 ((ControlDrawer) mCurrentlyEditedButton).syncButtons();
             }
         });
 
         mDisplayInGameCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().displayInGame = isChecked;
         });
 
         mDisplayInMenuCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (internalChanges) return;
+            if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().displayInMenu = isChecked;
         });
 
         mSelectStrokeColor.setOnClickListener(v -> {
             mColorSelector.setAlphaEnabled(false);
             mColorSelector.setColorSelectionListener(color -> {
+                if (mCurrentlyEditedButton.getProperties().strokeColor != color)
+                    mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 mCurrentlyEditedButton.getProperties().strokeColor = color;
                 mCurrentlyEditedButton.setBackground();
             });
@@ -507,6 +543,8 @@ public class EditControlSideDialog extends SideDialogView {
         mSelectBackgroundColor.setOnClickListener(v -> {
             mColorSelector.setAlphaEnabled(true);
             mColorSelector.setColorSelectionListener(color -> {
+                if (mCurrentlyEditedButton.getProperties().bgColor != color)
+                    mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 mCurrentlyEditedButton.getProperties().bgColor = color;
                 mCurrentlyEditedButton.setBackground();
             });

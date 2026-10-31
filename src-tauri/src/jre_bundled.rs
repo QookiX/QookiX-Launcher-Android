@@ -29,8 +29,11 @@ const BUNDLED_JAVA: i32 = 21;
 /// 内置的 ABI。只打包了 arm64 的那一份（真机全是它）。
 const BUNDLED_ARCH: &str = "arm64-v8a";
 
-/// APK assets 里的目录：`android/app/src/main/assets/jre/jre-21/`。
-const ASSET_DIR: &str = "jre/jre-21/";
+/// APK 里的条目前缀。**必须带 `assets/`** —— `extract_asset_files` 是拿这个
+/// 前缀去 `zip` 条目名上做 `strip_prefix` 的，而 zip 里的名字是
+/// `assets/jre/jre-21/jre21-android-arm64.tar.xz`。少了这段就永远匹配不上，
+/// 内置包明明在 APK 里却一直走下载（真机踩过）。
+const ASSET_DIR: &str = "assets/jre/jre-21/";
 
 /// 包名（与 CI 里下载的文件名一致）。
 const ARCHIVE_NAME: &str = "jre21-android-arm64.tar.xz";

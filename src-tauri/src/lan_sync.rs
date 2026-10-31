@@ -382,10 +382,7 @@ fn extract_zip(zip_path: &std::path::Path, dest: &std::path::Path) -> Result<(),
             }
             let mut outfile =
                 std::fs::File::create(&outpath).map_err(|e| format!("建文件失败：{e}"))?;
-            let n = std::io::copy(&mut entry, &mut outfile)
-                .map_err(|e| format!("解压写失败：{e}"))?;
-            // 按**实际写出**的字节再记一次：zip 头里的大小可以伪造
-            budget.add_written(n)?;
+            budget.copy_entry(&mut entry, &mut outfile)?;
         }
     }
     Ok(())

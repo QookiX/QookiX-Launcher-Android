@@ -771,8 +771,14 @@ async fn read_descriptor(zip_path: &Path) -> Result<PluginDescriptor, String> {
             let name = entry.name().to_string();
             if name == "plugin.json" || name.ends_with("/plugin.json") {
                 let mut text = String::new();
-                std::io::Read::read_to_string(&mut entry, &mut text)
-                    .map_err(|e| format!("读取 plugin.json 失败：{e}"))?;
+                // ⚠️ 2026-10-31（外部审计 B13 剩余入口）：插件包是用户可装的，
+                // 里面塞一个解压后上 GB 的 plugin.json 就能 OOM。描述文件正常几 KB。
+                // 显式走 Read::take（这个作用域里没 use Read，方法语法会解析到 Iterator::take）
+                std::io::Read::read_to_string(
+                    &mut std::io::Read::take(&mut entry, 16 * 1024 * 1024),
+                    &mut text,
+                )
+                .map_err(|e| format!("读取 plugin.json 失败：{e}"))?;
                 let mut d: PluginDescriptor = serde_json::from_str(&text)
                     .map_err(|e| format!("plugin.json 格式不正确：{e}"))?;
                 if d.version.trim().is_empty() {

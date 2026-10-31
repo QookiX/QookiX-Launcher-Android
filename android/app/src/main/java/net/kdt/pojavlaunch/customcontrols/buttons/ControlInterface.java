@@ -137,6 +137,8 @@ public interface ControlInterface extends View.OnLongClickListener, GrabListener
      * @param dynamicY The equation to compute the position from
      */
     default void setDynamicY(String dynamicY) {
+        if (getControlLayoutParent() != null && getControlLayoutParent().getModifiable())
+            getControlLayoutParent().setModified(true);
         getProperties().dynamicY = dynamicY;
         getControlView().setY(getProperties().insertDynamicPos(dynamicY));
     }
@@ -374,6 +376,10 @@ public interface ControlInterface extends View.OnLongClickListener, GrabListener
                                 MathUtils.clamp(event.getRawX() - downX, 0, CallbackBridge.physicalWidth - view.getWidth()),
                                 MathUtils.clamp(event.getRawY() - downY, 0, CallbackBridge.physicalHeight - view.getHeight())
                         );
+                        // 2026-10-31（外部审计 B36）：拖动 = 修改布局。原来移动完不标脏，
+                        // 退出编辑时不会提示保存，用户拖好的位置下次进游戏又跑回原处。
+                        // 只有本分支（可编辑模式下按下拖动）会走到这里，加载/刷新路径不受影响。
+                        getControlLayoutParent().setModified(true);
                         break;
                 }
 

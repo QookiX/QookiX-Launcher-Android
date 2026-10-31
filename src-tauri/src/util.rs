@@ -28,6 +28,14 @@ pub async fn http_client() -> reqwest::Client {
 
 /// [`http_client`] 的同步版本：直接读 settings.json。
 /// 供无法 `await` 的调用点使用（例如只能同步构造客户端的工具函数）。
+/// 从 jar 里读元数据/图标时的单条目上限。
+///
+/// ⚠️ 2026-10-31（外部审计 B13 剩余入口）：本文件里 8 处 `read_to_end` 都没有上限。
+/// jar 是用户可安装的东西（模组 / 资源包 / 插件），里面塞一个解压后 1 GB 的
+/// `fabric.mod.json` 就能让解析过程直接 OOM。元数据文件正常几 KB，
+/// 图标最大也就几百 KB，16 MiB 是非常宽松的上限。
+const MAX_META_ENTRY: u64 = 16 * 1024 * 1024;
+
 pub fn http_client_blocking() -> reqwest::Client {
     let map = crate::settings::load_raw_settings_sync();
     let mode = crate::settings::raw_str(&map, &["proxy_mode", "proxyMode"])
@@ -141,6 +149,11 @@ pub fn is_safe_rel(rel: &str) -> bool {
 pub fn extract_zip(zip_path: &std::path::Path, dest: &std::path::Path, allowed_exts: &[&str]) -> Result<usize, String> {
     let file = std::fs::File::open(zip_path).map_err(|e| format!("打开 zip 失败: {e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("解析 zip 失败: {e}"))?;
+    // ⚠️ 2026-10-31（外部审计 B13 剩余入口）：这个辅助函数原来只防**路径**逃逸，
+    // 没有任何体量限制。它的调用方是 `plugin.rs`（插件包，用户可装 —— 攻击面最大）
+    // 和 `world_backup.rs`（恢复别人分享的存档）。在这里统一接预算，
+    // 三个入口一次覆盖，不用各改一遍。
+    let mut budget = crate::zip_guard::ZipBudget::new();
     let mut count = 0usize;
     for i in 0..archive.len() {
         let mut entry = archive
@@ -151,6 +164,7 @@ pub fn extract_zip(zip_path: &std::path::Path, dest: &std::path::Path, allowed_e
         if !is_safe_rel(&name) {
             continue;
         }
+        budget.admit(&name, entry.size())?;
         let out = dest.join(&name);
         if entry.is_dir() {
             std::fs::create_dir_all(&out).map_err(|e| format!("创建目录失败: {e}"))?;
@@ -170,7 +184,8 @@ pub fn extract_zip(zip_path: &std::path::Path, dest: &std::path::Path, allowed_e
             std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
         }
         let mut out_file = std::fs::File::create(&out).map_err(|e| format!("创建文件失败: {e}"))?;
-        std::io::copy(&mut entry, &mut out_file).map_err(|e| format!("写出文件失败: {e}"))?;
+        // copy_entry 会在**写之前**按已写字节判预算，超了立刻停并返回 Err
+        budget.copy_entry(&mut entry, &mut out_file)?;
         count += 1;
     }
     Ok(count)
@@ -339,7 +354,7 @@ pub fn parse_mod_jar(path: &std::path::Path) -> Option<ModJarMeta> {
         if found { break; }
         let Ok(mut entry) = archive.by_name(name) else { continue };
         let mut buf = Vec::new();
-        if Read::read_to_end(&mut entry, &mut buf).is_err() { continue; }
+        if Read::read_to_end(&mut (&mut entry).take(MAX_META_ENTRY), &mut buf).is_err() { continue; }
         let val: serde_json::Value = match serde_json::from_slice(&buf) { Ok(v) => v, Err(_) => continue };
         meta.mod_id = val.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
         meta.name = val.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -354,7 +369,7 @@ pub fn parse_mod_jar(path: &std::path::Path) -> Option<ModJarMeta> {
         if found { break; }
         let Ok(mut entry) = archive.by_name(name) else { continue };
         let mut buf = Vec::new();
-        if Read::read_to_end(&mut entry, &mut buf).is_err() { continue; }
+        if Read::read_to_end(&mut (&mut entry).take(MAX_META_ENTRY), &mut buf).is_err() { continue; }
         let text = String::from_utf8_lossy(&buf).to_string();
         if let Some(m) = parse_mods_toml(&text) {
             icon_ref = m.icon.clone();
@@ -370,7 +385,7 @@ pub fn parse_mod_jar(path: &std::path::Path) -> Option<ModJarMeta> {
             meta.icon = Some(icon);
         } else if let Ok(mut icon_entry) = archive.by_name(&icon) {
             let mut ibuf = Vec::new();
-            if Read::read_to_end(&mut icon_entry, &mut ibuf).is_ok() {
+            if Read::read_to_end(&mut (&mut icon_entry).take(MAX_META_ENTRY), &mut ibuf).is_ok() {
                 meta.icon = save_icon_buf(ibuf);
             }
         }
@@ -405,7 +420,7 @@ fn parse_pack_mcmeta(path: &std::path::Path) -> Option<String> {
     let mut archive = zip::ZipArchive::new(file).ok()?;
     let Ok(mut entry) = archive.by_name("pack.mcmeta") else { return None };
     let mut buf = Vec::new();
-    if Read::read_to_end(&mut entry, &mut buf).is_err() { return None }
+    if Read::read_to_end(&mut (&mut entry).take(MAX_META_ENTRY), &mut buf).is_err() { return None }
     let val: serde_json::Value = serde_json::from_slice(&buf).ok()?;
     let pack = val.get("pack")?;
     let desc = pack.get("description").and_then(|d| json_text(d))?;
@@ -419,7 +434,7 @@ fn extract_zip_icon(path: &std::path::Path) -> Option<String> {
     let mut archive = zip::ZipArchive::new(file).ok()?;
     let Ok(mut entry) = archive.by_name("pack.png") else { return None };
     let mut buf = Vec::new();
-    if Read::read_to_end(&mut entry, &mut buf).is_err() { return None }
+    if Read::read_to_end(&mut (&mut entry).take(MAX_META_ENTRY), &mut buf).is_err() { return None }
     save_icon_buf(buf)
 }
 
@@ -439,7 +454,7 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
                 continue;
             }
             let mut buf = Vec::new();
-            if Read::read_to_end(&mut entry, &mut buf).is_err() { continue; }
+            if Read::read_to_end(&mut (&mut entry).take(MAX_META_ENTRY), &mut buf).is_err() { continue; }
             if let Some(p) = save_icon_buf(buf) {
                 return Some(p);
             }
@@ -452,7 +467,7 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
         }
         if let Ok(mut entry) = archive.by_name(name) {
             let mut buf = Vec::new();
-            if Read::read_to_end(&mut entry, &mut buf).is_err() { continue; }
+            if Read::read_to_end(&mut (&mut entry).take(MAX_META_ENTRY), &mut buf).is_err() { continue; }
             let val: serde_json::Value = match serde_json::from_slice(&buf) { Ok(v) => v, Err(_) => continue };
             if let Some(icon) = val.get("icon").and_then(|i| i.as_str()) {
                 if !icon.is_empty() {
@@ -467,7 +482,7 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
         }
         if let Ok(mut icon_entry) = archive.by_name(&icon) {
             let mut ibuf = Vec::new();
-            if Read::read_to_end(&mut icon_entry, &mut ibuf).is_ok() {
+            if Read::read_to_end(&mut (&mut icon_entry).take(MAX_META_ENTRY), &mut ibuf).is_ok() {
                 if let Some(p) = save_icon_buf(ibuf) {
                     return Some(p);
                 }

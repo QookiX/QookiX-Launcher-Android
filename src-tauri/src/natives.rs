@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use anyhow::{Context, Result};
 use zip::ZipArchive;
-use std::io::Read;
 use crc32fast::Hasher;
 
 #[derive(Debug, thiserror::Error)]
@@ -78,6 +77,7 @@ impl NativesExtractor {
         let mut jars: Vec<PathBuf> = Vec::new();
         Self::collect_jars(libraries_dir, &mut jars, 0);
 
+        let mut budget = crate::zip_guard::ZipBudget::new();
         for path in jars {
             let file = match std::fs::File::open(&path) {
                 Ok(f) => f,
@@ -96,6 +96,7 @@ impl NativesExtractor {
                 };
 
                 let name = zip_file.name().to_string();
+                budget.admit(&name, zip_file.size()).map_err(anyhow::Error::msg)?;
 
                 if !name.starts_with(arch_prefix) || !name.ends_with(".so") {
                     continue;
@@ -115,12 +116,16 @@ impl NativesExtractor {
                     }
                 }
 
-                let mut data = Vec::with_capacity(zip_file.size() as usize);
-                zip_file.read_to_end(&mut data)
-                    .context("Failed to read .so from JAR")?;
-
-                std::fs::write(&dest_path, &data)
-                    .with_context(|| format!("Failed to write {}", dest_path.display()))?;
+                let tmp = dest_path.with_extension("so.part");
+                let result = (|| -> Result<()> {
+                    let mut out = std::fs::File::create(&tmp)?;
+                    budget.copy_entry(&mut zip_file, &mut out).map_err(anyhow::Error::msg)?;
+                    drop(out);
+                    std::fs::rename(&tmp, &dest_path)?;
+                    Ok(())
+                })();
+                if result.is_err() { let _ = std::fs::remove_file(&tmp); }
+                result?;
 
                 extracted_count += 1;
             }

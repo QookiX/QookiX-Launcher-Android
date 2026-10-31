@@ -362,10 +362,7 @@ fn extract_overrides_sync(
             }
             let mut out = std::fs::File::create(&dest_path)
                 .map_err(|e| format!("创建文件失败 {}: {e}", dest_path.display()))?;
-            let n = std::io::copy(&mut entry, &mut out)
-                .map_err(|e| format!("写入文件失败: {e}"))?;
-            // 按实际写出字节再记一次（zip 头里的 size 可伪造）
-            budget.add_written(n)?;
+            budget.copy_entry(&mut entry, &mut out)?;
             extracted += 1;
         }
     }

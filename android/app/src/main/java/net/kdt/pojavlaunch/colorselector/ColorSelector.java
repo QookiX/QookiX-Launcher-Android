@@ -156,9 +156,12 @@ public class ColorSelector extends SideDialogView implements HueSelectionListene
     public void afterTextChanged(Editable s) {
         if(mWatch) {
             try {
-                int color = Integer.parseInt(s.toString(), 16);
+                String hex = s.toString();
+                if (!hex.matches("[0-9a-fA-F]{8}")) throw new NumberFormatException();
+                int color = (int) Long.parseLong(hex, 16);
                 mTextView.setTextColor(mTextColors);
                 runColor(color);
+                notifyColorSelector(color);
             }catch (NumberFormatException exception) {
                 mTextView.setTextColor(Color.RED);
             }

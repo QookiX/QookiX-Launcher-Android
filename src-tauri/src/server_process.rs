@@ -331,7 +331,9 @@ pub(crate) fn read_main_class(jar: &Path) -> Option<String> {
     let mut zip = zip::ZipArchive::new(file).ok()?;
     let mut mf = zip.by_name("META-INF/MANIFEST.MF").ok()?;
     let mut text = String::new();
-    mf.read_to_string(&mut text).ok()?;
+    // ⚠️ 2026-10-31（外部审计 B13 剩余入口）：MANIFEST 没有上限，
+    // 一个被投毒的服务端核心可以塞个超大 MANIFEST 让解析 OOM。正常几 KB。
+    std::io::Read::read_to_string(&mut (&mut mf).take(16 * 1024 * 1024), &mut text).ok()?;
 
     // ⚠️ 2026-10-19：必须处理 manifest 的**续行**。
     //

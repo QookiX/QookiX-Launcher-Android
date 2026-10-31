@@ -677,9 +677,9 @@ void critical_send_key(jint key, jint scancode, jint action, jint mods) {
         // 现在按 GLFW 侧 ByteBuffer 的真实容量钳制：越界的键码**跳过缓冲写入**，
         // 但事件继续转发（游戏仍然收得到按键，不会因为校验而丢输入）。
         if (pojav_environ->keyDownBuffer != NULL) {
-            jint idx = key - 31;
+            jlong idx = (jlong) key - 31;
             if (idx < 0) idx = 0;
-            if (pojav_environ->keyDownBufferLen <= 0 ||
+            if (pojav_environ->keyDownBufferLen > 0 &&
                 idx < pojav_environ->keyDownBufferLen) {
                 pojav_environ->keyDownBuffer[idx] = (jbyte) action;
             } else {

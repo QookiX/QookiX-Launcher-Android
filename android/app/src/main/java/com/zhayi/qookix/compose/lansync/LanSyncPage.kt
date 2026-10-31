@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -308,34 +309,33 @@ fun LanSyncRoute(
             // 已连接 → 电脑上的实例（往下拉）+ 把本机实例发上去
             deviceInfo != null -> {
                 val p = params
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
+                // 横屏分栏：上下堆叠在 480dp 里会把实例列表压成 0 高，只剩标题（真机复现）
+                val wide = LocalConfiguration.current.let { it.screenWidthDp > it.screenHeightDp }
+                val list: @Composable (Modifier) -> Unit = { m ->
+                    Box(modifier = m) {
                         InstanceListSection(
                             deviceInfo = deviceInfo!!,
                             instances = instances,
                             selectedIds = selectedIds,
-                            onToggle = { id ->
-                                selectedIds = if (id in selectedIds) {
-                                    selectedIds - id
-                                } else {
-                                    selectedIds + id
-                                }
-                            },
+                            onToggle = { id -> selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id },
                             instancesLoading = instancesLoading,
                             instancesError = instancesError,
                             onRetry = { instancesError = null; listRetry += 1 },
                             onDownload = { startDownload() },
-                            onDisconnect = {
-                                params = null; deviceInfo = null; instances.clear()
-                                selectedIds = emptySet(); connectError = null
-                            },
+                            onDisconnect = { params = null; deviceInfo = null; instances.clear(); selectedIds = emptySet(); connectError = null },
                         )
                     }
-                    if (p != null) {
-                        LanSyncUploadSection(api = api, bridge = bridge, params = p)
+                }
+                val send: @Composable (Modifier) -> Unit = { m ->
+                    if (p != null) Box(modifier = m) { LanSyncUploadSection(api = api, bridge = bridge, params = p) }
+                }
+                if (wide) {
+                    Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
+                        list(Modifier.weight(1f)); send(Modifier.weight(1f))
+                    }
+                } else {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
+                        list(Modifier.weight(1f)); send(Modifier.fillMaxWidth())
                     }
                 }
             }

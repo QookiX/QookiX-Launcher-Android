@@ -31,6 +31,7 @@ pub const MAX_SINGLE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub struct ZipBudget {
     entries: usize,
     bytes: u64,
+    written: u64,
 }
 
 impl ZipBudget {
@@ -67,8 +68,8 @@ impl ZipBudget {
 
     /// 记录**实际写出**的字节数（防「头里写 1 KB、实际吐出 10 GB」）。
     pub fn add_written(&mut self, n: u64) -> Result<(), String> {
-        self.bytes = self.bytes.saturating_add(n);
-        if self.bytes > MAX_TOTAL_BYTES {
+        self.written = self.written.saturating_add(n);
+        if self.written > MAX_TOTAL_BYTES {
             return Err(format!(
                 "压缩包解压后过大（超过 {}），已中止解压",
                 fmt_gb(MAX_TOTAL_BYTES)
@@ -76,6 +77,22 @@ impl ZipBudget {
         }
         Ok(())
     }
+    /// Bound decompression before writing, independently of archive size metadata.
+    pub fn copy_entry(&mut self, reader: &mut impl std::io::Read, writer: &mut impl std::io::Write) -> Result<u64, String> {
+        let mut total = 0u64;
+        let mut buf = [0u8; 32768];
+        loop {
+            let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+            if n == 0 { return Ok(total); }
+            if total.saturating_add(n as u64) > MAX_SINGLE_BYTES {
+                return Err("解压单个文件超过预算".into());
+            }
+            self.add_written(n as u64)?;
+            writer.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+            total += n as u64;
+        }
+    }
+
 }
 
 fn fmt_gb(bytes: u64) -> String {
@@ -106,7 +123,25 @@ mod tests {
         let mut b = ZipBudget::new();
         // 头里声明很小，实际写很多 —— add_written 要能兜住
         b.admit("ok", 10).unwrap();
-        assert!(b.add_written(MAX_TOTAL_BYTES).is_err());
+        b.add_written(MAX_TOTAL_BYTES).unwrap();
+        assert!(b.add_written(1).is_err());
+    }
+
+    #[test]
+    fn declared_and_written_are_independent() {
+        let mut b = ZipBudget::new();
+        for _ in 0..4 { b.admit("file", MAX_SINGLE_BYTES).unwrap(); }
+        b.add_written(MAX_TOTAL_BYTES).unwrap();
+    }
+
+    #[test]
+    fn rejects_before_writing_over_budget() {
+        let mut b = ZipBudget::new();
+        b.written = MAX_TOTAL_BYTES - 1;
+        let mut input = std::io::Cursor::new(vec![1u8, 2]);
+        let mut output = Vec::new();
+        assert!(b.copy_entry(&mut input, &mut output).is_err());
+        assert!(output.is_empty());
     }
 
     #[test]

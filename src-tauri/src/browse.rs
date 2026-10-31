@@ -1839,8 +1839,10 @@ fn read_zip_entry_string(zip_path: &std::path::Path, entry: &str) -> Result<Stri
         .by_name(entry)
         .map_err(|_| anyhow!("zip 里没有条目 {entry}"))?;
     let mut buf = Vec::new();
-    std::io::Read::read_to_end(&mut e, &mut buf)
+    let mut limited = std::io::Read::take(&mut e, 16 * 1024 * 1024 + 1);
+    std::io::Read::read_to_end(&mut limited, &mut buf)
         .map_err(|e| anyhow!("读取 {entry} 失败：{e}"))?;
+    if buf.len() > 16 * 1024 * 1024 { anyhow::bail!("安装元数据超过16MiB限制"); }
     String::from_utf8(buf).map_err(|e| anyhow!("{entry} 不是 UTF-8 文本：{e}"))
 }
 
@@ -1856,20 +1858,23 @@ fn extract_zip_strip(
         .map_err(|e| anyhow!("打开 {} 失败：{}", zip_path.display(), e))?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| anyhow!("{} 不是有效的 zip：{}", zip_path.display(), e))?;
+    std::fs::create_dir_all(dest_root)?;
+    let mut budget = crate::zip_guard::ZipBudget::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| anyhow!("读 zip 条目失败：{e}"))?;
         let name = entry.name().to_string();
+        budget.admit(&name, entry.size()).map_err(anyhow::Error::msg)?;
         if !name.starts_with(prefix) || entry.is_dir() {
             continue;
         }
         let rel = name.trim_start_matches(prefix);
-        let dest = dest_root.join(rel);
+        let dest = crate::fsutil::resolve_in_dir(dest_root, rel, "依赖库").map_err(anyhow::Error::msg)?;
         if let Some(p) = dest.parent() {
             std::fs::create_dir_all(p).ok();
         }
         let mut out = std::fs::File::create(&dest)
             .map_err(|e| anyhow!("创建 {} 失败：{}", dest.display(), e))?;
-        std::io::copy(&mut entry, &mut out)
+        budget.copy_entry(&mut entry, &mut out)
             .map_err(|e| anyhow!("写 {} 失败：{}", dest.display(), e))?;
     }
     Ok(())
