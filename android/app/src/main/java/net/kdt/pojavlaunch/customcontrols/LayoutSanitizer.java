@@ -17,10 +17,22 @@ public class LayoutSanitizer {
      * keycode 字段以前完全不校验，一路带到 native 的
      * `pojav_environ->keyDownBuffer[max(0, key-31)]` 直接下标写 ——
      * 那是 317 字节的堆缓冲，一个 999 就是堆越界写。
-     * native 侧已加真实容量校验（越界跳过写入），这里再做一道：
-     * 超出 GLFW 范围的键码直接归零（= 未知键，不会触发任何按键）。
+     * native 侧已加真实容量校验（越界跳过写入），这里再做一道。
      */
     private static final int MAX_KEYCODE = 348;
+
+    /**
+     * 允许的最小键码。
+     *
+     * ⚠️ 2026-11-02（用户反馈「鼠标 / 左右键 / 控件 / 键盘 这几个按键失灵」）：
+     * 这是我自己在 B26 修复里引入的回归 —— 当时写的是 `codes[i] < 0 → 归零`，
+     * 但 `ControlData` 里 -1 ~ -9 **正是**这些特殊按钮的键码：
+     *   -1 键盘 / -2 控件 / -3 鼠标左键 / -4 鼠标右键 / -5 虚拟鼠标
+     *   -6 中键 / -7 滚轮上 / -8 滚轮下 / -9 菜单
+     * 一钳就全变成 0（= 未知键），用户看到的就是「这几个键全失灵」。
+     * 现在只钳到 -9..348 之外的值。
+     */
+    private static final int MIN_KEYCODE = -9;
 
     /** 把越界的键码钉回合法范围（原地修改），返回是否改动过。 */
     private static boolean clampKeycodes(ControlData controlData) {
@@ -28,7 +40,8 @@ public class LayoutSanitizer {
         if (codes == null) return false;
         boolean changed = false;
         for (int i = 0; i < codes.length; i++) {
-            if (codes[i] < 0 || codes[i] > MAX_KEYCODE) {
+            // 负数不是「非法」：-1..-9 是特殊按键（见 MIN_KEYCODE 注释）
+            if (codes[i] < MIN_KEYCODE || codes[i] > MAX_KEYCODE) {
                 codes[i] = 0;
                 changed = true;
             }
