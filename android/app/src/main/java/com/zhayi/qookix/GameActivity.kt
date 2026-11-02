@@ -140,12 +140,6 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         @JvmField
         var touchCharInput: TouchCharInput? = null
 
-        /** 放大镜偏好（独立 SP，避免和别的模块抢同一个文件）。 */
-        const val MAGNIFIER_PREFS = "game_magnifier"
-
-        /** 「输入时自动弹出放大镜」开关。默认开 —— 这正是用户要的默认行为。 */
-        const val MAGNIFIER_KEY_ON_IME = "on_ime"
-
         /** 控制层持有它（`MainActivity.toggleMouse` 的等价物）。 */
         @JvmField
         var touchpad: Touchpad? = null
@@ -928,12 +922,14 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
     //（和 StartupOverlay / ControlLayout 同级），所以盖在游戏画面之上。
 
     private var magnifier: GameMagnifierView? = null
+    private var magnifierRoot: FrameLayout? = null
 
     private fun setupGameMagnifier(root: FrameLayout) {
-        val prefs = getSharedPreferences(MAGNIFIER_PREFS, MODE_PRIVATE)
+        magnifierRoot = root
+        val prefs = getSharedPreferences(GameMagnifierView.PREFS, MODE_PRIVATE)
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            val wantIt = ime > 0 && prefs.getBoolean(MAGNIFIER_KEY_ON_IME, true)
+            val wantIt = ime > 0 && prefs.getBoolean(GameMagnifierView.KEY_ON_IME, true)
             if (wantIt) showMagnifier(root, ime) else hideMagnifier()
             insets
         }
@@ -946,6 +942,10 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         val h = (dm.heightPixels * 0.20f).toInt()
         val view = magnifier ?: GameMagnifierView(this).also {
             it.visibility = View.GONE
+            // 用户在 ⋮ 菜单里关掉「输入时自动显示」→ 立刻收起，别等到下次弹键盘
+            it.onAutoShowDisabled = { hideMagnifier() }
+            // 菜单关掉后输入法可能已经退了 —— 重新看一眼再决定收不收
+            it.onMenuDismissed = { recheckMagnifierIme() }
             root.addView(
                 it,
                 FrameLayout.LayoutParams(w, h).apply {
@@ -968,8 +968,21 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         }
     }
 
+    /**
+     * ⋮ 菜单期间 `PopupMenu` 会抢焦点、输入法随之后退（IME insets 归零），
+     * 菜单关掉后要重新看一眼：真退了就收面板，没退就保持显示。
+     */
+    private fun recheckMagnifierIme() {
+        val root = magnifierRoot ?: return
+        val insets = androidx.core.view.ViewCompat.getRootWindowInsets(root) ?: return
+        val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+        if (ime <= 0) hideMagnifier() else showMagnifier(root, ime)
+    }
+
     private fun hideMagnifier() {
         val v = magnifier ?: return
+        // 菜单开着时不能收：会连菜单一起消失（见 isMenuOpen 的注释）
+        if (v.isMenuOpen) return
         v.stop()
         if (v.visibility != View.GONE) v.visibility = View.GONE
     }

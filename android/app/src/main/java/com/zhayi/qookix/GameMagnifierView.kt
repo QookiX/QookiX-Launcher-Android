@@ -5,91 +5,131 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
+import androidx.appcompat.widget.PopupMenu
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 游戏放大镜（对齐 ZL2 / FCL 的同名功能）。
+ * 游戏放大镜（对齐 ZL2 / FCL）。
  *
  * ## 为什么需要
  *
- * 手机横屏输入时，输入法会盖住屏幕下半部分 —— 而 Minecraft 的**聊天栏就在左下**、
- * 物品栏也在底部。打字时看不到自己打的内容，只能盲打。
+ * 横屏输入时输入法盖住屏幕下半部分，而聊天栏在左下、物品栏在底部 ——
+ * 打字时看不到自己打的内容。
  *
- * ## 怎么取画面
+ * ## 取画面
  *
- * 走 `PixelCopy` 抓 [SurfaceView] 的 Surface（而不是整窗截图）：
- * 抓到的只有**游戏画面**，不含按键覆盖层 —— 否则放大后按键也被放大，更看不清。
- * TextureView 分支直接 `getBitmap()` 再裁剪。
+ * `PixelCopy` 抓 [SurfaceView] 的 Surface（**不是整窗截图**），抓到的只有游戏画面，
+ * 不含按键覆盖层；[TextureView] 分支走 `getBitmap()` 再裁剪。
+ *
+ * ## 外观
+ *
+ * 2026-11-02 按用户反馈重做：圆角面板、深色半透明底（和游戏内工具栏同一套视觉）、
+ * 右上角两个圆形小按钮（⋮ 菜单 / × 关闭），去掉了原来的土黄描边。
  *
  * ## 交互
  *
- * - 单指拖动：平移取景（拖右边 = 看右边）
- * - 双击：在 2× / 3× / 4× 三档之间切换
- * - 右上角 ×：关闭（只关这一局，不写偏好）
- *
- * ⚠️ 抓帧是**异步回调**的（PixelCopy 必须等 GPU 那一帧就绪），
- * 所以同一时刻只允许一个请求在飞，否则会疯狂排 handler。
+ * - 单指拖动：平移取景
+ * - 双击：2× / 3× / 4× 循环
+ * - ⋮：「输入时自动显示」开关、倍率、恢复默认取景
+ * - ×：只关这一局
  */
 class GameMagnifierView(context: Context) : FrameLayout(context) {
 
     companion object {
-        /** 抓帧间隔：约 9 fps。放大镜只是辅助看清文字，不需要 60fps，省电也省 GPU。 */
+        /** 偏好文件名：和 GameActivity 共用。 */
+        const val PREFS = "game_magnifier"
+
+        /** 「输入法弹出时自动显示」。默认开。 */
+        const val KEY_ON_IME = "on_ime"
+
+        /** 上次用的倍率（记下来，下次进来沿用）。 */
+        const val KEY_ZOOM = "zoom"
+
+        /**
+         * 上次的取景中心，存成**相对画面尺寸的比例**（0~1）。
+         *
+         * 存比例而不是像素：换分辨率 / 转屏后仍然指向同一块画面内容。
+         * -1 表示还没手动调过，走默认位置（屏幕最左下角的聊天输入框）。
+         */
+        const val KEY_CX = "center_x"
+        const val KEY_CY = "center_y"
+
         private const val CAPTURE_INTERVAL_MS = 110L
-        /** 关闭按钮的点击半径（dp 换算前按像素算，够大就行）。 */
-        private const val CLOSE_HIT_DP = 22f
         private val ZOOMS = floatArrayOf(2f, 3f, 4f)
+
+        private const val CORNER_DP = 14f
+
+        // ⋮ 菜单的条目 id
+        private const val MENU_ID_AUTO = 1
+        private const val MENU_ID_RESET = 2
+        private const val MENU_ID_ZOOM_BASE = 100
     }
 
-    /** 游戏画面所在的 View（MinecraftGLSurface 内部的 SurfaceView / TextureView）。 */
+    /** 用户关掉「自动显示」时通知外面把面板收起来。 */
+    var onAutoShowDisabled: (() -> Unit)? = null
+
+    /** 菜单关掉后回调：让外面重新看一眼输入法还在不在。 */
+    var onMenuDismissed: (() -> Unit)? = null
+
+    /**
+     * ⋮ 菜单是否开着。
+     *
+     * ⚠️ `PopupMenu` 会**抢焦点**，输入法随之后退 → IME insets 归零 →
+     * 外面就会把面板收起来，连带菜单一起消失（第一版实测就是这样：
+     * 点 ⋮ 面板直接没了）。
+     * 菜单开着期间外面不能收面板，等菜单关掉再重新判断。
+     */
+    var isMenuOpen = false
+        private set
+
+    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
     private var renderView: View? = null
-
-    /** 当前这一帧的 ROI 像素（尺寸随倍率变化，复用同一块内存）。 */
     private var frame: Bitmap? = null
-
-    private var zoomIndex = 0
+    private var zoomIndex = prefs.getInt(KEY_ZOOM, 0).coerceIn(0, ZOOMS.size - 1)
     private val zoom: Float get() = ZOOMS[zoomIndex]
 
-    /** 取景中心（游戏表面坐标系，像素）。默认对着左下角 —— 聊天栏在那儿。 */
+    /** 取景中心（游戏表面坐标系，像素）。默认左下 —— 聊天栏在那儿。 */
     private var centerX = 0f
     private var centerY = 0f
     private var centered = false
 
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.argb(0xCC, 0xFF, 0xC1, 0x07)
-    }
-    private val closePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.WHITE
-        strokeWidth = 4f
-        strokeCap = Paint.Cap.ROUND
-    }
-    private val scrimPaint = Paint().apply { color = Color.argb(0xCC, 0, 0, 0) }
+    private val clipPath = Path()
+    private val clipRect = RectF()
 
     private val handler = Handler(Looper.getMainLooper())
     private var capturing = false
     private var running = false
 
-    // ── 手势状态 ────────────────────────────────────────────────────
     private var downX = 0f
     private var downY = 0f
     private var lastX = 0f
     private var lastY = 0f
     private var lastTapAt = 0L
     private var dragging = false
+
+    private lateinit var moreButton: ImageButton
+    private lateinit var closeButton: ImageButton
 
     private val tick = object : Runnable {
         override fun run() {
@@ -100,12 +140,120 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
     }
 
     init {
-        setWillNotDraw(false)
-        // 面板自己是半透明底：抓帧还没回来时不会是一块纯黑
-        setBackgroundColor(Color.argb(0xB0, 0, 0, 0))
+        // 圆角深底：跟游戏内工具栏的观感一致（半透明黑 + 极淡描边），不再是黄框
+        background = GradientDrawable().apply {
+            cornerRadius = dp(CORNER_DP)
+            setColor(Color.argb(0xB3, 0x12, 0x12, 0x12))
+            setStroke(dp(1f).toInt(), Color.argb(0x33, 0xFF, 0xFF, 0xFF))
+        }
+        clipToOutline = true
+        buildButtons()
     }
 
-    /** 绑定游戏画面所在的 View（每次显示前调一次即可，内部去重）。 */
+    private fun buildButtons() {
+        val bar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        moreButton = makeIconButton(R.drawable.ic_qk_more, "放大镜设置")
+        moreButton.setOnClickListener { showMenu(it) }
+        closeButton = makeIconButton(R.drawable.ic_qk_close, "关闭放大镜")
+        closeButton.setOnClickListener { dismissThisSession() }
+        bar.addView(moreButton)
+        bar.addView(closeButton)
+        addView(
+            bar,
+            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.TOP or Gravity.END
+                topMargin = dp(6f).toInt()
+                marginEnd = dp(6f).toInt()
+            },
+        )
+    }
+
+    private fun makeIconButton(iconRes: Int, desc: String): ImageButton =
+        ImageButton(context).apply {
+            setImageResource(iconRes)
+            contentDescription = desc
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setColorFilter(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.argb(0x59, 0, 0, 0))
+            }
+            val pad = dp(7f).toInt()
+            setPadding(pad, pad, pad, pad)
+            layoutParams = LinearLayout.LayoutParams(dp(30f).toInt(), dp(30f).toInt()).apply {
+                marginStart = dp(4f).toInt()
+            }
+        }
+
+    // ── 菜单 ────────────────────────────────────────────────────────
+
+    private fun showMenu(anchor: View) {
+        val popup = PopupMenu(context, anchor)
+        popup.menu.add(0, MENU_ID_AUTO, 0, "输入时自动显示").apply {
+            isCheckable = true
+            isChecked = prefs.getBoolean(KEY_ON_IME, true)
+        }
+        val zoomGroup = 1
+        // 单选组：点一个自动取消其他
+        popup.menu.setGroupCheckable(zoomGroup, true, true)
+        ZOOMS.forEachIndexed { i, z ->
+            popup.menu.add(zoomGroup, MENU_ID_ZOOM_BASE + i, 10 + i, "放大 ${z.toInt()}×").apply {
+                isCheckable = true
+                isChecked = i == zoomIndex
+            }
+        }
+        popup.menu.add(0, MENU_ID_RESET, 20, "恢复默认取景")
+        isMenuOpen = true
+        popup.setOnDismissListener {
+            isMenuOpen = false
+            // 菜单期间输入法可能已经退了，交给外面重新判断是否该收面板
+            onMenuDismissed?.invoke()
+        }
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_ID_AUTO -> {
+                    val next = !item.isChecked
+                    item.isChecked = next
+                    prefs.edit().putBoolean(KEY_ON_IME, next).apply()
+                    // 关掉之后本局也别再弹
+                    if (!next) onAutoShowDisabled?.invoke()
+                    true
+                }
+                MENU_ID_RESET -> {
+                    // 清掉记住的位置，回到默认的「最左下角聊天框」
+                    prefs.edit().remove(KEY_CX).remove(KEY_CY).apply()
+                    centered = false
+                    invalidate()
+                    true
+                }
+                else -> {
+                    val idx = item.itemId - MENU_ID_ZOOM_BASE
+                    if (idx in ZOOMS.indices) {
+                        zoomIndex = idx
+                        prefs.edit().putInt(KEY_ZOOM, idx).apply()
+                        frame?.recycle()
+                        frame = null
+                        invalidate()
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
+        popup.show()
+    }
+
+    private fun dismissThisSession() {
+        visibility = View.GONE
+        stop()
+    }
+
+    // ── 绑定 / 生命周期 ─────────────────────────────────────────────
+
     fun bind(target: View?) {
         if (target === renderView) return
         renderView = target
@@ -114,14 +262,12 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
         frame = null
     }
 
-    /** 开始抓帧（面板可见时调）。 */
     fun start() {
         if (running) return
         running = true
         handler.post(tick)
     }
 
-    /** 停止抓帧（面板隐藏 / Activity 暂停时调，否则会一直空转）。 */
     fun stop() {
         running = false
         handler.removeCallbacks(tick)
@@ -147,15 +293,26 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
         if (!v.isAttachedToWindow || v.width <= 0 || v.height <= 0) return
         if (width <= 0 || height <= 0) return
 
-        if (!centered) {
-            // 默认看左下：聊天栏的位置。横向 1/4、纵向 4/5 处。
-            centerX = v.width * 0.25f
-            centerY = v.height * 0.80f
-            centered = true
-        }
-
         val roiW = max(16, (width / zoom).toInt())
         val roiH = max(16, (height / zoom).toInt())
+
+        if (!centered) {
+            val fx = prefs.getFloat(KEY_CX, -1f)
+            val fy = prefs.getFloat(KEY_CY, -1f)
+            if (fx >= 0f && fy >= 0f) {
+                // 上次手动调过 → 原样恢复
+                centerX = fx * v.width
+                centerY = fy * v.height
+            } else {
+                // 默认：屏幕**最左下角**对齐（聊天输入框就在那儿）。
+                // 纵向让 ROI 的底边贴住画面底边 —— 之前取 0.80 高度，
+                // 结果输入框露不出来，用户还得往下滑一下。
+                centerX = min(v.width.toFloat() / 2f, v.width * 0.18f)
+                    .coerceAtLeast(roiW / 2f)
+                centerY = v.height - roiH / 2f
+            }
+            centered = true
+        }
         var cx = centerX.toInt()
         var cy = centerY.toInt()
         cx = cx.coerceIn(roiW / 2, max(roiW / 2, v.width - roiW / 2))
@@ -176,7 +333,6 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
                         if (result == PixelCopy.SUCCESS && running) invalidate()
                     }, handler)
                 } catch (t: Throwable) {
-                    // 某些 ROM 在 Surface 刚好重建时会抛 IllegalArgument —— 跳过这一帧
                     capturing = false
                 }
             }
@@ -193,8 +349,7 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
                     )
                     if (safe.width() > 0 && safe.height() > 0) {
                         val cropped = Bitmap.createBitmap(full, safe.left, safe.top, safe.width(), safe.height())
-                        val c = Canvas(bmp)
-                        c.drawBitmap(cropped, null, Rect(0, 0, bmp.width, bmp.height), paint)
+                        Canvas(bmp).drawBitmap(cropped, null, Rect(0, 0, bmp.width, bmp.height), paint)
                         cropped.recycle()
                         invalidate()
                     }
@@ -204,6 +359,16 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
             }
             else -> Unit
         }
+    }
+
+    /** 把当前取景中心存成比例（换分辨率 / 转屏后仍指向同一块内容）。 */
+    private fun saveCenter() {
+        val v = renderView ?: return
+        if (v.width <= 0 || v.height <= 0) return
+        prefs.edit()
+            .putFloat(KEY_CX, (centerX / v.width).coerceIn(0f, 1f))
+            .putFloat(KEY_CY, (centerY / v.height).coerceIn(0f, 1f))
+            .apply()
     }
 
     private fun ensureFrame(w: Int, h: Int): Bitmap? {
@@ -222,26 +387,22 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val bmp = frame
-        if (bmp != null && !bmp.isRecycled) {
-            canvas.drawBitmap(bmp, null, RectF(0f, 0f, width.toFloat(), height.toFloat()), paint)
-        }
-        // 黄色描边：一眼看出这是浮层，不是游戏本体
-        borderPaint.strokeWidth = 4f
-        canvas.drawRect(2f, 2f, width - 2f, height - 2f, borderPaint)
-
-        // 右上角关闭 ×
-        val cx = width - dp(CLOSE_HIT_DP)
-        val cy = dp(CLOSE_HIT_DP)
-        val r = dp(9f)
-        canvas.drawCircle(cx, cy, dp(13f), scrimPaint)
-        canvas.drawLine(cx - r, cy - r, cx + r, cy + r, closePaint)
-        canvas.drawLine(cx - r, cy + r, cx + r, cy - r, closePaint)
+        if (bmp == null || bmp.isRecycled) return
+        // 圆角裁剪：让画面跟着面板一起圆，不再出现直角
+        val radius = dp(CORNER_DP)
+        clipRect.set(0f, 0f, width.toFloat(), height.toFloat())
+        clipPath.reset()
+        clipPath.addRoundRect(clipRect, radius, radius, Path.Direction.CW)
+        val save = canvas.save()
+        canvas.clipPath(clipPath)
+        canvas.drawBitmap(bmp, null, clipRect, paint)
+        canvas.restoreToCount(save)
     }
 
-    // ── 手势 ────────────────────────────────────────────────────────
+    // ── 手势（面板空白处）────────────────────────────────────────────
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val v = renderView
+        val v = renderView ?: return super.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
@@ -249,20 +410,13 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
                 lastX = event.x
                 lastY = event.y
                 dragging = false
-                // 关闭按钮
-                if (event.x >= width - dp(CLOSE_HIT_DP * 2) && event.y <= dp(CLOSE_HIT_DP * 2)) {
-                    visibility = View.GONE
-                    stop()
-                    return true
-                }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.x - lastX
                 val dy = event.y - lastY
                 if (abs(event.x - downX) > dp(4f) || abs(event.y - downY) > dp(4f)) dragging = true
-                if (dragging && v != null) {
-                    // 手指往右拖 = 想看右边 → 取景中心往左移
+                if (dragging) {
                     centerX = (centerX - dx / zoom).coerceIn(0f, v.width.toFloat())
                     centerY = (centerY - dy / zoom).coerceIn(0f, v.height.toFloat())
                     centered = true
@@ -273,12 +427,16 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
                 return true
             }
             MotionEvent.ACTION_UP -> {
+                // 松手就把取景位置存下来：下次弹键盘还停在这儿
+                if (dragging) saveCenter()
                 if (!dragging) {
                     val now = System.currentTimeMillis()
                     if (now - lastTapAt < 300L) {
-                        // 双击换倍率
                         zoomIndex = (zoomIndex + 1) % ZOOMS.size
+                        prefs.edit().putInt(KEY_ZOOM, zoomIndex).apply()
                         lastTapAt = 0L
+                        frame?.recycle()
+                        frame = null
                         invalidate()
                     } else {
                         lastTapAt = now
@@ -291,4 +449,5 @@ class GameMagnifierView(context: Context) : FrameLayout(context) {
     }
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
+
 }

@@ -120,7 +120,7 @@
   "android/app/src/main/java/com/zhayi/qookix/control/QookixMenuAdapter.kt": 78,
   "android/app/src/main/java/com/zhayi/qookix/ControlLayoutSeed.kt": 93,
   "android/app/src/main/java/com/zhayi/qookix/DataDirs.kt": 63,
-  "android/app/src/main/java/com/zhayi/qookix/GameActivity.kt": 1258,
+  "android/app/src/main/java/com/zhayi/qookix/GameActivity.kt": 1271,
   "android/app/src/main/java/com/zhayi/qookix/HostCapabilities.kt": 960,
   "android/app/src/main/java/com/zhayi/qookix/install/JvmInstallService.kt": 195,
   "android/app/src/main/java/com/zhayi/qookix/LaunchStageBus.kt": 41,
