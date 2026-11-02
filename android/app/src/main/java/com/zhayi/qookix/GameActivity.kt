@@ -140,6 +140,12 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         @JvmField
         var touchCharInput: TouchCharInput? = null
 
+        /** 放大镜偏好（独立 SP，避免和别的模块抢同一个文件）。 */
+        const val MAGNIFIER_PREFS = "game_magnifier"
+
+        /** 「输入时自动弹出放大镜」开关。默认开 —— 这正是用户要的默认行为。 */
+        const val MAGNIFIER_KEY_ON_IME = "on_ime"
+
         /** 控制层持有它（`MainActivity.toggleMouse` 的等价物）。 */
         @JvmField
         var touchpad: Touchpad? = null
@@ -396,6 +402,11 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         ) {
             mControlLayout.post { togglePerfPanel() }
         }
+
+        // ── 游戏放大镜（2026-11-02，对齐 ZL2 / FCL）────────────────────
+        // 输入法弹出时自动在上方显示一块放大画面：键盘会盖住下半屏，
+        // 而聊天栏 / 物品栏就在底部，打字看不到自己打的内容。
+        findViewById<FrameLayout?>(R.id.content_frame)?.let { setupGameMagnifier(it) }
 
         mControlLayout.setMenuListener(this)
         mDrawerPullButton.setOnClickListener { onClickedMenu() }
@@ -911,7 +922,64 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         setWindowAttrib(LwjglGlfwKeycode.GLFW_HOVERED, 1)
     }
 
+    // ── 游戏放大镜 ──────────────────────────────────────────────────
+    //
+    // 监听 IME insets：弹出就显示、收起就隐藏。面板挂在 content_frame 上
+    //（和 StartupOverlay / ControlLayout 同级），所以盖在游戏画面之上。
+
+    private var magnifier: GameMagnifierView? = null
+
+    private fun setupGameMagnifier(root: FrameLayout) {
+        val prefs = getSharedPreferences(MAGNIFIER_PREFS, MODE_PRIVATE)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val wantIt = ime > 0 && prefs.getBoolean(MAGNIFIER_KEY_ON_IME, true)
+            if (wantIt) showMagnifier(root, ime) else hideMagnifier()
+            insets
+        }
+    }
+
+    private fun showMagnifier(root: FrameLayout, imeBottomPx: Int) {
+        if (!this::minecraftGLView.isInitialized) return
+        val dm = resources.displayMetrics
+        val w = (dm.widthPixels * 0.62f).toInt()
+        val h = (dm.heightPixels * 0.20f).toInt()
+        val view = magnifier ?: GameMagnifierView(this).also {
+            it.visibility = View.GONE
+            root.addView(
+                it,
+                FrameLayout.LayoutParams(w, h).apply {
+                    gravity = android.view.Gravity.BOTTOM or android.view.Gravity.START
+                    marginStart = dp(8)
+                },
+            )
+            magnifier = it
+        }
+        (view.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+            lp.width = w
+            lp.height = h
+            lp.bottomMargin = imeBottomPx + dp(8)
+            view.layoutParams = lp
+        }
+        view.bind(minecraftGLView.getRenderView())
+        if (view.visibility != View.VISIBLE) {
+            view.visibility = View.VISIBLE
+            view.start()
+        }
+    }
+
+    private fun hideMagnifier() {
+        val v = magnifier ?: return
+        v.stop()
+        if (v.visibility != View.GONE) v.visibility = View.GONE
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
     override fun onPause() {
+        // 放大镜别在后台继续抓帧（PixelCopy 每 110ms 一次，纯浪费）
+        magnifier?.stop()
         mGyroControl?.disable()
         // 游戏还抓着鼠标时先发一个 Esc：让它释放鼠标并进入暂停菜单，
         // 同时单机存档顺带自动暂停。缺了这一步，回来时游戏状态是乱的。

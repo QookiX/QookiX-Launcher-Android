@@ -68,6 +68,17 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
     final Object mSurfaceReadyListenerLock = new Object();
     /* View holding the surface, either a SurfaceView or a TextureView */
     View mSurface;
+
+    /**
+     * 取承载画面的 View（{@link SurfaceView} 或 {@link TextureView}）。
+     *
+     * 2026-11-02 加：游戏放大镜要对这一层做 `PixelCopy` 抓帧 ——
+     * 用 SurfaceView 的 Surface 而不是整窗截图，抓到的才是**纯游戏画面**
+     * （不含按键覆盖层），放大后也不会把按键一起放大。
+     */
+    public View getRenderView() {
+        return mSurface;
+    }
     /**
      * SDL（MC 26.3+ 的窗口层）需要的真实 Android Surface。
      *
