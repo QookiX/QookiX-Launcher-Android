@@ -895,7 +895,7 @@
     <string name="install_target_server">安装到服务器</string>
     <string name="install_no_server">还没有服务器，先去「更多 → 多人」创建一台</string>
     <string name="install_target_instance">安装到实例</string>
-    <string name="install_no_instance">还没有实例，先去创建实例</string>
+    <string name="install_no_instance">还没有实例，先去新建实例</string>
     <string name="install_create_fabric_instance">新建实例</string>
     <string name="install_select_version">选择版本</string>
     <string name="install_type_all">全部</string>
