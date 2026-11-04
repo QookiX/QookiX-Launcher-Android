@@ -244,11 +244,14 @@ fun CreateInstancePage(
 
         Row(modifier = Modifier.fillMaxSize()) {
             // ── 左：参数 ──────────────────────────────────────────────────
+            // 外层定宽 + 撑满高度，里面「可滚动表单 + 固定底部按钮」上下分。
+            // 横屏只有 384dp 高，表单要滚两屏 —— 主操作不该藏在最底下（横屏优先）。
+            Column(modifier = Modifier.width(leftW).fillMaxHeight()) {
             Column(
                 modifier = Modifier
-                    .width(leftW)
+                    .weight(1f)
                     .verticalScroll(rememberScrollState())
-                    .padding(start = QkSpacing.lg, end = 12.dp, bottom = 20.dp),
+                    .padding(start = QkSpacing.lg, end = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
             ) {
                 OutlinedTextField(
@@ -319,27 +322,27 @@ fun CreateInstancePage(
                 QkFieldLabel(stringResource(R.string.create_instance_memory_limit))
                 MemorySlider(state.memoryMb, onMemoryChange)
 
-                // 「创建实例」按钮（2026-10-17 从页头移到这里）。
-                //
-                // 页头那条自绘标题栏已删（与外层 TopAppBar 重复），
-                // 但创建动作必须有入口 —— 放在表单最后一步，符合「填完 → 提交」的顺序。
-                //
-                // enabled 条件：名称可以留空（留空则用游戏版本号当名字，见下），
-                // 所以只需要「选了版本」且「不在创建中」。
-                // ⚠️ 选了加载器还必须选版本（审查 P1-14）：少了它后端会装出坏实例。
-                Spacer(Modifier.height(QkSpacing.xs))
+                // 清单错误只在右栏显示一处，这里再报「创建失败」会让人以为点过创建（FR-04）
+                val hint = stringResource(R.string.create_instance_need_loader_version).takeIf { state.loader != "vanilla" && state.loaderVersion.isBlank() }
+                if (hint != null) {
+                    Spacer(Modifier.height(QkSpacing.xs))
+                    QkInlineError(hint, modifier = Modifier)
+                }
+            }
+
+                // 「创建实例」固定在外层底部 —— 横屏只有 384dp 高、表单要滚两屏，
+                // 主操作不该藏在最底下（横屏优先）。条件同原来：选了版本且不在创建中，
+                // 选了加载器还必须选版本（审查 P1-14），否则后端会装出坏实例。
                 Button(
                     onClick = onCreate,
-                    // 选了加载器就必须选版本（审查 P1-14），否则会装出坏实例
                     enabled = state.version.isNotBlank() && !state.creating &&
                         (state.loader == "vanilla" || state.loaderVersion.isNotBlank()),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = QkSpacing.lg, vertical = QkSpacing.sm),
                 ) {
                     if (state.creating) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.height(16.dp).width(16.dp),
-                            strokeWidth = 2.dp,
-                        )
+                        CircularProgressIndicator(modifier = Modifier.height(16.dp).width(16.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                     } else {
                         Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.height(18.dp))
@@ -349,13 +352,6 @@ fun CreateInstancePage(
                         if (state.creating) stringResource(R.string.create_instance_creating)
                         else stringResource(R.string.create_instance_create),
                     )
-                }
-
-                // 清单错误只在右栏显示一处，这里再报「创建失败」会让人以为点过创建（FR-04）
-                val hint = stringResource(R.string.create_instance_need_loader_version).takeIf { state.loader != "vanilla" && state.loaderVersion.isBlank() }
-                if (hint != null) {
-                    Spacer(Modifier.height(QkSpacing.xs))
-                    QkInlineError(hint, modifier = Modifier)
                 }
             }
 
