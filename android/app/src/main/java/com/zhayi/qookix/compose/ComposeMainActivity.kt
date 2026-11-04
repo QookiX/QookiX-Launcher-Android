@@ -1085,9 +1085,16 @@ class ComposeMainActivity : ComponentActivity() {
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) return
         try {
-            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+            android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.notif_permission_title)
+                .setMessage(R.string.notif_permission_why)
+                .setPositiveButton(R.string.notif_permission_allow) { _, _ ->
+                    requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+                }
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .show()
         } catch (e: Exception) {
-            Log.w(TAG, "申请通知权限失败", e)
+            Log.w(TAG, "通知权限说明弹窗失败", e)
         }
     }
 
