@@ -51,6 +51,9 @@ fun QkInlineError(
                 text = text,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer,
+                // Row 里不设 weight 时 Text 会按内容理想宽度测量，
+                // 长错误文案（带 URL / 原始异常串那种）会撑出容器被裁掉
+                modifier = Modifier.weight(1f),
             )
         }
     }
