@@ -3,6 +3,8 @@ package com.zhayi.qookix.compose.lansync
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -121,6 +124,8 @@ fun LanSyncRoute(
     var downloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf<DownloadProgress?>(null) }
     var downloadError by remember { mutableStateOf<String?>(null) }
+    /** 上次失败停在队列的第几个（UI-08：重试从这里续跑） */
+    var downloadResumeAt by remember { mutableStateOf(0) }
     var downloadDoneCount by remember { mutableStateOf(0) }
     var downloadTotalCount by remember { mutableStateOf(0) }
 
@@ -224,15 +229,19 @@ fun LanSyncRoute(
         val p = params ?: return
         val queue = instances.filter { it.id in selectedIds }
         if (queue.isEmpty()) return
+        // UI-08：从失败处续跑。selectedIds 在失败路径上是保留的，重建出的队列一致，
+        // 所以只要记住断点即可，不必把已下完的几个再下一遍。
+        val start = downloadResumeAt.coerceAtMost(queue.size)
         downloading = true
         downloadError = null
-        downloadDoneCount = 0
+        downloadDoneCount = start
         downloadTotalCount = queue.size
         downloadProgress = null
 
         fun downloadNext(index: Int) {
             if (index >= queue.size) {
                 downloading = false
+                downloadResumeAt = 0
                 // 队列跑完要有明确反馈：否则界面只是静静回到实例列表，
                 // 用户不知道到底同步成功没有
                 QkFeedback.show(context.getString(R.string.lan_sync_all_done, queue.size))
@@ -247,12 +256,13 @@ fun LanSyncRoute(
                 }
                 r.onFailure { e ->
                     downloading = false
+                    downloadResumeAt = index
                     downloadError = e.message
                         ?: context.getString(R.string.lan_sync_connect_failed)
                 }
             }
         }
-        downloadNext(0)
+        downloadNext(start)
     }
 
     // ── UI ────────────────────────────────────────────────────────────
@@ -342,13 +352,22 @@ fun LanSyncRoute(
             // 未连接 → 扫码 / 手动输入
             else -> {
                 if (showManualInput) {
-                    ManualInputSection(
-                        onConnect = { host, port, token ->
-                            params = LanSyncParams(host, port, token)
-                            showManualInput = false
-                        },
-                        onSwitchToScanner = { showManualInput = false },
-                    )
+                    // UI-09：横屏只有约 480dp 高，键盘一弹，第三个输入框和「连接」按钮全在屏幕外。
+                    // 单独给这块加滚动 + imePadding（整页不能加：里面有 weight 和 LazyColumn）。
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                            .imePadding(),
+                    ) {
+                        ManualInputSection(
+                            onConnect = { host, port, token ->
+                                params = LanSyncParams(host, port, token)
+                                showManualInput = false
+                            },
+                            onSwitchToScanner = { showManualInput = false },
+                        )
+                    }
                 } else {
                     ScannerSection(
                         onScanned = { text ->
@@ -721,24 +740,3 @@ private fun ErrorSection(
     }
 }
 
-// ── 工具 ─────────────────────────────────────────────────────────────────
-
-private fun formatBytes(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB")
-    var size = bytes.toDouble()
-    var unit = 0
-    while (size >= 1024 && unit < units.lastIndex) {
-        size /= 1024
-        unit++
-    }
-    return if (unit == 0) "${bytes} B" else String.format("%.1f %s", size, units[unit])
-}
-
-/** 剩余时间的口语化写法：45 秒 / 3 分 20 秒 / 1 时 05 分。 */
-private fun formatEta(seconds: Long): String = when {
-    seconds <= 0 -> "即将完成"
-    seconds < 60 -> "${seconds} 秒"
-    seconds < 3600 -> "${seconds / 60} 分 ${seconds % 60} 秒"
-    else -> "${seconds / 3600} 时 ${(seconds % 3600) / 60} 分"
-}
