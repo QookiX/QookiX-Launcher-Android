@@ -86,7 +86,6 @@ pub async fn fetch_news() -> Result<Vec<Value>> {
     Ok(items)
 }
 
-// ==================== Browse ====================
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct BrowseResult {
@@ -2259,7 +2258,7 @@ pub async fn install_content(
     rec.name = Some(if project_title.is_empty() { file_name.clone() } else { project_title });
     rec.size = size as i64;
     crate::util::fill_content_from_jar(&mut rec, &dest);
-    let _ = crate::instances::add_content(instance_id, kind, rec).await;
+    if let Err(e) = crate::instances::add_content(instance_id, kind, rec).await { crate::util::log_line(&format!("[content] 登记 {file_name} 失败: {e}")); }
 
     Ok(json!({
         "ok": true,
@@ -2306,7 +2305,7 @@ pub async fn list_content(instance_id: &str, kind: &str) -> Result<serde_json::V
     }
     let registered = new_records.len();
     if !new_records.is_empty() {
-        let _ = crate::instances::add_content_batch(instance_id, kind, new_records.clone()).await;
+        if let Err(e) = crate::instances::add_content_batch(instance_id, kind, new_records.clone()).await { crate::util::log_line(&format!("[content] 补注册失败: {e}")); }
         records.extend(new_records);
     }
 
@@ -2323,7 +2322,7 @@ pub async fn list_content(instance_id: &str, kind: &str) -> Result<serde_json::V
         }
     }
     if updated {
-        let _ = crate::instances::add_content_batch(instance_id, kind, records.clone()).await;
+        if let Err(e) = crate::instances::add_content_batch(instance_id, kind, records.clone()).await { crate::util::log_line(&format!("[content] 元数据回写失败: {e}")); }
     }
 
     // 诊断（2026-10-27）：用户反馈「mods 目录 161 个 jar，界面只显示 140」。
@@ -2365,8 +2364,9 @@ pub async fn uninstall_content(instance_id: &str, kind: &str, filename: &str) ->
         .await
         .map_err(|e| e.to_string())?
         .join(crate::instances::kind_folder(kind));
-    let _ = std::fs::remove_file(dir.join(filename));
-    let _ = std::fs::remove_file(dir.join(format!("{filename}.disabled")));
+    for p in [dir.join(filename), dir.join(format!("{filename}.disabled"))] {
+        if std::fs::remove_file(&p).is_err() && p.exists() { return Err(format!("无法删除 {}（文件可能被占用）", p.display())); }
+    }
     crate::instances::remove_content(instance_id, kind, filename).await
 }
 
@@ -2503,10 +2503,9 @@ pub async fn apply_update(
         .map_err(|e| e.to_string())?
         .join(crate::instances::kind_folder(kind));
     if crate::util::is_safe_filename(old_filename) {
-        let _ = std::fs::remove_file(dir.join(old_filename));
-        let _ = std::fs::remove_file(dir.join(format!("{old_filename}.disabled")));
+        for p in [dir.join(old_filename), dir.join(format!("{old_filename}.disabled"))] { if std::fs::remove_file(&p).is_err() && p.exists() { return Err(format!("无法删除旧文件 {}", p.display())); } }
     }
-    let _ = crate::instances::remove_content(instance_id, kind, old_filename).await;
+    if let Err(e) = crate::instances::remove_content(instance_id, kind, old_filename).await { crate::util::log_line(&format!("[content] 移除旧记录失败: {e}")); }
     Ok(result)
 }
 
@@ -2586,7 +2585,7 @@ pub async fn identify_content(instance_id: &str, kind: &str) -> Result<(), Strin
                 if let Some(n) = name.clone() { rec.name = Some(n); }
                 if let Some(d) = desc.clone() { rec.description = Some(d); }
                 if let Some(ic) = icon.clone() { rec.icon = Some(ic); }
-                let _ = crate::instances::add_content_batch(instance_id, kind, vec![rec.clone()]).await;
+                if let Err(e) = crate::instances::add_content_batch(instance_id, kind, vec![rec.clone()]).await { crate::util::log_line(&format!("[content] 识别结果回写失败 {filename}: {e}")); }
                 emit_identified(rec);
             }
             resolved_files.insert(filename.clone());
@@ -2622,7 +2621,7 @@ pub async fn identify_content(instance_id: &str, kind: &str) -> Result<(), Strin
                 if !hit.description.is_empty() { rec.description = Some(hit.description.clone()); }
                 if !hit.icon_url.is_empty() { rec.icon = Some(hit.icon_url.clone()); }
                 if !hit.author.is_empty() { rec.authors = Some(vec![hit.author.clone()]); }
-                let _ = crate::instances::add_content_batch(instance_id, kind, vec![rec.clone()]).await;
+                if let Err(e) = crate::instances::add_content_batch(instance_id, kind, vec![rec.clone()]).await { crate::util::log_line(&format!("[content] 识别结果回写失败 {filename}: {e}")); }
                 emit_identified(rec);
             }
             eprintln!("[identify] {filename} → {pid} (name search)");
