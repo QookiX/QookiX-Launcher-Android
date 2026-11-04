@@ -112,17 +112,11 @@ fun SettingsPage(
     // **内容区被压成一条**，「界面缩放」逐字竖排、滑杆和「恢复默认」完全看不到。
     //（这是同类响应式缺陷第 10 次出现：这次的「窄屏」是缩放造成的等效窄屏。）
     //
-    // 算法：把当前 density 与基准 density 的比值除掉，得到等效 dp 宽度。
-    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
-    val densityNow = androidx.compose.ui.platform.LocalDensity.current
     // tab 标签要用字符串资源，而 `map { }` 的 lambda 不是 @Composable 上下文，
     // 所以在一开始就把 Context 取出来（LocalContext 只能在这里读）。
     val context = androidx.compose.ui.platform.LocalContext.current
-    // 基准 density 由 Configuration.densityDpi 推导（160dpi = 1.0x）。
-    // 用密度比反推出「缩放前的等效 dp 宽度」，这样缩放拉大时能正确判为窄屏。
-    val baselineDensity = cfg.densityDpi / 160f
-    val scaleFactor = if (baselineDensity > 0f) densityNow.density / baselineDensity else 1f
-    val screenW = cfg.screenWidthDp.dp / scaleFactor
+    // 算法详见 ui/ScreenMetrics.kt（缩放感知的等效 dp 宽度）
+    val screenW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().dp
     val narrow = screenW < 500.dp
     val veryNarrow = screenW < 360.dp
     val navW = when {

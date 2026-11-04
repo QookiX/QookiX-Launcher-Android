@@ -312,12 +312,8 @@ internal fun ServerCard(
     onStop: () -> Unit,
     onOpen: () -> Unit,
 ) {
-    // 极窄判定（竖屏 + 大缩放）：用等效宽度，与 SettingsPage 同一套算法
-    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
-    val densityNow = androidx.compose.ui.platform.LocalDensity.current
-    val baseline = cfg.densityDpi / 160f
-    val scaleF = if (baseline > 0f) densityNow.density / baseline else 1f
-    val veryNarrow = (cfg.screenWidthDp.dp / scaleF) < 360.dp
+    // 极窄判定（竖屏 + 大缩放）：等效宽度，算法见 ui/ScreenMetrics.kt
+    val veryNarrow = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().dp < 360.dp
     val pressSource = remember { MutableInteractionSource() }
     Card(
         onClick = onOpen,
