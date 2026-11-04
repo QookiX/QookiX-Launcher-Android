@@ -170,21 +170,11 @@ pub async fn fetch_manifest() -> Result<VersionList> {
     let url = crate::mirror::manifest_url(&mirror_base);
 
     let client = crate::util::http_client().await;
-    // 把 URL 与底层 reqwest 错误一起带出来：以前只留一句 context，
-    // 排查时既不知道请求的是哪个地址、也不知道是超时/TLS/DNS 哪种失败。
-    //
-    // ⚠️ 2026-10-20 真机修：**官方 + 内置镜像并行**，并加硬超时。
-    //
-    // 真机实测（OnePlus 8 / 正式签名包 / 首次启动）：
-    //   `get_version_manifest` 卡满 90 秒前端超时，界面报「版本列表加载失败」，
-    //   用户**根本没法创建实例**。而同一时刻设备上 curl 官方只要 1.0 秒、
-    //   镜像 0.5 秒 —— 说明单请求路径会卡在 TLS/连接建立上（首启尤其明显）。
-    // 这里改成两个候选并行发、各 30 秒硬超时，谁先回用谁。
-    // ⚠️ 2026-10-27：必须**尊重设置**。以前无条件把 BMCLAPI 当候选并行发，
-    // 用户明明选了「官方源」，先回来的却是镜像那份清单 —— 于是后续所有
-    // 客户端/库/资源下载链接都是 bmclapi 的（真机表现：「我改成官方了，
-    // 补全时链接还是 bmclapi」）。
-    // 现在只有设置里确实选了镜像（或自定义）才把镜像作为候选。
+    // ⚠️ 2026-10-20 真机：单请求会卡在 TLS 建立上（首启卡满 90s 后报加载失败），
+    // 改成「候选并行 + 各 30s 硬超时、谁先回用谁」。
+    // ⚠️ 2026-10-27：候选必须**尊重设置** —— 无条件并行会让选官方的用户拿回
+    // bmclapi 的清单，之后所有下载链接都变镜像。错误串要带 URL + source 链，
+    // 只留一句 context 时分辨不出 DNS / TLS / 超时。
     let base = crate::mirror::current_base();
     let mut candidates: Vec<String> = Vec::new();
     if !base.is_empty() {
@@ -259,10 +249,18 @@ pub async fn fetch_manifest() -> Result<VersionList> {
         Some(c) => c,
         None => {
             let detail = errs.join(" | ");
+            // ⚠️ 2026-11-04（FR-01）：全部候选都失败时，**过期缓存也比报错强**。
+            // 清单只用于「新建实例」里选版本，旧几天完全不影响选择；
+            // 而返回 Err 会让新用户在「创建实例」页彻底卡死（外部首测的 P0）。
+            // 注意顺序：先记日志再回退，日志里能看出这轮是离线兜的底。
             println!("[manifest] 拉取失败: {detail}");
-            return Err(anyhow::anyhow!(
-                "Failed to fetch version manifest: {detail}"
-            ));
+            if let Ok(old) = fs::read_to_string(&cache_file).await {
+                if let Ok(v) = serde_json::from_str::<VersionList>(&old) {
+                    crate::util::log_line("[manifest] 全部候选失败，回退到过期缓存");
+                    return Ok(v);
+                }
+            }
+            return Err(anyhow::anyhow!("Failed to fetch version manifest: {detail}"));
         }
     };
     let version_list: VersionList = match serde_json::from_str(&content) {

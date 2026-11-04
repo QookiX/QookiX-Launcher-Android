@@ -92,6 +92,7 @@ fun CreateInstancePage(
     onMemoryChange: (Int) -> Unit,
     onBack: () -> Unit,
     onCreate: () -> Unit,
+    onRetryVersions: () -> Unit = {},
     /** 是否处于「导入整合包」模式（由外层持有，切模式要重建表单）。 */
     importMode: Boolean = false,
     /** 切换「全新创建 / 导入整合包」。 */
@@ -350,10 +351,8 @@ fun CreateInstancePage(
                     )
                 }
 
-                // 上次为什么没建成 / 按钮为什么点不动（审查 P1-14）
                 val hint = state.error?.let { stringResource(R.string.create_instance_failed, it) }
-                    ?: stringResource(R.string.create_instance_need_loader_version)
-                        .takeIf { state.loader != "vanilla" && state.loaderVersion.isBlank() }
+                    ?: stringResource(R.string.create_instance_need_loader_version).takeIf { state.loader != "vanilla" && state.loaderVersion.isBlank() }
                 if (hint != null) {
                     Spacer(Modifier.height(QkSpacing.xs))
                     QkInlineError(hint, modifier = Modifier)
@@ -382,9 +381,7 @@ fun CreateInstancePage(
                     )
 
                     when {
-                        // 顺序要紧：先判「加载完但为空」再判「加载中」。
-                        // 之前只判 loading，导致**加载失败后骨架屏一直转**
-                        // （实测：网络不通时列表永远显示骨架，用户以为在加载）。
+                        // 先判「加载完但为空」再判「加载中」：反过来的话失败后骨架一直转
                         !state.loadingVersions && state.versions.isEmpty() -> Box(
                             // ⚠️ weight(1f)：见下方 LazyColumn 分支的注释
                             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -403,6 +400,9 @@ fun CreateInstancePage(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = QkSpacing.xl),
                                 )
+                                Button(onClick = onRetryVersions, modifier = Modifier.padding(top = QkSpacing.md)) {
+                                    Text(stringResource(R.string.common_retry))
+                                }
                             }
                         }
                         // 版本清单加载中 → Android 风格波浪 + 说明文字（2026-10-17）

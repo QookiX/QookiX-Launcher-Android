@@ -506,8 +506,8 @@ internal fun HomeRoute(
             playtimeSeconds = playtimeSeconds,
         ),
         launchProgress = launchProgress,
+        onCreateInstance = { onNavigate(NavDestination.Instances) },
         onLaunch = {
-              android.util.Log.i("QkLaunch", "click instances=" + instances.size + " accounts=" + accounts.size)
             val inst = instances.firstOrNull()
             when {
                 inst == null -> notice = context.getString(R.string.no_instances_hint)

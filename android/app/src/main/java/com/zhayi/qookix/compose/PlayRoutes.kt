@@ -1050,19 +1050,18 @@ internal fun CreateRoute(
     }
 
 
-    // 进页面就拉版本清单
-    LaunchedEffect(bridgeReady) {
+    // 进页面就拉清单；versionsRetry 变化时重拉（FR-01 的重试入口）
+    var versionsRetry by remember { mutableStateOf(0) }
+    LaunchedEffect(bridgeReady, versionsRetry) {
         if (!bridgeReady) return@LaunchedEffect
+        if (versionsRetry > 0) state = state.copy(error = null, loadingVersions = true)
         repo.loadVersions { r ->
             state = r.fold(
                 onSuccess = { vs ->
-                    // 默认选中最新正式版（与旧界面一致）
                     val latest = vs.firstOrNull { it.type == "release" }?.id ?: vs.firstOrNull()?.id ?: ""
                     state.copy(versions = vs, version = latest, loadingVersions = false)
                 },
-                onFailure = { e ->
-                    state.copy(loadingVersions = false, error = context.getString(R.string.version_manifest_failed, e.message))
-                },
+                onFailure = { e -> state.copy(loadingVersions = false, error = context.getString(R.string.version_manifest_failed, e.message)) },
             )
         }
     }
@@ -1078,6 +1077,7 @@ internal fun CreateRoute(
         loaderVersionsError = loaderVersionsError,
         onLoaderVersionChange = { state = state.copy(loaderVersion = it) },
         onBack = onBack,
+        onRetryVersions = { versionsRetry += 1 },
         importMode = importMode,
         onImportModeChange = { importMode = it },
         onPickModpack = { pickAndImportModpack() },

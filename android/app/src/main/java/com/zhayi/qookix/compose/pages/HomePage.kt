@@ -80,6 +80,8 @@ import com.zhayi.qookix.compose.ui.QkAppear
 fun HomePage(
     state: HomeUiState,
     onLaunch: () -> Unit,
+    /** FR-02：空态卡片上的「创建第一个实例」——跳到实例页（新建入口在那边）。 */
+    onCreateInstance: () -> Unit = {},
     onSwitchInstance: () -> Unit,
     onOpenInstance: (String) -> Unit,
     onOpenNews: () -> Unit,
@@ -121,6 +123,7 @@ fun HomePage(
                         running = state.current?.id == state.runningInstanceId,
                         onLaunch = onLaunch,
                         onSwitch = onSwitchInstance,
+                        onCreateInstance = onCreateInstance,
                     )
                 }
             }
@@ -204,6 +207,7 @@ fun HomePage(
                     running = state.current?.id == state.runningInstanceId,
                     onLaunch = onLaunch,
                     onSwitch = onSwitchInstance,
+                    onCreateInstance = onCreateInstance,
                 )
             }
 
@@ -337,15 +341,13 @@ private fun SectionTitle(text: String, action: String? = null, onAction: (() -> 
 private fun CurrentInstanceCard(
     inst: InstanceUi?,
     launching: Boolean,
-    // 启动阶段文案（检查文件 / 补全 / 启动中）。
-    // 比笼统的「启动中…」有用 —— 补全大包要几分钟，
-    // 用户需要知道在等什么。
+    // 启动阶段文案：补全大包要几分钟，用户需要知道在等什么
     launchStage: String? = null,
-    /** 启动进度 0f..1f（来自 `launch://progress`）。 */
     launchProgress: Float = 0f,
     running: Boolean = false,
     onLaunch: () -> Unit,
     onSwitch: () -> Unit,
+    onCreateInstance: () -> Unit = {},
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -377,12 +379,10 @@ private fun CurrentInstanceCard(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(QkSpacing.xs))
-                Text(
-                    text = stringResource(R.string.home_no_instances_hint),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(Modifier.height(QkSpacing.md))
+                Button(onClick = onCreateInstance) {
+                    Text(stringResource(R.string.home_no_instances_hint))
+                }
                 return@Column
             }
 
