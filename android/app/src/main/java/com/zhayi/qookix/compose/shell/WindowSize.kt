@@ -22,7 +22,10 @@ enum class WindowSize { Compact, Medium, Expanded }
 
 @Composable
 fun rememberWindowSize(): WindowSize {
-    val w = LocalConfiguration.current.screenWidthDp
+    // ⚠️ 必须用缩放感知的宽度：界面缩放 150% 时，853dp 横屏的等效宽度只有 569dp，
+    // 按原始 screenWidthDp 判断会落进 Compact（底部导航），而实际横屏空间够用。
+    // 这一处决定整个 shell 的导航形态，比任何单页布局都关键。
+    val w = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().toInt()
     return when {
         w < 600 -> WindowSize.Compact
         w < 840 -> WindowSize.Medium
