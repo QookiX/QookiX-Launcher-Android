@@ -43,6 +43,12 @@ object LanSyncDeepLink {
             Log.w(TAG, "lan/pair URI 缺参数：$uri")
             return null
         }
+        // port 之前只判了非空：二维码里写个 99999 会一路带到连接阶段才失败，
+        // 而且在错误提示里看不出是「端口非法」还是「连不上」。
+        if (port !in 1..65535) {
+            Log.w(TAG, "lan/pair 端口非法：$port")
+            return null
+        }
         return LanSyncParams(pcHost, port, token)
     }
 
