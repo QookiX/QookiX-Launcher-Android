@@ -1,7 +1,7 @@
 use std::path::Path;
 use tokio::fs;
 use anyhow::{Context, Result};
-use uuid::Uuid;
+use crate::offline_uuid::offline_uuid;
 use chrono::Utc;
 use serde_json::{Value, json};
 use crate::models::*;
@@ -256,8 +256,7 @@ pub async fn add_account(username: &str, account_type: &str, refresh_token: Opti
             return Err(anyhow::anyhow!("Refresh token required for Microsoft account"));
         }
     } else {
-        // Offline account：UUID 取 v3("OfflinePlayer:<name>")，与官方启动器 / Java 端一致，
-        // 否则联机时服务器算出的 UUID 会对不上。
+        // Offline account：UUID 按 Java nameUUIDFromBytes 算（见 offline_uuid），否则服务端认不出玩家
         let name = username.trim();
         if name.is_empty() {
             return Err(anyhow::anyhow!("用户名不能为空"));
@@ -266,7 +265,7 @@ pub async fn add_account(username: &str, account_type: &str, refresh_token: Opti
             return Err(anyhow::anyhow!("用户名不能超过 16 个字符"));
         }
         Account {
-            uuid: Uuid::new_v3(&Uuid::nil(), format!("OfflinePlayer:{name}").as_bytes()).to_string(),
+            uuid: offline_uuid(name).to_string(),
             username: name.to_string(),
             created: Utc::now().timestamp(),
             account_type: AccountType::Offline,

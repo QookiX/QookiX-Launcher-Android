@@ -39,6 +39,9 @@ sha2 = "0.10"
 
 # Utilities
 uuid = { version = "1", features = ["v3", "v4", "serde"] }
+# 离线账号 UUID 要复刻 Java 的 UUID.nameUUIDFromBytes（MD5 后手改 version/variant 位），
+# uuid::new_v3 带 namespace 前缀，摘要不同，不能用。
+md-5 = "0.10"
 anyhow = "1"
 thiserror = "1"
 urlencoding = "2.1"

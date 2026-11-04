@@ -25,6 +25,7 @@ mod gl_brand;
 mod download;
 mod java;
 mod accounts;
+mod offline_uuid;
 mod modpack;
 /// ZIP 解压预算（zip bomb 防护，审计 B13）。
 mod zip_guard;

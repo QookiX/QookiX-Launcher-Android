@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "qookix-launcher"
-version = "0.2.2-beta16"
+version = "0.2.2-beta28"
 dependencies = [
  "anyhow",
  "base64",
@@ -1124,6 +1124,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libloading 0.8.9",
+ "md-5",
  "nix",
  "regex",
  "reqwest",
