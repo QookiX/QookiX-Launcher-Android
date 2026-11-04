@@ -93,6 +93,8 @@ fun BrowseFilterSheet(
     onTypeChange: (String) -> Unit,
     loader: String,
     onLoaderChange: (String) -> Unit,
+    /** UI-10：「重置」要连搜索词一起清，否则列表仍被旧词过滤，看着像没生效。 */
+    onReset: () -> Unit,
     /** 插件类型不显示加载器（Hangar 没有加载器维度）。 */
     hideLoader: Boolean,
 ) {
@@ -185,12 +187,7 @@ fun BrowseFilterSheet(
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(
-                            onClick = {
-                                onTypeChange(BrowseType.Mod.id)
-                                onLoaderChange("")
-                            },
-                        ) { Text(stringResource(R.string.browse_reset)) }
+                        TextButton(onClick = onReset) { Text(stringResource(R.string.browse_reset)) }
                     }
 
                     Spacer(Modifier.height(QkSpacing.sm))

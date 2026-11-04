@@ -510,9 +510,7 @@ internal fun SettingsRoute(
                     updateResult = updateResult,
                     onDismissUpdateResult = { updateResult = null },
                     onTestMirrors = {
-                        // 对每个镜像发一次请求，比首字节耗时。
-                        //
-                        // ⚠️ 用返回里的 `ok` 字段判断是否真连通 ——
+                        // 对每个镜像发一次请求比耗时；⚠️ 是否连通要用返回里的 `ok` 判断 ——
                         // 只看耗时会把「连接失败」误判成「很快」。
                         mirrorTesting = true
                         resultIsMirror = true
@@ -1144,7 +1142,8 @@ internal fun BrowseRoute(
         onTypeChange = { newType ->
             filterOpen = false
             if (newType != state.type) {
-                state = state.copy(type = newType, items = emptyList())
+                // UI-10：切到插件要清 loader（那块 UI 隐藏，留着等于在看不见的地方被过滤）
+                state = state.copy(type = newType, loader = if (newType == BrowseType.Plugin.id) "" else state.loader, items = emptyList())
                 doSearch()
             }
         },
@@ -1156,6 +1155,7 @@ internal fun BrowseRoute(
                 doSearch()
             }
         },
+        onReset = { state = state.copy(type = BrowseType.Mod.id, loader = "", query = "", items = emptyList()); doSearch() },
         // 插件（Hangar）没有加载器维度
         hideLoader = state.type == BrowseType.Plugin.id,
     )

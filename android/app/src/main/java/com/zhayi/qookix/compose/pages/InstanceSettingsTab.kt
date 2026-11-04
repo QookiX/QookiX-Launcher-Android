@@ -379,7 +379,7 @@ fun InstanceSettingsTab(
             Spacer(Modifier.height(QkSpacing.sm))
             Button(
                 onClick = { onExport(exportConfig, exportSaves, exportShots) },
-                enabled = !exporting,
+                enabled = !exporting && !exportPlanLoading && exportPlan != null,
             ) {
                 if (exporting) {
                     CircularProgressIndicator(

@@ -108,13 +108,7 @@ fun BrowsePage(
     onOpenProject: (ProjectUi) -> Unit,
     /** 打开安装对话框（装模组 / 资源包 / 光影 / 插件）。 */
     onInstall: (ProjectUi) -> Unit = {},
-    /**
-     * 滑到底部时请求下一页（追加，不替换已有结果）。
-     *
-     * ⚠️ 这个回调以前**声明了但函数体里零引用** —— 用户现象是
-     * 「搜索结果永远只有前 20 条，往下滑不会加载更多」。
-     * 现在由 [LazyVerticalGrid] 的滚动位置驱动（见下面的 `paging`）。
-     */
+    /** 滑到底部时请求下一页（追加）。⚠️ 这个回调曾经声明了但零引用，表现为「永远只有前 20 条」。 */
     onLoadMore: () -> Unit,
     /** 加载下一页中（底部转圈；也在滚动回调里防重入）。 */
     loadingMore: Boolean = false,
@@ -126,6 +120,8 @@ fun BrowsePage(
      */
     hasMore: Boolean = true,
     onLoaderChange: (String) -> Unit = {},
+    /** 筛选面板「重置」：连搜索词一起清（UI-10）。 */
+    onReset: () -> Unit = {},
     /** 排序方式变更（downloads / updated / newest / follows）。 */
     onSortChange: (String) -> Unit = {},
     /** 紧凑模式切换（2026-10-17 新增，用户要求「更紧凑的展示方式」）。 */
@@ -162,6 +158,7 @@ fun BrowsePage(
             onTypeChange = onTypeChange,
             loader = state.loader,
             onLoaderChange = onLoaderChange,
+            onReset = onReset,
             hideLoader = state.type == BrowseType.Plugin.id,
         )
         // 工具栏（搜索 + 筛选 + 排序）已移到**顶栏**（2026-10-17）。
