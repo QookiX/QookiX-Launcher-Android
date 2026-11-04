@@ -458,6 +458,8 @@ private fun ManualInputSection(
         value = port,
         onValueChange = { port = it.filter { c -> c.isDigit() } },
         label = { Text(stringResource(R.string.lan_sync_port)) },
+        // 只过滤数字不够：99999 / 0 都是"格式对但没意义"的值
+        isError = port.isNotBlank() && (port.toIntOrNull() ?: 0) !in 1..65535,
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
     )
@@ -469,9 +471,9 @@ private fun ManualInputSection(
         singleLine = true,
     )
     Button(
-        onClick = { onConnect(host.trim(), port.toIntOrNull() ?: 8765, token.trim()) },
+        onClick = { port.toIntOrNull()?.let { onConnect(host.trim(), it, token.trim()) } },
         modifier = Modifier.fillMaxWidth(),
-        enabled = host.isNotBlank() && token.isNotBlank(),
+        enabled = host.isNotBlank() && token.isNotBlank() && (port.toIntOrNull() ?: 0) in 1..65535,
     ) {
         Text(stringResource(R.string.lan_sync_connect))
     }
