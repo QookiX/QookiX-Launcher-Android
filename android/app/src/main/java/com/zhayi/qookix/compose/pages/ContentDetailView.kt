@@ -89,7 +89,9 @@ internal fun ContentDetailTopBar(
         }
         // ⚠️ 2026-10-28（竖屏审计）：411dp 竖屏下「MC 百科」四个字 + 安装按钮
         // 把标题挤得只剩一点，作者/下载量被省略号吃掉。窄屏改成图标按钮。
-        val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+        // 缩放感知（界面缩放 125% 时 853dp 实际只有 682dp，按原值判断会误走宽屏分支）
+    val scaledW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp()
+    val narrow = scaledW < 600
         if (narrow) {
             IconButton(onClick = onOpenWiki) {
                 Icon(
@@ -173,7 +175,8 @@ internal fun ContentDetailLayout(
         )
     }
 
-    if (LocalConfiguration.current.screenWidthDp >= 720) {
+    val wideScreen = com.zhayi.qookix.compose.ui.scaledScreenWidthDp() >= 720
+    if (wideScreen) {
         Row(
             modifier = Modifier
                 .fillMaxSize()

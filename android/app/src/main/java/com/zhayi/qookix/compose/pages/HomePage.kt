@@ -96,8 +96,10 @@ fun HomePage(
     //
     // ⚠️ 2026-10-15 真机竖屏实测：左栏原写死 width(360.dp)，而竖屏可用宽度只有 384dp，
     // 右栏只剩 24dp，文字被压成竖条。判据用「宽度够不够并排」而不是「是不是竖屏」。
-    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
-    val wideEnough = cfg.screenWidthDp >= 600
+    // ⚠️ 用缩放感知的宽度：界面缩放 125% 时 853dp 横屏实际只剩 682dp，
+    // 按原始 screenWidthDp 判断会让左栏（42%）算得过宽、右栏溢出。
+    val scaledW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp()
+    val wideEnough = scaledW >= 600
 
     if (wideEnough) {
         Row(modifier = Modifier.fillMaxSize()) {
@@ -108,7 +110,7 @@ fun HomePage(
                     // 写死 360dp 时，600~720dp 的窄平板/分屏下右栏只剩 240~360，
                     // 卡片长文本开始逐字换行，更窄时内容直接被挤出边界。
                     .width(
-                        (cfg.screenWidthDp * 0.42f).coerceIn(300f, 420f).dp,
+                        (scaledW * 0.42f).coerceIn(300f, 420f).dp,
                     )
                     .fillMaxHeight()
                     .verticalScroll(rememberScrollState())
