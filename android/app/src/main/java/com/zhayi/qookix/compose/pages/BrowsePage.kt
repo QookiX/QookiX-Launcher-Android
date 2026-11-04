@@ -104,7 +104,7 @@ fun BrowsePage(
     state: BrowseUiState,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
-    onTypeChange: (String) -> Unit,
+
     onOpenProject: (ProjectUi) -> Unit,
     /** 打开安装对话框（装模组 / 资源包 / 光影 / 插件）。 */
     onInstall: (ProjectUi) -> Unit = {},
@@ -119,17 +119,10 @@ fun BrowsePage(
      *（BrowseRepo 只解析 hits，丢掉了 total），所以不能自己算。
      */
     hasMore: Boolean = true,
-    onLoaderChange: (String) -> Unit = {},
-    /** 筛选面板「重置」：连搜索词一起清（UI-10）。 */
-    onReset: () -> Unit = {},
     /** 排序方式变更（downloads / updated / newest / follows）。 */
     onSortChange: (String) -> Unit = {},
     /** 紧凑模式切换（2026-10-17 新增，用户要求「更紧凑的展示方式」）。 */
     onCompactChange: (Boolean) -> Unit = {},
-    /** 筛选面板是否展开（状态提升到 PageHost，因为面板触发按钮在顶栏）。 */
-    filterOpen: Boolean = false,
-    /** 关闭筛选面板。 */
-    onDismissFilter: () -> Unit = {},
     /**
      * 整页翻译（B1）：把当前页所有项目的简介批量翻成中文。
      *
@@ -151,16 +144,9 @@ fun BrowsePage(
         rememberLazyGridState(),
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        BrowseFilterSheet(
-            visible = filterOpen,
-            onDismiss = onDismissFilter,
-            type = state.type,
-            onTypeChange = onTypeChange,
-            loader = state.loader,
-            onLoaderChange = onLoaderChange,
-            onReset = onReset,
-            hideLoader = state.type == BrowseType.Plugin.id,
-        )
+        // ⚠️ 这里原本还渲染过一份 BrowseFilterSheet —— 但 `filterOpen` 参数从来没被
+        // 调用方传过（恒为 false），那份面板永远不可见，它的 onDismiss 也是空实现。
+        // 真正生效的是 BrowseRoute 里那份（状态由 Route 持有）。死代码已删。
         // 工具栏（搜索 + 筛选 + 排序）已移到**顶栏**（2026-10-17）。
         //
         // 原来它占页面内一整行（约 60dp），横屏 384dp 高度里很浪费。

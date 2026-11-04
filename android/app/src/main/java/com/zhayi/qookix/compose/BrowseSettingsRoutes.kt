@@ -1087,16 +1087,6 @@ internal fun BrowseRoute(
         gridState = gridState,
         onQueryChange = { state = state.copy(query = it) },
         onSearch = { doSearch() },
-        onTypeChange = {
-            state = state.copy(type = it, items = emptyList())
-            // ⚠️ 换类型后必须重搜（2026-10-17）：原来只清空列表不重拉，
-            // 用户切到「整合包」看到的是一片空白，以为没有内容。
-            doSearch()
-        },
-        onLoaderChange = {
-            state = state.copy(loader = it, items = emptyList())
-            doSearch()
-        },
         // 排序变更：同样要重搜（排序是服务端行为，本地排没用）
         onSortChange = {
             state = state.copy(sort = it, items = emptyList())
