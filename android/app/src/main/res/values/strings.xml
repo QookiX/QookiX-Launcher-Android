@@ -525,7 +525,7 @@
     <string name="settings_renderer_label_mobileglues">MobileGlues</string>
     <string name="settings_renderer_label_zink">Zink + Turnip</string>
     <string name="settings_renderer_not_bundled_warning">「%1$s」不在安装包里，需要先在「设置 → 插件」安装否则可能会导致游戏崩溃</string>
-    <string name="settings_renderer_hint_gl4es">兼容性最好，随包分发，多数设备选这个不烧心</string>
+    <string name="settings_renderer_hint_gl4es">兼容性最好，随包分发，多数设备选这个更省心</string>
     <string name="settings_renderer_hint_mobileglues">性能更好，但需要先在插件页安装</string>
     <string name="settings_renderer_hint_zink">Vulkan 驱动，需要 Turnip 插件，配置门槛较高</string>
 
@@ -651,9 +651,9 @@
     <string name="settings_download_title">下载</string>
     <string name="settings_download_concurrency_group">并发</string>
     <string name="settings_download_parallel_files">并行下载</string>
-    <string name="settings_download_parallel_files_desc">同时从服务器下载的文件数量值越大并发越高，但对服务器压力也越大</string>
+    <string name="settings_download_parallel_files_desc">同时从服务器下载的文件数量。数值越大并发越高，但对服务器压力也越大</string>
     <string name="settings_download_chunk_threads">单文件分片线程数</string>
-    <string name="settings_download_chunk_threads_desc">对单个大文件使用 HTTP Range 分片并行下载的线程数仅对支持断点续传的服务器生效，小文件始终单线程</string>
+    <string name="settings_download_chunk_threads_desc">对单个大文件使用 HTTP Range 分片并行下载的线程数。仅对支持断点续传的服务器生效，小文件始终单线程</string>
     <string name="settings_download_network_hint">网络提示</string>
     <string name="settings_download_network_hint_desc">并发数改大后如果下载反而变慢，说明服务端限速了，调小即可</string>
     <string name="settings_download_update_group">更新</string>
