@@ -207,6 +207,9 @@ private fun ServersTab(
     // 旧 Vue 版多人页顶部有搜索框，Compose 版漏了。服务器多了没法找，
     // 现在补回来：按名称过滤（大小写不敏感）。
     var query by remember { mutableStateOf("") }
+    // 直接连接（2026-10-21 补：pingMcServer 一直没 UI）。放在搜索行里，
+    // 横屏 2400px 宽时没必要独占一行（原来会挤到第二行，看着像布局错位）。
+    var showDirectConnect by remember { mutableStateOf(false) }
     val filtered = remember(state.servers, query) {
         if (query.isBlank()) state.servers
         else state.servers.filter { it.name.contains(query, ignoreCase = true) }
@@ -231,23 +234,14 @@ private fun ServersTab(
                 },
             )
             Spacer(Modifier.width(8.dp))
+            TextButton(onClick = { showDirectConnect = true }) {
+                Text(stringResource(R.string.multiplayer_direct_connect))
+            }
+            Spacer(Modifier.width(4.dp))
             FilledTonalButton(onClick = onCreateServer) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.multiplayer_new_server))
-            }
-        }
-
-        // 直接连接（2026-10-21 补：pingMcServer 一直没 UI）
-        var showDirectConnect by remember { mutableStateOf(false) }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = QkSpacing.lg),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            TextButton(onClick = { showDirectConnect = true }) {
-                Text(stringResource(R.string.multiplayer_direct_connect))
             }
         }
         if (showDirectConnect) {
