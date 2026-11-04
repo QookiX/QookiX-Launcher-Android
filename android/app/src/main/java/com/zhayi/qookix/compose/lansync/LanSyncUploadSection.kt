@@ -162,6 +162,19 @@ internal fun LanSyncUploadSection(
                     )
                 }
 
+                // ⚠️ UI-06：错误必须排在空态之前 —— 以前 onFailure 只写了 error，
+                // 而这里先命中 isEmpty()，界面一直显示「本机还没有实例」，用户以为真没实例。
+                error != null && instances.isEmpty() -> Column {
+                    Text(
+                        error.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    androidx.compose.material3.TextButton(onClick = { error = null; loadInstances() }) {
+                        Text(stringResource(R.string.common_retry))
+                    }
+                }
+
                 instances.isEmpty() -> Text(
                     stringResource(R.string.lan_sync_upload_no_instance),
                     style = MaterialTheme.typography.bodySmall,

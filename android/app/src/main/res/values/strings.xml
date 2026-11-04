@@ -956,6 +956,8 @@
     <string name="lan_sync_connecting">正在连接…</string>
     <string name="lan_sync_connected">已连接：%1$s</string>
     <string name="lan_sync_connect_failed">连接失败</string>
+  <string name="lan_sync_error_title">出错了</string>
+  <string name="lan_sync_disconnect">断开连接</string>
     <string name="lan_sync_loading">正在加载实例列表…</string>
     <string name="lan_sync_no_instances">PC 上没有可同步的实例</string>
     <string name="lan_sync_select">选择要同步的实例</string>

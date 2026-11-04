@@ -701,7 +701,7 @@ private fun ErrorSection(
     onBack: () -> Unit,
 ) {
     Text(
-        stringResource(R.string.lan_sync_connect_failed),
+        stringResource(R.string.lan_sync_error_title),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.error,
@@ -716,7 +716,7 @@ private fun ErrorSection(
             Text(stringResource(R.string.common_retry))
         }
         OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
-            Text(stringResource(R.string.common_back))
+            Text(stringResource(R.string.lan_sync_disconnect))
         }
     }
 }

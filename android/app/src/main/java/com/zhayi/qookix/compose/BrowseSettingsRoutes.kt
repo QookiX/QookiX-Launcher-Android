@@ -1144,7 +1144,7 @@ internal fun BrowseRoute(
         onTypeChange = { newType ->
             filterOpen = false
             if (newType != state.type) {
-                state = state.copy(type = newType)
+                state = state.copy(type = newType, items = emptyList())
                 doSearch()
             }
         },
@@ -1152,7 +1152,7 @@ internal fun BrowseRoute(
         onLoaderChange = { newLoader ->
             filterOpen = false
             if (newLoader != state.loader) {
-                state = state.copy(loader = newLoader)
+                state = state.copy(loader = newLoader, items = emptyList())
                 doSearch()
             }
         },
