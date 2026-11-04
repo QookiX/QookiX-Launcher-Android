@@ -207,6 +207,7 @@ pub async fn list_accounts() -> Result<Vec<Account>> {
         fs::create_dir_all(&accounts_dir).await.ok();
         return Ok(Vec::new());
     }
+    let _ = crate::offline_uuid::migrate_legacy_account_files(&accounts_dir).await;
 
     let mut accounts = Vec::new();
 
