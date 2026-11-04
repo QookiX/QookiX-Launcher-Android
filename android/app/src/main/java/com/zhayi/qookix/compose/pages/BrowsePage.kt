@@ -190,6 +190,9 @@ fun BrowsePage(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                             )
+                            // 搜索失败后原本只能改筛选条件才能重发请求 —— 网络恢复后没有入口
+                            Spacer(Modifier.height(QkSpacing.sm))
+                            Button(onClick = onSearch) { Text(stringResource(R.string.common_retry)) }
                         }
                     }
                 }
