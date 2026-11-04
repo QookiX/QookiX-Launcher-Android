@@ -295,27 +295,6 @@ class ComposeMainActivity : ComponentActivity() {
         enableImmersiveMode()
         window?.decorView?.post { attachComposeOverlay(0) }
         Log.i(TAG, "onCreate 完成")
-        // 3 秒后把视图树打出来（诊断用）
-        window?.decorView?.postDelayed({ dumpTree() }, 3000)
-        window?.decorView?.postDelayed({ dumpTree() }, 8000)
-    }
-
-    /** 诊断：把 decorView 的完整视图树打印出来。 */
-    private fun dumpTree() {
-        val root = window?.decorView ?: return
-        val sb = StringBuilder("View tree:\n")
-        fun walk(v: View, depth: Int) {
-            val pad = "  ".repeat(depth)
-            val vis = when (v.visibility) {
-                View.VISIBLE -> "V"; View.INVISIBLE -> "I"; else -> "G"
-            }
-            sb.append("$pad${v.javaClass.simpleName} vis=$vis ${v.width}x${v.height} alpha=${v.alpha}\n")
-            if (v is ViewGroup) {
-                for (i in 0 until v.childCount) walk(v.getChildAt(i), depth + 1)
-            }
-        }
-        walk(root, 0)
-        Log.i(TAG, sb.toString())
     }
 
     /**
