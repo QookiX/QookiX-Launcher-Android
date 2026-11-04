@@ -36,6 +36,7 @@ mod server_list;
 /// 服务器空闲休眠与唤醒（无人时停服省电，有人连接自动拉起）。
 mod sleep;
 mod server_process;
+mod server_state;
 mod server_files;
 mod instance_files;
 mod rcon;

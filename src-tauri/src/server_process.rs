@@ -569,19 +569,11 @@ use std::sync::Arc;
 
 // ── 状态（`:server` 进程内） ──────────────────────────────────────────
 
-static RUNNING: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 static RUNTIME_PORT: OnceLock<std::sync::Mutex<u16>> = OnceLock::new();
 
-fn running_flag() -> Arc<AtomicBool> {
-    RUNNING
-        .get_or_init(|| Arc::new(AtomicBool::new(false)))
-        .clone()
-}
-
-/// 供 UI 轮询：`:server` 进程内当前是否有服在跑
-pub fn is_running() -> bool {
-    running_flag().load(Ordering::Acquire)
-}
+// 运行状态（stop 请求 / JVM 存活）移到了 `server_state`：那边同时修了
+// 「is_running 读的是 stop 请求 → 运行中反而报 false」（审计 BE-07）。
+pub use crate::server_state::is_running;
 
 // ── Kotlin 调用的 JNI 入口 ────────────────────────────────────────────
 
@@ -666,8 +658,14 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
         crate::util::log_line(&mc_msg);
         println!("{mc_msg}");
 
-        let stop_flag = running_flag();
+        let stop_flag = crate::server_state::stop_flag();
         stop_flag.store(false, Ordering::Release);
+        // BE-07：并发 nativeStart 会起两套 IPC + JVM，互相覆盖 RUNTIME_PORT 与
+        // runtime.json —— 后起的把前一个的端口写掉，/stop 就打到错误的进程上。
+        if !crate::server_state::try_begin() {
+            crate::util::log_line("[server] 已有服务在运行，拒绝重复启动");
+            return -4;
+        }
         *RUNTIME_PORT
             .get_or_init(|| std::sync::Mutex::new(0))
             .lock()
@@ -709,6 +707,8 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
         // JVM 线程（阻塞到服停）
         let spec2 = spec.clone();
         std::thread::spawn(move || {
+            // 正常返回 / 提前 return / panic unwind 都会复位「运行中」（BE-07）
+            let _alive = crate::server_state::AliveGuard::new();
             // **必须把进程 CWD 切到服务器目录** —— 这是从游戏启动路径抄来的关键一步
             // （launch.rs 在 JvmLauncher::launch 之前就 `set_current_dir(&game_dir)`）。
             // 只给 `-Duser.dir=` 不够：paperclip / Minecraft 启动早期用 CWD 解析
