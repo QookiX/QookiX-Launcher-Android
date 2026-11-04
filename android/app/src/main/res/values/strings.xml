@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">"QookiX Launcher Android"</string>
+    <string name="app_name">QookiX</string>
     <string name="main_activity_title">"QookiX Launcher Android"</string>
     <string name="notification_game_running">游戏运行中</string>
     <string name="notification_stop">停止</string>
@@ -26,7 +26,7 @@
     <string name="settings_autostart_desc">系统启动后自动打开启动器</string>
     <string name="settings_orientation_group">屏幕方向</string>
     <string name="settings_orientation">屏幕方向</string>
-    <string name="settings_orientation_desc">启动器界面默认锁定横屏，切换后立即生效（游戏内方向由游戏自身控制）</string>
+    <string name="settings_orientation_desc">切换后立即生效（游戏内方向由游戏自身控制）</string>
     <string name="settings_download_source_group">下载源</string>
     <string name="settings_mirror">下载镜像源</string>
     <string name="settings_mirror_desc">加速游戏本体、资源文件与依赖库（Forge / Fabric / NeoForge）的下载，镜像缺失文件时会自动回退官方地址 自定义镜像需兼容 BMCLAPI 接口，直接填写根地址即可</string>

@@ -454,12 +454,18 @@ private fun OfflineAddDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit)
         title = { Text(stringResource(R.string.account_add_offline_title)) },
         text = {
             Column {
+                val len = name.trim().length
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.account_username)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    // UI-13：超长/过短时按钮只是变灰，没有任何说明 —— 用户不知道卡在哪
+                    isError = len !in 3..16,
+                    supportingText = {
+                        Text(if (len in 3..16) "$len / 16" else "$len / 16 · 需 3–16 个字符")
+                    },
                 )
                 Spacer(Modifier.height(QkSpacing.xs))
                 Text(
