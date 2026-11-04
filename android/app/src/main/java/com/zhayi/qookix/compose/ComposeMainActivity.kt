@@ -119,6 +119,10 @@ class ComposeMainActivity : ComponentActivity() {
     private var exitWatcher: com.zhayi.qookix.compose.bridge.RustBridge? = null
 
     private fun watchGameExitAndRestart() {
+        // ⚠️ 只在第一次挂：Activity 重建（旋转屏幕、从后台被恢复）会再走 onCreate，
+        // 而这里每次都 new 一个 RustBridge 并 listen —— 旧订阅既不注销也会一起响应
+        // `launch://exit`，同一局游戏退出会被触发多次 restartForNextLaunch。
+        if (exitWatcher != null) return
         runCatching {
             val b = com.zhayi.qookix.compose.bridge.RustBridge(this)
             exitWatcher = b // 持有引用，避免被回收导致订阅丢失
