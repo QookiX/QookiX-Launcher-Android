@@ -66,12 +66,22 @@ class SettingsRepo(private val api: QookixApi) {
      *
      * 这里两个键都试，避免以后再被命名坑一次。
      */
-    private fun pick(json: JSONObject, camel: String, snake: String): String? =
-        when {
+    /**
+     * 取字段的原始字符串。
+     *
+     * ⚠️ 2026-11-01（用户复现：设置里 Java 路径 / CurseForge API Key 显示 `null`）：
+     * `optString` 遇到 **JSON null** 时返回的是字面量字符串 `"null"`（非空！），
+     * 后面的 `takeIf { it.isNotBlank() }` 拦不住，于是界面直接把 `null` 显示出来。
+     * 这里统一把 `"null"` 和空串都当成「没有值」—— 改这一处，所有字符串设置项一起好。
+     */
+    private fun pick(json: JSONObject, camel: String, snake: String): String? {
+        val raw = when {
             json.has(camel) -> json.optString(camel)
             json.has(snake) -> json.optString(snake)
-            else -> null
+            else -> return null
         }
+        return raw.takeIf { it.isNotBlank() && it != "null" }
+    }
 
     private fun str(json: JSONObject, camel: String, snake: String, def: String): String =
         pick(json, camel, snake)?.takeIf { it.isNotBlank() } ?: def
