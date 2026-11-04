@@ -86,7 +86,10 @@ object CoreState {
      * （`RustBridge.listen` 是**追加**语义，重复订阅会让同一个刷新跑多次）。
      */
     fun attach(context: Context?, bridge: RustBridge) {
-        this.context = context
+        // ⚠️ 只留 Application context：CoreState 是 object（进程级单例），
+        // 存 Activity 会让它永远无法回收 —— 每旋转一次屏幕就泄漏一个 Activity。
+        // 这里只用它取字符串资源 / 拼错误文案，Application context 完全够用。
+        this.context = context?.applicationContext
         this.bridge = bridge
         if (!subscribed) {
             subscribed = true

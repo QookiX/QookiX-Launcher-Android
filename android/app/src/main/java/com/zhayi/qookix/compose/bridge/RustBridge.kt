@@ -24,7 +24,12 @@ import java.util.concurrent.ConcurrentHashMap
  * 旧的 `findTauriWebView` / `attemptInject` / `IpcProbe` 全部删除
  *（保留 `findTauriWebView` 的空实现，只是为了 `Skin3dHost` 编译通过 ✓）。
  */
-class RustBridge(@Suppress("unused") private val activity: Activity?) {
+/**
+ * ⚠️ 构造参数不再存成字段：RustBridge 会被 CoreState（进程级单例）持有，
+ * 存 Activity 等于让 Activity 永远无法回收。原来只用 unusedActivityHolder()
+ * 假装用到它，实际没有任何调用点读取这个字段。
+ */
+class RustBridge(@Suppress("UNUSED_PARAMETER") activity: Activity?) {
 
     /** 是否已确认 JNI 通道可用。 */
     val isReady: Boolean get() = ready
@@ -177,9 +182,6 @@ class RustBridge(@Suppress("unused") private val activity: Activity?) {
         list.removeAll { it === sub.handler }
         if (list.isEmpty()) globalHandlers.remove(sub.event)
     }
-
-    @Suppress("UNUSED_PARAMETER")
-    private fun unusedActivityHolder() = activity
 
     /** 兼容旧调用点：做一次最轻的往返，用于诊断。 */
     fun selfTest(onResult: (Result<String>) -> Unit) {
