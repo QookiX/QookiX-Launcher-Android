@@ -148,21 +148,24 @@ async fn try_download_chunked(
             let mut f = fs::OpenOptions::new().write(true).open(&dest).await?;
             use tokio::io::AsyncSeekExt;
             f.seek(std::io::SeekFrom::Start(start)).await?;
+            let want = end - start + 1;
+            let mut got = 0u64;
             while let Some(chunk) = resp.chunk().await? {
                 if cancels.iter().any(|c| c.load(Ordering::Relaxed)) {
                     anyhow::bail!("已取消");
                 }
+                got += chunk.len() as u64;
                 f.write_all(&chunk).await?;
+            }
+            if got != want {
+                // CDN 回 206 后提前 EOF：预分配的尾部全是 0，不校验就会被判成功（BE-05）
+                anyhow::bail!("分片长度不符: bytes={start}-{end} 期望 {want}，实际 {got}");
             }
             Ok::<(), anyhow::Error>(())
         }));
     }
 
-    // 任一片失败 → 整个分片下载作废，交给调用方回退单流。**但必须先把手里的任务收干净**：
-    // tokio 里 drop 一个 JoinHandle 只是 detach，被丢下的分片会继续往同一个文件里写，
-    // 而调用方此刻会回退 `stream_to_file`、对同一个 dest 重新 create（截断）+ 顺序写
-    // → 两边交错写，落盘文件损坏（有没有被发现，取决于后面有没有 SHA1 校验）。
-    // 所以失败时先把剩余分片 abort 掉，再逐个 await 等它们真正结束。
+    // 失败必须先 abort + await：drop JoinHandle 只是 detach，残留分片会与调用方回退的单流交错写同一文件
     let mut failed = false;
     let mut rest = handles.into_iter();
     while let Some(h) = rest.next() {
@@ -172,10 +175,7 @@ async fn try_download_chunked(
         }
     }
     if failed {
-        for h in rest {
-            h.abort();
-            let _ = h.await;
-        }
+        for h in rest { h.abort(); let _ = h.await; }
         return Ok(false);
     }
     Ok(true)

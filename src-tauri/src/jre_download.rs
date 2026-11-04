@@ -205,9 +205,15 @@ async fn try_chunked(
             let mut f = fs::OpenOptions::new().write(true).open(&dest).await?;
             use tokio::io::{AsyncSeekExt, AsyncWriteExt};
             f.seek(std::io::SeekFrom::Start(start)).await?;
+            let mut got = 0u64;
             while let Some(b) = resp.chunk().await? {
+                got += b.len() as u64;
                 f.write_all(&b).await?;
                 done.fetch_add(b.len() as u64, Ordering::Relaxed);
+            }
+            // 与 download.rs 同一条：206 后提前 EOF 时，预分配的尾部全是 0
+            if got != end - start + 1 {
+                anyhow::bail!("分片长度不符: bytes={start}-{end} 实际 {got}");
             }
             f.flush().await?;
             Ok::<(), anyhow::Error>(())

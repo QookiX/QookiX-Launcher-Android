@@ -229,10 +229,9 @@ pub async fn set_game_dir(root: Option<String>, migrate: bool) -> Result<GameDir
                 "[game_dir] 拒绝迁移：来源 {} 就是数据根目录（会误删 servers/skins/accounts）",
                 old_instances.display()
             ));
-            println!(
-                "[game_dir] 拒绝迁移：来源 {} 就是数据根目录（会误删 servers/skins/accounts）",
-                old_instances.display()
-            );
+            // ⚠️ BE-06：光打日志不够 —— 原来下面照样 `set_game_root`，配置指向新目录
+            // 而文件一个没动，`list_instances()` 立刻变空，用户以为实例被删光了。
+            return Err("来源目录就是应用数据根目录，迁移会把 servers/skins/accounts 一起搬走，已中止。请设成具体的实例目录再试。".to_string());
         } else {
             let moved = migrate_instances(&old_instances, &new_instances)
                 .await
