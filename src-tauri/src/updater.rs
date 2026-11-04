@@ -377,5 +377,15 @@ pub async fn download_update(
 
 /// 交给系统安装器（会弹「是否安装」确认，安卓不允许静默装）。
 pub fn install_update(path: String) -> Result<(), String> {
+    // ⚠️ BE-10：只允许装「更新目录」里的包。
+    // 原样把调用方给的路径交给系统安装器，等于 IPC 就能让手机装任意位置的 APK
+    // （同文件 download_file:188 有 dest_allowed，这里一直是对称缺口）。
+    let data_dir = crate::settings::data_dir_sync().unwrap_or_default();
+    let dir = updates_dir(&data_dir);
+    let canon_dir = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+    let canon = std::fs::canonicalize(&path).map_err(|e| format!("安装包不存在：{e}"))?;
+    if !canon.starts_with(&canon_dir) {
+        return Err("只能安装更新目录下的安装包".to_string());
+    }
     crate::android_bridge::install_apk(&path)
 }
