@@ -484,7 +484,8 @@ fun ContentServicesPane(
                             ?: stringResource(R.string.content_services_test_api_desc),
                         showDivider = false,
                     ) {
-                        TextButton(onClick = onTestTranslateApi, enabled = !testingTranslate) {
+                        // UI-11：地址都没填时点「测试」必然拿到网络错误，先禁掉
+            TextButton(onClick = onTestTranslateApi, enabled = !testingTranslate && state.translateApiBase.isNotBlank()) {
                             Text(if (testingTranslate) stringResource(R.string.content_services_testing)
                                  else stringResource(R.string.content_services_test))
                         }

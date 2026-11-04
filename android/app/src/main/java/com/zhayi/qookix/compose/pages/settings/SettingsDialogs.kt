@@ -78,6 +78,7 @@ fun TextInputDialog(
     val confirmLabel = confirmText.ifBlank { stringResource(R.string.dialog_save) }
     // remember(initial)：换目标时重置（同一个对话框复用不同字段时很重要）
     var value by remember(initial) { mutableStateOf(initial) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
 
     AlertDialog(
         // ⚠️ 有未保存的修改时，不允许点外部/返回键直接关掉（2026-10-17 修）。
@@ -87,7 +88,15 @@ fun TextInputDialog(
         // 刚敲的一大段参数全丢，而且没有任何提示。
         //
         // 现在：没改过就直接关（无损失）；改过就要求用户用「取消」明确放弃。
-        onDismissRequest = { if (value == initial) onDismiss() },
+        // UI-12：改过内容时不能静默吞掉返回键 —— 原来条件不成立就什么都不做，
+        // 弹窗不关、不确认、不提示，用户以为返回键坏了。现在至少给一句提示。
+        onDismissRequest = {
+            if (value == initial) {
+                onDismiss()
+            } else {
+                android.widget.Toast.makeText(ctx, R.string.dialog_discard_hint, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        },
         title = { Text(title) },
         text = {
             Column {
