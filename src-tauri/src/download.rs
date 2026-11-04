@@ -285,9 +285,7 @@ pub async fn download_file_with_cancel(
             chunk_note = "single(no-range)".to_string();
             continue;
         }
-        // 两个取消标志都要传下去（「下载中心」的取消 + 安装任务的取消）。原来这里写死 `None`，
-        // 于是 >8MB 的文件一旦走分片，**取消就完全无效** —— 用户点了取消、界面显示已取消，
-        // 后台却把文件下完了。
+        // 两个取消标志都要传：原来写死 None，>8MB 走分片时取消完全无效
         let cancels: Vec<Arc<AtomicBool>> = [Some(cancel.clone()), install_cancel.clone()]
             .into_iter()
             .flatten()
@@ -321,14 +319,16 @@ pub async fn download_file_with_cancel(
                     }
                 }
                 CANCEL_FLAGS.lock().await.remove(&task_id);
-                return Ok(DownloadProgress {
+                let task = DownloadProgress {
                     task_id: task_id.clone(),
                     progress: 100.0,
                     // 原来写死 "chunked x4"，但实际并发数是 chunk_threads()（默认 2、用户可调）
                     message: format!("Downloaded (chunked x{threads})"),
                     total_bytes: len as i64,
                     downloaded_bytes: len as i64,
-                });
+                };
+                DOWNLOAD_TASKS.lock().await.insert(task_id.clone(), task.clone());
+                return Ok(task);
             }
             Ok(false) => chunk_note = "single(range-unsupported)".to_string(),
             Err(_) => chunk_note = "single(chunk-error)".to_string(),
