@@ -55,7 +55,7 @@
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/FirstRunSetupHost.kt": 149,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/FrpPage.kt": 665,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/FrpRoomsPage.kt": 587,
-  "android/app/src/main/java/com/zhayi/qookix/compose/pages/HomePage.kt": 664,
+  "android/app/src/main/java/com/zhayi/qookix/compose/pages/HomePage.kt": 394,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstallDialog.kt": 202,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstallModels.kt": 104,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstallPanel.kt": 327,
