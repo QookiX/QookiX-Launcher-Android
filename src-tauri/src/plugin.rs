@@ -810,8 +810,7 @@ async fn read_descriptor(zip_path: &Path) -> Result<PluginDescriptor, String> {
 
 /// 带进度的下载：先写 `.part` 再改名，配合 sha1 校验做到「要么完整，要么没有」。
 ///
-/// 没有复用 `download::download_file` 的原因：那条路径会套用用户的 Minecraft 镜像设置
-/// （对我们的插件源是错的），而且进度只存在全局表里、前端拿不到 taskId 没法订阅。
+/// 没复用 `download::download_file`：那条会套用 Minecraft 镜像设置（对插件源是错的），且进度只进全局表
 async fn download_with_progress(
     url: &str,
     dest: &Path,
@@ -836,7 +835,6 @@ async fn download_with_progress(
     }
     let part = dest.with_extension("part");
     let mut file = std::fs::File::create(&part).map_err(|e| format!("创建文件失败：{e}"))?;
-    let mut hasher = Sha1::new();
     let mut done = 0u64;
     let mut last_emit = std::time::Instant::now();
 
@@ -844,7 +842,6 @@ async fn download_with_progress(
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("下载中断：{e}"))?;
         std::io::Write::write_all(&mut file, &chunk).map_err(|e| format!("写入失败：{e}"))?;
-        hasher.update(&chunk);
         done += chunk.len() as u64;
         if last_emit.elapsed().as_millis() >= 200 {
             last_emit = std::time::Instant::now();
@@ -853,6 +850,8 @@ async fn download_with_progress(
     }
     std::io::Write::flush(&mut file).ok();
     drop(file);
+    // BE-11：截断时别 rename 成正式包（下游只有清单带 sha1 才校验，多数插件没有）
+    if expected_size > 0 && done != expected_size { let _ = std::fs::remove_file(&part); return Err(format!("下载不完整：{done} / {expected_size} 字节")); }
     emit(id, "download", done, total, "下载完成");
 
     std::fs::rename(&part, dest).map_err(|e| format!("落盘失败：{e}"))?;

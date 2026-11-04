@@ -265,7 +265,10 @@ pub async fn download_update(
     let dir = updates_dir(&data_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建更新目录失败：{e}"))?;
     let target = local_apk_path(&data_dir, &pending.version);
-    let part = target.with_extension("apk.part");
+    // BE-12：固定 `.part` 名时，连点两次「下载更新」（或静默检查与手动下载重叠）会互相截断 ——
+    // 第二个流 `File::create` 直接把第一个清空，两个流再交错写，rename 出来就是撕裂的包。
+    // 用时间戳区分，两次各写各的。
+    let part = target.with_extension(format!("{}.part", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
 
     let resp = client()?
         .get(&pending.url)
