@@ -114,7 +114,8 @@ fun ServerCreatePage(
     onBack: () -> Unit,
     onCreate: () -> Unit,
 ) {
-    val screenW = LocalConfiguration.current.screenWidthDp.dp
+    // 缩放感知：界面缩放拉大时按等效宽度判窄屏（算法见 ui/ScreenMetrics.kt）
+    val screenW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().dp
     // 窄屏（竖屏手机）时左栏占比小一点，保证右边版本列表还能看到几行。
     // 与 CreateInstancePage 用同一个比例/宽度 —— 两页并排看要对齐
     // 与 CreateInstancePage 同步：竖屏 42% → 50%，表单不再挤成一团

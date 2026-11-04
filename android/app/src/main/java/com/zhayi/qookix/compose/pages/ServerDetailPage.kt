@@ -1165,7 +1165,7 @@ private fun ConfigTab(
                 // **逐字竖排**（同一天第 6 次遇到这类问题）。
                 //
                 // 窄屏改成上下两行：标签在上、控件在下，两边都有完整宽度。
-                val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+                val screenW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().dp
                 val stack = screenW < 520.dp
 
                 if (stack) {

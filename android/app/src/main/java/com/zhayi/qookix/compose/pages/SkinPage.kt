@@ -199,7 +199,7 @@ fun SkinPage(
         // 完全被挤出屏幕**（点都点不到）。
         //
         // 窄屏纵向排：预览在上、信息在下，两边都有完整宽度。
-        val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+        val screenW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().dp
         val stack = screenW < 560.dp
         val previewBlock: @Composable () -> Unit = {
             SkinPreview3d(
