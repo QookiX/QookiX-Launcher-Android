@@ -2280,6 +2280,10 @@ private fun InstanceDetailRoute(
         settingsHint = settingsCtl.hint,
         settingsError = settingsCtl.error,
         onDismissSettingsHint = { settingsCtl.hint = null; settingsCtl.error = null },
+        // 2026-11-04（审计 UI-01/UI-02）：读失败禁用保存 + 给重试；离开前确认放弃改动
+        settingsCanSave = settingsCtl.canSave,
+        onSettingsRetry = settingsCtl::retry,
+        onSettingsDiscard = settingsCtl::discard,
         onAnalyzeCrash = { file ->
             android.util.Log.i("QkCrash", "analyze file=[" + file + "] len=" + file.length)
             api.analyzeCrashLog(instanceId, file) { r ->

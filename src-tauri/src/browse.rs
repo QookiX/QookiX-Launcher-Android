@@ -2184,6 +2184,11 @@ pub async fn install_content(
     version_id: &str,
     kind: &str,
 ) -> Result<Value> {
+    // ⚠️ 2026-11-04（审计 BE-03）：`instance_dir` 的注释明确「ID 合法性由调用方负责」，
+    // 同文件的 list_content / uninstall_content 都校验了，唯独这个**写**路径漏了。
+    // `../../..` 或绝对路径会让下载落到实例根之外。
+    crate::fsutil::validate_id(instance_id, "实例")
+        .map_err(|e| anyhow::anyhow!(e))?;
     let instance_path = settings::instance_dir(instance_id).await?;
     let folder = crate::instances::kind_folder(kind);
     let content_dir = instance_path.join(folder);
@@ -2889,15 +2894,53 @@ pub async fn extract_game_icons(instance_id: Option<String>) -> Result<Vec<GameI
 ///
 /// 安卓上「另存为」对话框 `save()` 返回的是 SAF 的 `content://` URI 而不是路径，
 /// 对 URI 直接 `fs::write` 会失败 —— 那种情况必须走原生的 ContentResolver 写回。
+/// 词法规范化路径（不访问磁盘）：弹掉 `.` / `..`，用于写路径的前缀校验。
+fn lexical_normalize(p: &std::path::Path) -> std::path::PathBuf {
+    let mut out = std::path::PathBuf::new();
+    for c in p.components() {
+        match c {
+            std::path::Component::RootDir => out.push("/"),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::Normal(s) => out.push(s),
+            std::path::Component::Prefix(s) => out.push(s.as_os_str()),
+        }
+    }
+    out
+}
+
 pub fn save_text_file(path: &str, content: &str) -> Result<(), String> {
     if path.starts_with("content://") {
         return crate::android_bridge::write_text_to_uri(path, content);
     }
-    let p = std::path::Path::new(path);
-    if let Some(parent) = p.parent() {
+    // ⚠️ 2026-11-04（审计 BE-01）：原来这是**任意路径写入原语** ——
+    // `fs::write(Path::new(path))` 没有任何根目录约束，IPC 传
+    // `/data/data/<pkg>/files/settings.json` 就能覆盖配置。
+    // 同项目 `dispatch_task::dest_allowed` 有约束，这里是明显旁路。
+    //
+    // 前端目前只走 `content://`（「另存为」拿到 SAF URI），普通路径分支
+    // 保留但限定在应用数据目录内；并改成临时文件 + rename 的原子写，
+    // 避免进程被杀留下半截 JSON。
+    let root = crate::settings::data_dir_sync()
+        .ok_or_else(|| "数据目录不可用，拒绝写入".to_string())?;
+    let dest = lexical_normalize(std::path::Path::new(path));
+    if !dest.starts_with(lexical_normalize(std::path::Path::new(&root))) {
+        return Err(format!("拒绝写入数据目录之外的路径：{path}"));
+    }
+    if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
-    std::fs::write(p, content).map_err(|e| format!("写入文件失败: {e}"))
+    let tmp = dest.with_extension(format!("qk-tmp-{}", std::process::id()));
+    std::fs::write(&tmp, content).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("写入文件失败: {e}")
+    })?;
+    std::fs::rename(&tmp, &dest).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("写入文件失败: {e}")
+    })
 }
 
 // ==================== 服务器内容安装（2026-10-18 新增）====================

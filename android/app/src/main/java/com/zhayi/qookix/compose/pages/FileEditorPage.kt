@@ -73,27 +73,13 @@ fun FileEditorPage(
                 .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 有未保存修改时先确认，不能一按就丢（审查 24 号问题）
-            var confirmDiscard by remember { mutableStateOf(false) }
-            IconButton(onClick = { if (state.dirty) confirmDiscard = true else onBack() }) {
+            // ⚠️ 2026-11-04（审计 UI-03）：这里原来自己又做了一遍「未保存确认」，
+            // 而外层 `FileEditorController` 已经有 BackHandler + 同一套弹窗。
+            // 顶栏箭头点「放弃修改」会调 onBack() → attemptClose() → dirty 仍为 true
+            // → 外层再弹一次，用户得确认两遍；系统返回键却只要一遍。
+            // 现在统一交给外层，两条路径都只确认一次。
+            IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.file_back))
-            }
-            if (confirmDiscard) {
-                AlertDialog(
-                    onDismissRequest = { confirmDiscard = false },
-                    title = { Text(stringResource(R.string.file_editor_unsaved)) },
-                    text = { Text(stringResource(R.string.file_editor_discard_msg)) },
-                    confirmButton = {
-                        TextButton(onClick = { confirmDiscard = false; onBack() }) {
-                            Text(stringResource(R.string.file_editor_modified))
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { confirmDiscard = false }) {
-                            Text(stringResource(R.string.common_cancel))
-                        }
-                    },
-                )
             }
 
             Column(modifier = Modifier.weight(1f)) {

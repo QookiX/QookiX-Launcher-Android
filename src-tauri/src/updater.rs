@@ -301,8 +301,18 @@ pub async fn download_update(
         }
     }
     use std::io::Write as _;
-    file.flush().ok();
+    // ⚠️ 2026-11-04（审计 BE-04）：原来 `file.flush().ok()` 把写盘失败吞了，
+    // 后面照样 rename 成正式更新包并返回成功。
+    if let Err(e) = file.flush() {
+        let _ = std::fs::remove_file(&part);
+        return Err(format!("写入更新包失败：{e}"));
+    }
     drop(file);
+    // 服务端给了长度就必须收满（弱网截断时不能当成完整包）
+    if total > 0 && done < total {
+        let _ = std::fs::remove_file(&part);
+        return Err(format!("更新包不完整（已收 {done}/{total} 字节）"));
+    }
     crate::progress::push_ser(
         PROGRESS_EVENT,
         UpdateProgress {
@@ -311,38 +321,50 @@ pub async fn download_update(
         },
     );
 
-    // 官方同版本发布里带 SHA256SUMS.txt，能拿到就校验（拿不到只警告不失败）
-    if let Some(sums_url) = &pending.sums_url {
-        if let Ok(sums) = fetch_text(&client()?, sums_url).await {
-            // ⚠️ 用**远程资产原名**，不是本地落盘名（B14）：
-            // 本地是 local_apk_path() 拼的名字，去 SHA256SUMS 里永远找不到，
-            // 于是校验被静默跳过、装的是没有校验过的包。
-            let local_name = target
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let file_name = if pending.asset_name.is_empty() {
-                local_name.as_str()
-            } else {
-                pending.asset_name.as_str()
-            };
-            match find_sha256(&sums, file_name) {
-                Some(expected) => {
-                    let actual = format!("{:x}", hasher.finalize());
-                    if actual != expected {
-                        let _ = std::fs::remove_file(&part);
-                        return Err(format!("校验失败（期望 {expected}，实际 {actual}）"));
-                    }
-                    crate::util::log_line(&format!("更新包校验通过：{file_name}"));
-                }
-                None => {
-                    // 以前这里是静默跳过，出了问题完全看不出来。
-                    let _ = std::fs::remove_file(&part);
-                    return Err(format!(
-                        "SHA256SUMS.txt 里没有找到 {file_name} 的校验值，拒绝安装未校验的更新包"
-                    ));
-                }
+    // ⚠️ 2026-11-04（审计 BE-04）：原来 `if let Ok(sums) = ...` —— release 没附
+    // SHA256SUMS、请求失败/超时、client() 构造失败，全都会**静默跳过校验**，
+    // 然后照样 rename 并返回成功（装的是未校验甚至截断的 APK）。
+    // 现在：拿不到校验文件就明确拒绝，不再放行。
+    let sums = match &pending.sums_url {
+        Some(url) => match fetch_text(&client()?, url).await {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = std::fs::remove_file(&part);
+                return Err(format!(
+                    "无法获取 SHA256SUMS.txt（{e}），拒绝安装未校验的更新包"
+                ));
             }
+        },
+        None => {
+            let _ = std::fs::remove_file(&part);
+            return Err("该版本没有提供 SHA256SUMS.txt，拒绝安装未校验的更新包".to_string());
+        }
+    };
+    // ⚠️ 用**远程资产原名**，不是本地落盘名（B14）：
+    // 本地是 local_apk_path() 拼的名字，去 SHA256SUMS 里永远找不到。
+    let local_name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let file_name = if pending.asset_name.is_empty() {
+        local_name.as_str()
+    } else {
+        pending.asset_name.as_str()
+    };
+    match find_sha256(&sums, file_name) {
+        Some(expected) => {
+            let actual = format!("{:x}", hasher.finalize());
+            if actual != expected {
+                let _ = std::fs::remove_file(&part);
+                return Err(format!("校验失败（期望 {expected}，实际 {actual}）"));
+            }
+            crate::util::log_line(&format!("更新包校验通过：{file_name}"));
+        }
+        None => {
+            let _ = std::fs::remove_file(&part);
+            return Err(format!(
+                "SHA256SUMS.txt 里没有找到 {file_name} 的校验值，拒绝安装未校验的更新包"
+            ));
         }
     }
 

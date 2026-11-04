@@ -480,14 +480,17 @@ internal fun SettingsRoute(
                             checkingUpdate = false
                             updateResult = r.fold(
                                 onSuccess = { o ->
-                                    // 字段名可能是最新的（hasUpdate/latestVersion），
-                                    // 也可能是「没有更新」的空对象，两种都兜住
-                                    val has = o.optBoolean("hasUpdate", false) ||
-                                        o.optBoolean("available", false)
+                                    // 2026-11-04（审计 C-09）：Rust `UpdateInfo` 的键是
+                                    // available / version / notes。原来先读 hasUpdate /
+                                    // latestVersion / body 三个不存在的键；notes 为 null 时
+                                    // optString 返回 "null" 且 ifBlank 不会回退到 body。
+                                    val has = o.optBoolean("available", false) ||
+                                        o.optBoolean("hasUpdate", false)
                                     if (has) {
-                                        val ver = o.optString("latestVersion")
-                                            .ifBlank { o.optString("version") }
-                                        val notes = o.optString("notes").ifBlank { o.optString("body") }
+                                        val ver = o.optText("version")
+                                            ?: o.optText("latestVersion") ?: ""
+                                        val notes = o.optText("notes")
+                                            ?: o.optText("body") ?: ""
                                         buildString {
                                             append(context.getString(R.string.update_new_version, ver)).append("\n\n")
                                             if (notes.isNotBlank()) append(notes)
@@ -743,9 +746,15 @@ internal fun SettingsRoute(
                                     onUpdateStateChange(updateState.copy(
                                         checking = false,
                                         available = o.optBoolean("available"),
-                                        latestVersion = o.optString("version").takeIf { it.isNotBlank() },
-                                        notes = o.optString("notes").takeIf { it.isNotBlank() },
-                                        downloadedPath = o.optString("downloaded_path").takeIf { it.isNotBlank() },
+                                        // ⚠️ 2026-11-04（审计 C-01/C-02）：
+                                        // · Rust `UpdateInfo` 是 #[serde(rename_all="camelCase")]，
+                                        //   实际键是 downloadedPath，原来读 downloaded_path → 「安装」按钮永不出现
+                                        // · version / notes / downloadedPath 都是 Option<String>，
+                                        //   裸 optString 遇 JSON null 会返回字面量 "null"
+                                        latestVersion = o.optText("version"),
+                                        notes = o.optText("notes"),
+                                        downloadedPath = o.optText("downloadedPath")
+                                            ?: o.optText("downloaded_path"),
                                     ))
                                 },
                                 onFailure = { e ->

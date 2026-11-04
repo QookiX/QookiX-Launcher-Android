@@ -56,6 +56,22 @@ class InstanceSettingsController(
      */
     private var loadedOk = false
 
+    /** 是否已经成功读到真实配置（UI 据此禁用保存 / 显示重试）。 */
+    val canSave: Boolean get() = loadedOk
+
+    /** 读取失败后的显式重试：清掉状态重新拉一次。 */
+    fun retry() {
+        loaded = false
+        loadedOk = false
+        error = null
+        ensureLoaded()
+    }
+
+    /** 放弃未保存的改动（返回确认后调），让 BackHandler 不再拦截。 */
+    fun discard() {
+        value = value.copy(dirty = false)
+    }
+
     /** 读取进行中：防止重复进入（每次切 tab 都会调 ensureLoaded）。 */
     private var loading = false
 
@@ -167,7 +183,13 @@ fun rememberInstanceSettings(
 ): InstanceSettingsController {
     val ctl = remember(instanceId) { InstanceSettingsController(instanceId, api, context) }
     LaunchedEffect(instanceId, tab) {
-        if (tab == InstanceTab.Settings && !ctl.value.dirty) ctl.ensureLoaded()
+        // ⚠️ 2026-11-04（审计 UI-01）：原来只判 `!dirty` —— 读取失败后用户
+        // 改过任意一项（dirty=true），切走再切回也不会重读，保存按钮却一直亮着，
+        // 点下去只有「还没读到当前配置」，页面又没有重试按钮 → 永久锁死。
+        // 现在：读取没成功过就允许重读（此时界面上的值本来就是默认值，覆盖无害）。
+        if (tab == InstanceTab.Settings && (!ctl.value.dirty || !ctl.canSave)) {
+            ctl.ensureLoaded()
+        }
     }
     return ctl
 }

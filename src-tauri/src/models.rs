@@ -421,6 +421,19 @@ pub struct Settings {
     /// `get_settings` 读不回来 → 拖完只在当前会话生效，重启就回 168。
     #[serde(default = "default_sidebar_width", alias = "sidebarWidth")]
     pub sidebar_width: i32,
+    /// 更新通道："stable" | "rc" | "beta"。
+    ///
+    /// ⚠️ 2026-11-04 补（审计 C-03）：前端 `update_settings_patch` 早就在往
+    /// settings.json 写 `update_channel`，`updater` 也会从 raw settings 读它，
+    /// 但 `get_settings` 序列化的这个结构体里一直没有对应字段 → 用户切到
+    /// RC/Beta 后重进「关于 → 更新」，chip 永远回落「正式版」，看起来像没保存
+    ///（Rust 其实仍按 beta 过滤，只是界面读不到）。
+    #[serde(default = "default_update_channel", alias = "updateChannel")]
+    pub update_channel: String,
+}
+
+fn default_update_channel() -> String {
+    "stable".to_string()
 }
 
 fn default_translate_provider() -> String {

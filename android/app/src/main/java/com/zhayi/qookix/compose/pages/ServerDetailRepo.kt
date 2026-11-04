@@ -92,7 +92,7 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
                         running = runtime?.optBoolean("running", false) ?: false,
                         // 上次运行的结束原因：服务端起不来时这是**唯一**的线索
                         // （写在 runtime.json.exit / launch-error.txt，以前界面不显示）。
-                        exitNote = runtime?.optString("exitNote")?.takeIf { it.isNotBlank() },
+                        exitNote = runtime?.optText("exitNote"),
                         address = address,
                         coreInstalled = coreInstalled,
                         eulaAgreed = eula,
@@ -154,7 +154,7 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
             onResult(
                 r.mapCatching { o ->
                     o.optBoolean("running", false) to
-                        o.optString("exitNote").takeIf { it.isNotBlank() }
+                        o.optText("exitNote")
                 }
             )
         }

@@ -429,6 +429,9 @@ pub async fn get_settings() -> Result<Settings> {
             // 外观页滑杆写入的值；clamp 到滑杆范围，防手改 settings.json 写坏布局
             sidebar_width: raw_i64(&settings, &["sidebar_width", "sidebarWidth"], 168)
                 .clamp(140, 260) as i32,
+            // 2026-11-04（审计 C-03）：把写入过的更新通道读回来，否则前端 chip 永远回落 stable
+            update_channel: raw_str(&settings, &["update_channel", "updateChannel"])
+                .unwrap_or_else(|| "stable".into()),
         })
     } else {
         // Default settings
@@ -474,6 +477,7 @@ pub async fn get_settings() -> Result<Settings> {
             update_source: "bucket".to_string(),
             sidebar_width: 168,
             orientation: "portrait".to_string(),
+            update_channel: "stable".to_string(),
         })
     }
 }

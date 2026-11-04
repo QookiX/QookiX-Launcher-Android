@@ -86,8 +86,46 @@ fun InstanceSettingsTab(
     exporting: Boolean = false,
     exportHint: String? = null,
     /** 触发导出（参数是三项开关）。 */
-    onExport: (includeConfig: Boolean, includeSaves: Boolean, includeShots: Boolean) -> Unit = { _, _, _ -> }
+    onExport: (includeConfig: Boolean, includeSaves: Boolean, includeShots: Boolean) -> Unit = { _, _, _ -> },
+    /** 是否已成功读到真实配置（读失败时禁用保存）。2026-11-04 审计 UI-01。 */
+    canSave: Boolean = true,
+    /** 读取失败后的重试。 */
+    onRetry: () -> Unit = {},
+    /** 放弃未保存改动（返回确认后调）。2026-11-04 审计 UI-02。 */
+    onDiscard: () -> Unit = {},
 ) {
+    // ⚠️ 2026-11-04（审计 UI-02）：`dirty` 原来只用来显示一行文字，
+    // 系统返回键直接退出、改动静默丢失。这里拦一次，让用户明确选择。
+    // 确认后清 dirty（BackHandler 失效）并放行这次返回，避免又弹一次。
+    var confirmDiscard by remember { mutableStateOf(false) }
+    val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+        .current?.onBackPressedDispatcher
+    androidx.activity.compose.BackHandler(enabled = state.dirty && !confirmDiscard) {
+        confirmDiscard = true
+    }
+    if (confirmDiscard) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text(stringResource(R.string.file_editor_unsaved)) },
+            text = { Text(stringResource(R.string.file_editor_discard_msg)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDiscard = false
+                    onDiscard()
+                    @Suppress("DEPRECATION")
+                    backDispatcher?.onBackPressed()
+                }) {
+                    Text(stringResource(R.string.file_editor_modified))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDiscard = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
     // 导出选项的本地状态（三项开关，默认照搬旧 UI：配置带上、存档/截图不带）
     var exportConfig by remember { mutableStateOf(true) }
     var exportSaves by remember { mutableStateOf(false) }
@@ -371,7 +409,9 @@ fun InstanceSettingsTab(
             horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(onClick = onSave, enabled = !saving) {
+            // ⚠️ 2026-11-04（审计 UI-01）：配置还没读成功时不能保存 ——
+            // 原来按钮一直亮着，点下去只会弹「还没读到当前配置」，却没有任何重试入口。
+            Button(onClick = onSave, enabled = !saving && canSave) {
                 Text(
                     if (saving) stringResource(R.string.instance_settings_saving)
                     else stringResource(R.string.instance_settings_save),
@@ -392,6 +432,12 @@ fun InstanceSettingsTab(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
+            // 读取失败时给一个明确的重试入口（UI-01）
+            if (!canSave) {
+                TextButton(onClick = onRetry) {
+                    Text(stringResource(R.string.common_retry))
+                }
+            }
         }
         savedHint?.let {
             Row(verticalAlignment = Alignment.CenterVertically) {

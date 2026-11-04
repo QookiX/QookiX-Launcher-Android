@@ -213,6 +213,11 @@ fun InstanceDetailPage(
     settingsHint: String? = null,
     settingsError: String? = null,
     onDismissSettingsHint: () -> Unit = {},
+    /** 设置读取是否成功（UI-01：失败时禁用保存 + 显示重试）。 */
+    settingsCanSave: Boolean = true,
+    onSettingsRetry: () -> Unit = {},
+    /** 放弃设置页未保存改动（UI-02：返回确认后调）。 */
+    onSettingsDiscard: () -> Unit = {},
     // ── 导出整合包（实例设置 tab 底部）────────────────────────────────
     exportPlan: ExportPlanUi? = null,
     exportPlanLoading: Boolean = false,
@@ -537,6 +542,9 @@ fun InstanceDetailPage(
                     savedHint = settingsHint,
                     error = settingsError,
                     onDismissHint = onDismissSettingsHint,
+                    canSave = settingsCanSave,
+                    onRetry = onSettingsRetry,
+                    onDiscard = onSettingsDiscard,
                     exportPlan = exportPlan,
                     exportPlanLoading = exportPlanLoading,
                     exporting = exporting,

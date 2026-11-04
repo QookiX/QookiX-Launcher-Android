@@ -96,7 +96,7 @@ class SkinRepo(private val api: QookixApi, private val context: android.content.
                             PlayerSkinUi(
                                 dataUrl = o.optString("data_url"),
                                 model = o.optString("model").ifBlank { "default" },
-                                capeDataUrl = o.optString("cape_data_url"),
+                                capeDataUrl = o.optText("cape_data_url"),
                             ),
                         ),
                     )
@@ -209,7 +209,14 @@ data class SkinEntryUi(
 data class PlayerSkinUi(
     val dataUrl: String = "",
     val model: String = "default",
-    val capeDataUrl: String = "",
+    /**
+     * 披风的 data URL。没有披风的账号为 null（多数玩家都是）。
+     *
+     * ⚠️ 2026-11-04（审计 C-08）：原来是非空 String + `optString`，
+     * Rust 的 `cape_data_url: Option<String>` 为 None 时 JSON 是 null，
+     * `optString` 返回字面量 `"null"` → 界面把它当图片地址加载导致破图。
+     */
+    val capeDataUrl: String? = null,
 )
 /** 皮肤页状态。 */
 data class SkinUiState(

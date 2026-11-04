@@ -605,9 +605,16 @@ internal fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
         // 初始化状态
         api.getPluginSetupStatus { r ->
             r.onSuccess { o ->
-                // 字段名可能是 ready / initialized / dismissed
-                val ready = o.optBoolean("ready", true) ||
-                    o.optBoolean("initialized", false)
+                // ⚠️ 2026-11-04（审计 C-04）：Rust `SetupStatus` 的字段是
+                // needed（还缺插件）/ dismissed（用户点过「稍后」），没有 ready / initialized。
+                // 原来 `optBoolean("ready", true)` 因为键不存在恒为 true → 首启补齐窗口
+                // **永远不弹**，缺渲染器/驱动插件时用户毫无提示，进游戏才黑屏。
+                // 两种写法都认，兼容以后后端改命名。
+                val ready = if (o.has("needed") || o.has("dismissed")) {
+                    !o.optBoolean("needed", false) || o.optBoolean("dismissed", false)
+                } else {
+                    o.optBoolean("ready", true) || o.optBoolean("initialized", false)
+                }
                 state = state.copy(ready = ready)
             }
         }
@@ -620,8 +627,11 @@ internal fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
                         PluginUi(
                             id = o.optString("id").ifBlank { o.optString("name") },
                             name = o.optString("name").ifBlank { o.optString("id") },
-                            version = o.optString("version"),
-                            description = o.optString("description"),
+                            // ⚠️ 2026-11-04（审计 C-05/C-06）：
+                            // · PluginInfo 的说明字段叫 summary，不是 description → 原来描述恒为空
+                            // · version 是 Option<String>，未安装时为 JSON null → 裸 optString 显示 "null"
+                            version = o.optText("version") ?: o.optText("installed_version").orEmpty(),
+                            description = o.optText("summary") ?: o.optText("description").orEmpty(),
                             enabled = o.optBoolean("enabled", true),
                         )
                     }

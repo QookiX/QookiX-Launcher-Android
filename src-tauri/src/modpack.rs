@@ -307,6 +307,33 @@ fn parse_loader(info: &Value) -> (Loader, Option<String>) {
 const MODPACK_MANIFESTS: [&str; 3] = ["modrinth.index.json", "manifest.json", "modpack.json"];
 
 /// 清单里一条需要联网下载的文件（Modrinth `files[]` 的形态）。
+/// 把整合包清单里的 `path` 净化成**纯粹的相对路径**。
+///
+/// 2026-11-04（审计 BE-02）：清单是第三方提供的，`path` 可能是绝对路径或带 `..`。
+/// 只调 `resolve_in_dir` 判 is_err 是不够的 —— 那个函数会把前导 `/` 去掉再校验，
+/// 于是绝对路径「通过了校验」，而落盘时 `Path::join` 却会丢掉 root。
+/// 这里统一：反斜杠换斜杠、去掉空段 / `.` / `..` 越界、拒绝控制字符，
+/// 之后校验和落盘都用返回值。
+fn sanitize_pack_rel(raw: &str) -> Option<String> {
+    let cleaned = raw.trim().replace('\\', "/");
+    let mut segs: Vec<&str> = Vec::new();
+    for seg in cleaned.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                segs.pop()?;
+            }
+            s if s.chars().any(|c| c.is_control()) => return None,
+            s => segs.push(s),
+        }
+    }
+    if segs.is_empty() {
+        None
+    } else {
+        Some(segs.join("/"))
+    }
+}
+
 struct PackFile {
     /// 包内相对路径，同时也是落盘位置（如 `mods/xxx.jar`）
     rel_path: String,
@@ -517,7 +544,19 @@ pub async fn import_modpack(file_path: &str) -> Result<ModpackImportResult> {
                 no_url_files += 1;
                 continue;
             }
-            // 相对路径同样要防穿越：json 里的 path 和 zip 条目名一样可能是 `../../x`
+            // ⚠️ 2026-11-04（审计 BE-02）：原来这里只判 `is_err()` 就丢掉
+            // `resolve_in_dir` 返回的规范路径，下载时仍用**原始 rel** 去
+            // `root.join(&rel)`。而 `resolve_in_dir` 内部会
+            // `trim_start_matches('/')`，让 `/data/data/...` 这种绝对路径「校验通过」；
+            // Rust 的 `Path::join` 遇到绝对路径又会丢掉 root → 清单能写任意文件。
+            // 现在先把 rel 净化成纯粹的相对路径，校验与落盘用同一个值。
+            let rel = match sanitize_pack_rel(&rel) {
+                Some(r) => r,
+                None => {
+                    tracing::warn!("跳过不安全的整合包条目 {rel}");
+                    continue;
+                }
+            };
             if crate::fsutil::resolve_in_dir(&instance_dir, &rel, "实例").is_err() {
                 tracing::warn!("跳过不安全的整合包条目 {rel}");
                 continue;
