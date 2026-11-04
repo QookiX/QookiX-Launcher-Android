@@ -4,6 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -121,7 +125,7 @@ fun QkTabRow(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .width(28.dp)
+                        .width(34.dp)
                         // ⚠️ 不能用 fillMaxHeight：这层在 Column 里拿到的是
                         // 「剩余全部高度」的无界约束，会把整条 tab 栏撑成一屏高，
                         // 下面的内容区被挤出去（实测表现：所有 tab 内容全空白）。
@@ -132,7 +136,18 @@ fun QkTabRow(
                                 listOf(container.copy(alpha = 0f), container),
                             ),
                         ),
-                )
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    // FR-11：光靠 28dp 渐隐，竖屏下几乎看不出来（截图确认：8 个 tab
+                    // 只露出 4 个，用户不知道右边还有「游戏内 / 插件 / 关于」）。
+                    // 加个箭头，一眼能看出还能滑。
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
