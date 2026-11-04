@@ -351,8 +351,8 @@ fun CreateInstancePage(
                     )
                 }
 
-                val hint = state.error?.let { stringResource(R.string.create_instance_failed, it) }
-                    ?: stringResource(R.string.create_instance_need_loader_version).takeIf { state.loader != "vanilla" && state.loaderVersion.isBlank() }
+                // 清单错误只在右栏显示一处，这里再报「创建失败」会让人以为点过创建（FR-04）
+                val hint = stringResource(R.string.create_instance_need_loader_version).takeIf { state.loader != "vanilla" && state.loaderVersion.isBlank() }
                 if (hint != null) {
                     Spacer(Modifier.height(QkSpacing.xs))
                     QkInlineError(hint, modifier = Modifier)

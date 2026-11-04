@@ -1061,7 +1061,7 @@ internal fun CreateRoute(
                     val latest = vs.firstOrNull { it.type == "release" }?.id ?: vs.firstOrNull()?.id ?: ""
                     state.copy(versions = vs, version = latest, loadingVersions = false)
                 },
-                onFailure = { e -> state.copy(loadingVersions = false, error = context.getString(R.string.version_manifest_failed, e.message)) },
+                onFailure = { e -> android.util.Log.w("QkLaunch", "版本清单加载失败: ${e.message}"); state.copy(loadingVersions = false, error = friendlyNetError(e.message)) },
             )
         }
     }
