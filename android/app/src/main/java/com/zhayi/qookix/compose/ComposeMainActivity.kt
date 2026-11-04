@@ -1084,6 +1084,8 @@ class ComposeMainActivity : ComponentActivity() {
         if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) return
+        val prefs = getSharedPreferences("qookix_notif", android.content.Context.MODE_PRIVATE)
+        if (prefs.getBoolean("asked", false)) return else prefs.edit().putBoolean("asked", true).apply()
         try {
             android.app.AlertDialog.Builder(this)
                 .setTitle(R.string.notif_permission_title)
