@@ -65,4 +65,8 @@ pub fn log_line(msg: &str) {
             append_line(path, &line);
         }
     }
+    // 同一行也打到 logcat：崩溃后用户直接给 logcat 就有现场，
+    // 不用先去设置里导出日志文件（真崩的时候往往来不及点）。
+    #[cfg(target_os = "android")]
+    println!("[QookiX] {msg}");
 }
