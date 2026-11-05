@@ -498,10 +498,18 @@ private fun InstanceCard(
                 // ⚠️ 2026-10-29：这里以前**只画首字母** —— 后端早就支持 `icon` 字段，
                 // update_instance 也写进去了，但前端从不读，所以「换图标」保存成功
                 // 却什么都不变。现在补上渲染。
-                val iconFile = inst.iconPath?.takeIf { it.isNotBlank() }
+                // ⚠️ 2026-11-05（用户复现：实例列表里 DeceasedCraft 的图标是空白，
+                // 而首页同一个实例却显示首字母 D）：`icon` 字段有值、但文件早就
+                // 不在了（换数据根 / 清缓存之后常见）。AsyncImage 加载失败时不会
+                // 画任何东西，于是留一块空白 —— 这里先确认文件真的存在，不存在
+                // 就老老实实回落首字母色块，跟首页行为一致。
+                val iconFile = inst.iconPath
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { java.io.File(it) }
+                    ?.takeIf { it.isFile }
                 if (iconFile != null) {
                     coil3.compose.AsyncImage(
-                        model = java.io.File(iconFile),
+                        model = iconFile,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
