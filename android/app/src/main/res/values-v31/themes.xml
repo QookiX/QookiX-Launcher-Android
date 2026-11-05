@@ -1,0 +1,24 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      Android 12+ 的系统启动画面（SplashScreen）底色。
+
+      2026-11-05：游戏退出后进程会重启（一个进程只能建一次 JVM），新进程的
+      第一帧就是系统启动画面 —— 默认会按系统主题取色，与我们的 #0B0D12 不一致，
+      看起来就是「闪一下」。这里显式对齐启动器底色，让重启过程没有色块跳变。
+
+      图标沿用应用图标（不额外传 windowSplashScreenAnimatedIcon），
+      和桌面点开时的观感保持一致。
+    -->
+    <style name="Theme.qookix_launcher" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/qk_bg_0</item>
+        <item name="android:windowSplashScreenBackground">@color/qk_bg_0</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+    </style>
+</resources>

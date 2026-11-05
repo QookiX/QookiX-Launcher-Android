@@ -61,10 +61,12 @@ class GameGuardService : Service() {
     private fun watchLoop() {
         while (!Thread.currentThread().isInterrupted) {
             try {
-                // 400ms 而不是 1s：主进程是**游戏退出那一刻**被带走的，间隔越长，
-                // 用户盯着桌面的时间越久（观感就是「闪退」）。1 秒轮询实测要
-                // 空等 1~2 秒才回到启动器，缩到 400ms 后基本是「点退出→回来了」。
-                Thread.sleep(400)
+                // 150ms：主进程是**游戏退出那一刻**被带走的，间隔越长，用户盯着
+                // 桌面的时间越久（观感就是「闪退」）。1 秒轮询实测要空等 1~2 秒，
+                // 400ms 已经好很多；2026-11-05 再压到 150ms —— 循环体只是
+                // `File.exists()` + 一次进程存活判断，代价可以忽略，
+                // 但能把「桌面空白期」再砍掉 0.25 秒。
+                Thread.sleep(150)
             } catch (_: InterruptedException) {
                 return
             }

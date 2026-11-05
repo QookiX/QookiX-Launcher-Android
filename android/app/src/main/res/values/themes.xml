@@ -1,9 +1,14 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.qookix_launcher" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- 冷启动时 WebView 还没渲染，窗口背景就是用户看到的第一帧 ——
-             默认白色与深色 UI 反差刺眼（白闪），改成启动页同款深色。 -->
-        <item name="android:windowBackground">@android:color/background_dark</item>
+        <!-- 冷启动时 Compose 还没渲染，窗口背景就是用户看到的第一帧 ——
+             默认白色与深色 UI 反差刺眼（白闪），改成启动页同款深色。
+
+             ⚠️ 2026-11-05：原来用的是系统 `@android:color/background_dark`（≈#303030），
+             而启动器 UI 底色是 `qk_bg_0`（#0B0D12）。**游戏退出后进程重启**的那一下，
+             用户会先看到一帧 #303030、再跳到 #0B0D12 —— 观感上就是「闪退」的一部分。
+             换成同一个颜色后，重启过程只剩「黑一下」，不再有色块跳变。 -->
+        <item name="android:windowBackground">@color/qk_bg_0</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowContentOverlay">@null</item>
