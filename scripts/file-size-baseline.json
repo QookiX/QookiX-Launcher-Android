@@ -64,7 +64,7 @@
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstancesEmptyState.kt": 66,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstanceSettingsController.kt": 145,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstanceSettingsTab.kt": 644,
-  "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstancesPage.kt": 619,
+  "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstancesPage.kt": 627,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/InstancesRepo.kt": 147,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/MorePage.kt": 151,
   "android/app/src/main/java/com/zhayi/qookix/compose/pages/MultiplayerPage.kt": 648,
