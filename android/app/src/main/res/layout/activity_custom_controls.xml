@@ -23,13 +23,30 @@
 			app:layout_constraintStart_toStartOf="parent"
 			app:layout_constraintTop_toTopOf="parent" />
 
+		<!--
+			  按键映射说明（2026-11-05 用户反馈：原来贴在右上角，正好盖住「鼠标」按键）。
+
+			  改成**底部居中**：横屏下底部中间通常是空的（左键/潜行在左下、
+			  跳跃在右下），不像右上角一定压着按键；再加半透明深底 + 小字号，
+			  既看得清又不喧宾夺主。
+		-->
 		<TextView
+			android:id="@+id/control_mapping_hint"
 			android:layout_width="wrap_content"
 			android:layout_height="wrap_content"
-			android:layout_alignParentRight="true"
+			android:layout_marginBottom="8dp"
+			android:background="@drawable/qk_editor_hint_bg"
+			android:maxWidth="360dp"
+			android:paddingLeft="10dp"
+			android:paddingTop="4dp"
+			android:paddingRight="10dp"
+			android:paddingBottom="4dp"
 			android:text="@string/hint_control_mapping"
+			android:textColor="#FFFFFFFF"
+			android:textSize="11sp"
+			app:layout_constraintBottom_toBottomOf="parent"
 			app:layout_constraintEnd_toEndOf="parent"
-			app:layout_constraintTop_toTopOf="parent" />
+			app:layout_constraintStart_toStartOf="parent" />
 
 		<net.kdt.pojavlaunch.customcontrols.ControlLayout
 			android:id="@+id/customctrl_controllayout"

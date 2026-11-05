@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  按键编辑器底部那行说明文字的背景（2026-11-05）。
+
+  为什么要底：原来文字直接画在游戏画面上，右上角「鼠标」按键被盖住看不清；
+  加一层半透明深底 + 圆角，既压住花哨的游戏画面，也不会淹没按键本身。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#B3000000" />
+    <corners android:radius="8dp" />
+</shape>

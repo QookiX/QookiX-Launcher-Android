@@ -812,12 +812,37 @@ class HostCapabilities(private val activity: Activity) {
      * @param mime 限定类型，例如图片用 [MIME_IMAGE]、任意文件用 [MIME_ALL]
      * @param requestCode 请求码（区分不同用途）
      */
+    /**
+     * 文件选择器的初始目录：系统「下载」。
+     *
+     * 2026-11-05（外部首用报告 Q-13 / FR-14）：默认落在应用私有目录
+     * （`OnePlus 8 > QookiX`，里面只有 instances / libraries 两个空文件夹），
+     * 而用户要导入的 `.mrpack` / `.zip` 基本都在「下载」里 —— 得自己翻半天。
+     *
+     * 用 externalstorage provider 的标准 docId（`primary:Download`）。
+     * **拿不到就算了**：部分 ROM 的 provider 不认这个 id，这时不传这个 extra，
+     * 退化成系统默认位置，不会影响选择本身。
+     */
+    private fun downloadsInitialUri(): Uri? = runCatching {
+        android.provider.DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents",
+            "primary:Download",
+        )
+    }.getOrNull()
+
     fun pickFile(mime: String, requestCode: Int) {
         mainHandler.post {
             try {
-                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                // ACTION_OPEN_DOCUMENT（不是 GET_CONTENT）：只有它支持初始目录，
+                // 拿到的是带读权限的 content:// —— onPickFileResult 会先复制到临时文件，
+                // 两种 action 都能处理，所以换掉是安全的。
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = mime
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    downloadsInitialUri()?.let {
+                        putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, it)
+                    }
                 }
                 @Suppress("DEPRECATION")
                 launchPicker(intent, requestCode, "文件选择器")
