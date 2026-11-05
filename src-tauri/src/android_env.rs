@@ -292,6 +292,19 @@ pub async fn resolve_native_lib_dir(data_dir: &str) -> std::io::Result<String> {
     let mut report: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
 
+    // ⚠️ APK 变了就**先清空**目录再抽：抽取只会覆盖「APK 里存在的同名文件」，
+    // 旧版本启动器留下、而新 APK 里已经没有的那些 .so 会一直留在 natives 目录里
+    // 参与 System.loadLibrary（它们带着旧 NDK 的 emutls 依赖，Android 16 上
+    // dlopen 直接失败）—— 详见 native_cleanup::clear_stale_native_libs。
+    if force {
+        let removed = crate::native_cleanup::clear_stale_native_libs(&dest);
+        if removed > 0 {
+            crate::util::log_line(&format!(
+                "已清理 natives 目录里 {removed} 个旧版残留 .so（APK 指纹变化）"
+            ));
+        }
+    }
+
     for apk in &apks {
         match extract_native_libs_from_apk(apk, &dest, force).await {
             Ok((extracted, seen, failed)) => {
@@ -738,6 +751,9 @@ pub(crate) async fn extract_asset_files(
         std::fs::create_dir_all(&dest)?;
 
         let mut extracted = 0usize;
+        // force 时记下 APK 里**实际存在**的文件名，结束后把目录里多余的 .so 删掉。
+        // 见本函数末尾的说明（旧版残留会让 Android 16 上 dlopen 直接失败）。
+        let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
         for index in 0..archive.len() {
             let Ok(mut entry) = archive.by_index(index) else {
                 continue;
@@ -749,6 +765,9 @@ pub(crate) async fn extract_asset_files(
             // 只要该前缀下的直接子文件（跳过目录项与子目录里的东西）
             if rel.is_empty() || rel.contains('/') {
                 continue;
+            }
+            if force {
+                seen_names.insert(rel.to_string());
             }
             let out = dest.join(rel);
             if !force {
@@ -764,6 +783,39 @@ pub(crate) async fn extract_asset_files(
             }
             std::fs::write(&out, &data)?;
             extracted += 1;
+        }
+
+        // ⚠️ 2026-11-05：这个函数原来只**覆盖同名文件**，从不删除。
+        // 于是旧版启动器留在 `data/lwjgl341/natives`、而新 APK 里已经没有的
+        // `.so`（各种 LWJGL 模块）会一直参与 `System.loadLibrary` —— 它们是
+        // 旧 NDK 编的，引用 `__emutls_get_address`，Android 16 已移除该符号，
+        // `dlopen` 直接失败 → 旧版本 MC 全部起不来。
+        // 只在 force（APK 指纹变了）时清，且**抽取成功之后**才删，不会把目录掏空。
+        if force && !seen_names.is_empty() {
+            let mut removed = 0usize;
+            if let Ok(rd) = std::fs::read_dir(&dest) {
+                for entry in rd.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|x| x.to_str()) != Some("so") {
+                        continue;
+                    }
+                    let Some(fname) = path.file_name().and_then(|x| x.to_str()) else {
+                        continue;
+                    };
+                    if seen_names.contains(fname) {
+                        continue;
+                    }
+                    if std::fs::remove_file(&path).is_ok() {
+                        removed += 1;
+                    }
+                }
+            }
+            if removed > 0 {
+                crate::util::log_line(&format!(
+                    "已清理 native 目录里 {removed} 个旧版残留 .so（{}）",
+                    dest.display()
+                ));
+            }
         }
         Ok(extracted)
     })
