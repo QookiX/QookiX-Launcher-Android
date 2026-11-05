@@ -194,6 +194,26 @@ fun FrpRoomsPage(
                 SkeletonList(rows = 2, rowHeight = 96.dp)
             }
 
+            // ⚠️ 2026-11-05（用户复现）：读失败时同时显示「读取失败」和
+            // 「还没有房间」—— 后者是在骗人：不知道有没有房间，只是没读到。
+            // 失败态优先，并给重试入口（原来只能退出去再进）。
+            state.rooms.isEmpty() && state.error != null -> Box(
+                Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stringResource(R.string.frp_rooms_load_failed),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(QkSpacing.sm))
+                    Button(onClick = onRefresh) {
+                        Text(stringResource(R.string.common_retry))
+                    }
+                }
+            }
+
             state.rooms.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(

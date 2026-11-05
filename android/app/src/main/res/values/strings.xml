@@ -302,6 +302,8 @@
     <string name="frp_rooms_connect_hint">在游戏里连这个地址</string>
     <string name="frp_rooms_copy">复制</string>
     <string name="frp_rooms_empty_title">还没有房间</string>
+    <!-- 2026-11-05：读失败时不能再说「还没有房间」，否则用户以为真没房间 -->
+    <string name="frp_rooms_load_failed">房间列表读取失败</string>
     <string name="frp_rooms_empty_desc">点「创建房间」建一个，别人就能看到并加入</string>
     <string name="frp_rooms_has_password">有密码</string>
     <string name="frp_rooms_reviewing">房间审核中</string>
@@ -896,6 +898,10 @@
     <string name="install_no_server">还没有服务器，先去「更多 → 多人」创建一台</string>
     <string name="install_target_instance">安装到实例</string>
     <string name="install_no_instance">还没有实例，先去新建实例</string>
+    <!-- 2026-11-02：安装目标兼容性检查（用户复现：Fabric API 被装进 NeoForge 实例） -->
+    <string name="install_compat_loader">这个版本只支持 %1$s，当前实例是 %2$s —— 装进去不会被加载</string>
+    <string name="install_compat_game">这个版本只支持 Minecraft %1$s，当前实例是 %2$s</string>
+    <string name="install_compat_vanilla">原版实例不加载模组，请先给这个实例装一个加载器（Fabric / NeoForge / Forge）</string>
     <string name="install_create_fabric_instance">新建实例</string>
     <string name="install_select_version">选择版本</string>
     <string name="install_type_all">全部</string>

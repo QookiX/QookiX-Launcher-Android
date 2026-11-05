@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -65,7 +66,11 @@ fun FileEditorPage(
     onSave: () -> Unit,
     onBack: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    // ⚠️ 2026-11-05（用户横屏实测：编辑服务器文件时键盘把正文全遮住）：
+    // 应用是 edge-to-edge + `adjustResize`，但 Compose 不会自动把 IME 高度
+    // 让出来 —— 正文区 `weight(1f)` 仍然铺到屏幕最底下，键盘一弹就盖住整块。
+    // 根布局加 `imePadding()`，键盘出现时正文自己缩短，弹走再长回来。
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         // ── 顶栏 ──────────────────────────────────────────────────────
         Row(
             modifier = Modifier

@@ -260,6 +260,16 @@ fun ContentInstallHost(
     }
 
     val visibleVersions = filterVersions(versions, typeFilter, gameFilter)
+    // 2026-11-02（用户复现：Fabric API 的 26.3 版本被装进 NeoForge 1.21.1 实例）：
+    // 面板一直只按「版本数据自己的类型 / 游戏版本」筛选，**从不看目标实例的
+    // 加载器和 MC 版本** —— 装进去的 jar 永远不会被加载，用户以为装好了。
+    val compatWarning = compatWarningFor(
+        kind = kind,
+        // 装到服务器时不查：服务端加载器由服务端自己决定
+        target = if (!serverId.isNullOrBlank()) null else instances.firstOrNull { it.id == instanceId },
+        version = versions.firstOrNull { it.id == version },
+        context = context,
+    )
     val gameOptions = remember(versions) { gameVersionOptions(versions) }
     val visibleServers = if (kind == "plugin") servers else servers.filter { it.supportsMods() }
 
@@ -282,6 +292,7 @@ fun ContentInstallHost(
         descLoading = descLoading,
         installing = installing,
         error = error,
+        compatWarning = compatWarning,
     )
 
     val onSelectVersion: (String) -> Unit = { v ->
@@ -393,6 +404,56 @@ internal fun filterVersions(
         (game == "all" || v.supportsGame(game))
 }
 
+/**
+ * 目标兼容性检查：这个版本能不能装进这个实例。
+ *
+ * 2026-11-02（用户真机复现）：Fabric API 的 `26.3` 版本被装进了
+ * 「NeoForge 1.21.1」的实例，装完游戏里根本不加载 —— 面板只按版本数据
+ * 自己的 `type` / `game_versions` 筛，从来没看过**目标实例**的加载器与 MC 版本。
+ *
+ * 返回 null = 兼容；非空 = 直接展示给用户的原因（同时会禁用「安装」）。
+ *
+ * 判定顺序刻意保守：
+ *  1. 版本没声明 `loaders`（资源包、光影、部分老模组）→ 只查 MC 版本
+ *  2. 模组装进原版实例 → 一律不兼容（原版不读 `mods/`）
+ *  3. 声明了 `loaders` → 必须命中实例的加载器（NeoForge ≠ Forge，不互相放行）
+ *  4. 版本声明了游戏版本且不含实例版本 → 不兼容
+ */
+internal fun compatWarningFor(
+    kind: String,
+    target: InstallTargetUi?,
+    version: ContentVersionUi?,
+    context: android.content.Context,
+): String? {
+    if (target == null || version == null) return null
+    val instLoader = target.loader.ifBlank { "vanilla" }.lowercase()
+
+    if (version.loaders.isNotEmpty()) {
+        val ok = version.loaders.any { it.equals(instLoader, ignoreCase = true) }
+        if (!ok) {
+            return context.getString(
+                R.string.install_compat_loader,
+                version.loaders.joinToString(" / "),
+                target.loader,
+            )
+        }
+    } else if (kind == "mod" && instLoader == "vanilla") {
+        return context.getString(R.string.install_compat_vanilla)
+    }
+
+    if (target.mcVersion.isNotBlank() &&
+        version.allGameVersions.isNotEmpty() &&
+        version.allGameVersions.none { it.equals(target.mcVersion, ignoreCase = true) }
+    ) {
+        return context.getString(
+            R.string.install_compat_game,
+            version.allGameVersions.take(3).joinToString(" / "),
+            target.mcVersion,
+        )
+    }
+    return null
+}
+
 /** 这个版本支不支持某个游戏版本（用完整列表，不是展示用的那两个）。 */
 internal fun ContentVersionUi.supportsGame(game: String): Boolean {
     val all = if (allGameVersions.isNotEmpty()) allGameVersions else gameVersions.split(",").map { it.trim() }
@@ -461,6 +522,12 @@ internal fun parseContentVersions(
         val gvAll = o.optJSONArray("game_versions")?.let { gv ->
             (0 until gv.length()).mapNotNull { gv.optString(it)?.takeIf { s -> s.isNotBlank() } }
         }.orEmpty()
+        // 2026-11-01（用户复现「Fabric API 装进 NeoForge 实例」）：后端
+        // `ProjectVersionResult` 一直带着 `loaders`，前端从来没读过 ——
+        // 没有它就没法按目标实例的加载器筛版本。
+        val ldAll = o.optJSONArray("loaders")?.let { la ->
+            (0 until la.length()).mapNotNull { la.optString(it)?.takeIf { s -> s.isNotBlank() } }
+        }.orEmpty()
         ContentVersionUi(
             id = id,
             versionNumber = o.optString("version_number").ifBlank { o.optString("name") },
@@ -473,6 +540,7 @@ internal fun parseContentVersions(
             gameVersions = gvAll.takeLast(2).joinToString(", "),
             datePublished = o.optString("date_published"),
             allGameVersions = gvAll,
+            loaders = ldAll,
         )
     }
 }

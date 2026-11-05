@@ -227,6 +227,17 @@ internal fun InstallTargets(
             },
         )
         Spacer(Modifier.height(QkSpacing.sm))
+        // 2026-11-02：目标不兼容时把原因写在这儿（安装按钮会同时置灰）。
+        // 用户真机上把 Fabric API 装进 NeoForge 实例，装完游戏里没反应 —— 面板
+        // 以前完全不提示，只说「安装成功」。
+        state.compatWarning?.let { warn ->
+            Text(
+                text = warn,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(QkSpacing.sm))
+        }
     }
 }
 

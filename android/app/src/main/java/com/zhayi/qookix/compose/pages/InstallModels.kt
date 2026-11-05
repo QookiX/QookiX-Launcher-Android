@@ -33,6 +33,13 @@ data class InstallUiState(
     val descLoading: Boolean = false,
     val installing: Boolean = false,
     val error: String? = null,
+    /**
+     * 兼容性提示（非空就在安装按钮上方显示一行警告）。
+     *
+     * 2026-11-01 加：目标实例的加载器/游戏版本与内容都不匹配时，与其静默装进去
+     * 一个永远不会被加载的 jar，不如把话说清楚。
+     */
+    val compatWarning: String? = null,
 ) {
     /** 模组能装服务器或实例；插件只能服务器；资源包/光影只能实例。 */
     val serverTargets: Boolean get() = isPlugin || kind == "mod"
@@ -42,7 +49,9 @@ data class InstallUiState(
             !selectedServerId.isNullOrBlank()
         } else {
             !selectedVersion.isNullOrBlank() &&
-                (!selectedServerId.isNullOrBlank() || !selectedInstanceId.isNullOrBlank())
+                (!selectedServerId.isNullOrBlank() || !selectedInstanceId.isNullOrBlank()) &&
+                // 2026-11-02：目标不兼容时不给装（原因显示在面板里）
+                compatWarning == null
         }
 }
 
@@ -92,6 +101,14 @@ data class ContentVersionUi(
      * 拿它筛「1.20.1」会漏掉同时支持 1.20.1/1.21/1.21.1 的版本。
      */
     val allGameVersions: List<String> = emptyList(),
+    /**
+     * 这个版本支持的加载器（fabric / forge / neoforge / quilt…）。空 = 该内容不分加载器
+     * （资源包、光影就是这样）。
+     *
+     * 2026-11-01 加：没有它就没法判断「这个版本能不能装进当前目标实例」——
+     * 之前 Fabric API 的 26.3 版本能被装进 NeoForge 1.21.1 的实例，装完游戏里根本不加载。
+     */
+    val loaders: List<String> = emptyList(),
 )
 
 /** 一个依赖。 */
