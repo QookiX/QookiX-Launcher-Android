@@ -15,7 +15,7 @@
  * ## versionCode 编码（2026-10-25 改）
  *
  *   AA BB CC DD
- *   │  │  │  └── 通道号段：01–19 alpha / 20–49 beta / 50–98 rc / **99 正式版**
+ *   │  │  │  └── 通道号段：01–19 alpha / 20–69 beta / 70–98 rc / **99 正式版**
  *   │  │  └───── patch
  *   │  └──────── minor
  *   └─────────── major
@@ -47,16 +47,24 @@ const root = join(__dirname, "..");
  * 末两位（`DD`）的号段划分。
  *
  *   01–19  alpha（19 个）
- *   20–49  beta （30 个）
- *   50–98  rc   （49 个）
+ *   20–69  beta （50 个）
+ *   70–98  rc   （29 个）
  *     99   正式版
  *
  * 按通道分号段而不是都从 01 起：这样 `alpha < beta < rc < 正式` 的先后关系
- * 天然成立，同时发 alpha 和 rc 也不会撞号。次数用完（比如 rc 超过 49 个）
+ * 天然成立，同时发 alpha 和 rc 也不会撞号。次数用完（比如 rc 超过 29 个）
  * 就该提升 patch 了 —— 那说明这个版本本身该重新规划。
+ *
+ * ⚠️ 2026-11-05：beta 从 30 个扩到 50 个。0.2.2 的 beta1–30 已经用满，
+ * 当时脚本提示「提升 patch」，于是打出了 0.2.3-betaN 的包；但 0.2.2 正式版
+ * 还没发过，直接跳 minor 会让用户看到一条断掉的版本线。四个 0.2.3-beta
+ * release 已删除，版本线回到 0.2.2，继续用 beta31–beta50。
+ * 代价：beta31 的 versionCode（20250）小于已发出去的 0.2.3-beta1（20320），
+ * 装过那几个包的人需要卸载重装（或 `adb install -r -d`）——
+ * 那四个包已删除，只影响我们自己两台测试机。
  */
-const CHANNEL_BASE = { alpha: 1, beta: 20, rc: 50 };
-const CHANNEL_MAX = { alpha: 19, beta: 30, rc: 49 };
+const CHANNEL_BASE = { alpha: 1, beta: 20, rc: 70 };
+const CHANNEL_MAX = { alpha: 19, beta: 50, rc: 29 };
 const RELEASE_PRE = 99;
 
 const args = process.argv.slice(2);
