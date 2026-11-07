@@ -109,6 +109,13 @@ class GameGuardService : Service() {
      */
     private fun recordAbnormalExitIfLaunching() {
         runCatching {
+            // 已经跑到过游戏窗口 → 这次是「用户自己退出」或「玩过之后崩」，
+            // 不能报「上次启动失败」（MC 退出同样走 System.exit，进程层面分不出来）。
+            if (com.zhayi.qookix.LaunchMarkers.wasStarted(this)) {
+                com.zhayi.qookix.LaunchMarkers.clear(this)
+                Log.i(TAG, "游戏已经跑起来过，按正常退出处理")
+                return
+            }
             val inProgress = java.io.File(filesDir, "launch-in-progress.json")
             if (!inProgress.isFile) return
             val o = org.json.JSONObject(inProgress.readText())

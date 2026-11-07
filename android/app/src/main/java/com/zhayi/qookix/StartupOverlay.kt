@@ -309,6 +309,10 @@ class StartupOverlay @JvmOverloads constructor(
 
         if (!failed) {
             if (READY_MARKERS.any { text.contains(it) }) {
+                // 2026-11-07：记下「这次真的跑起来了」。
+                // 守护进程靠它区分「用户自己退出/玩过之后崩」和「启动失败」——
+                // MC 两者都走 System.exit，进程层面分不出来（见 LaunchMarkers）。
+                LaunchMarkers.markStarted(context)
                 dismiss("检测到游戏窗口已就绪")
                 return
             }

@@ -751,6 +751,11 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         // 所以不能只靠 Rust 自己判断。这个文件由守护进程（`:guard`，另一个进程，
         // 主进程死了它还活着）在发现主进程消失时读走，写成「上次启动失败」。
         if let Some(dir) = crate::settings::data_dir_sync() {
+            // 新的一次启动：把上一局留下的「已跑起来」标记清掉，
+            // 否则这一局中途崩了会被当成正常退出（见 LaunchMarkers）。
+            let _ = std::fs::remove_file(
+                std::path::Path::new(&dir).join("game-started.marker"),
+            );
             let p = std::path::Path::new(&dir).join("launch-in-progress.json");
             let body = serde_json::json!({
                 "instanceId": instance_id,
@@ -1008,6 +1013,9 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
     if let Some(dir) = crate::settings::data_dir_sync() {
         let _ = std::fs::remove_file(
             std::path::Path::new(&dir).join("launch-in-progress.json"),
+        );
+        let _ = std::fs::remove_file(
+            std::path::Path::new(&dir).join("game-started.marker"),
         );
     }
     let started_at = LAUNCH_STARTED_AT.load(std::sync::atomic::Ordering::Relaxed);

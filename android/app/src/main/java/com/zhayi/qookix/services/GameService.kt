@@ -118,11 +118,11 @@ class GameService : Service() {
         // 用户主动结束（通知栏「停止」/ 从最近任务划掉）：这是**有意**关掉，
         // 守护服务不能又把启动器拉回来。
         GameGuardService.disarm(this)
-        // ⚠️ 2026-11-07：顺手清掉「启动中」标记。
+        // ⚠️ 2026-11-07：顺手清掉启动标记。
         // 守护进程只在标记存在时才会判定「上次启动失败」，但用户主动划掉
         // 启动器 / 点通知栏「停止」也是主进程消失 —— 不清的话下次进来会
         // 误弹「上次启动没有成功」，把用户自己关掉的操作说成崩溃。
-        runCatching { java.io.File(filesDir, "launch-in-progress.json").delete() }
+        com.zhayi.qookix.LaunchMarkers.clear(this)
         val killed = try {
             com.zhayi.qookix.tauri.TauriBridge.killGame()
         } catch (e: Throwable) {
