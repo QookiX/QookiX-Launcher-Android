@@ -741,6 +741,20 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         // 记下「真正开始创建 JVM」的时刻：退出时用它判断是不是秒退
         LAUNCH_STARTED_AT.store(now_epoch_secs(), std::sync::atomic::Ordering::Relaxed);
 
+        // ⚠️ 2026-11-07：再落一个「启动中」标记。
+        // MC 崩溃时会在 Java 里直接 `System.exit` → 进程当场消失，
+        // `JLI_Launch` **不会返回**，下面那段「正常退出」逻辑根本执行不到 ——
+        // 所以不能只靠 Rust 自己判断。这个文件由守护进程（`:guard`，另一个进程，
+        // 主进程死了它还活着）在发现主进程消失时读走，写成「上次启动失败」。
+        if let Some(dir) = crate::settings::data_dir_sync() {
+            let p = std::path::Path::new(&dir).join("launch-in-progress.json");
+            let body = serde_json::json!({
+                "instanceId": instance_id,
+                "at": now_epoch_secs(),
+            });
+            let _ = std::fs::write(&p, body.to_string());
+        }
+
         // 安卓进程的 stdout 默认丢弃：把 fd 1/2 转到日志文件，并把新增行推给前端日志面板
         #[cfg(target_os = "android")]
         {
@@ -983,6 +997,13 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
     // ⚠️ 2026-11-07：跑得特别短就退出 = 没真正玩起来（初始化异常 / 缺文件 /
     // 渲染器起不来）。这种情况必须留痕，否则用户只看到「点启动 → 回到启动器」。
     // 写标记文件放在**清 launch_log 之前**，下次进启动器由 Kotlin 弹出提示。
+    // 走到这里说明 JVM 是「正常返回」的（玩家自己退出游戏）——
+    // 先清掉「启动中」标记，避免守护进程把它误判成崩溃。
+    if let Some(dir) = crate::settings::data_dir_sync() {
+        let _ = std::fs::remove_file(
+            std::path::Path::new(&dir).join("launch-in-progress.json"),
+        );
+    }
     let started_at = LAUNCH_STARTED_AT.load(std::sync::atomic::Ordering::Relaxed);
     if started_at != 0 {
         let elapsed = now_epoch_secs().saturating_sub(started_at);

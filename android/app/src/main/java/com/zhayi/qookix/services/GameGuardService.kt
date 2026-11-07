@@ -77,11 +77,47 @@ class GameGuardService : Service() {
 
             // 主进程被游戏带走了：清标记，把启动器拉回来，然后结束自己
             Log.w(TAG, "主进程 $mainPid 已消失（被游戏退出带走），重新拉起启动器")
+            // 2026-11-07：先判断这次是「启动中途崩了」还是「玩家正常退出」。
+            // MC 崩溃会在 Java 里直接 System.exit，主进程内的收尾代码执行不到，
+            // 只有本服务（独立进程）活着 —— 由它把失败记下来。
+            recordAbnormalExitIfLaunching()
             marker.delete()
             relaunchLauncher()
             stopSelf()
             return
         }
+    }
+
+    /**
+     * 主进程消失时判断：这次是「启动中途崩了」还是「玩家自己退出」。
+     *
+     * 判据是主进程留下的 `launch-in-progress.json`（Rust 在创建 JVM 前写、
+     * 正常返回时删）。它还在 = JVM 没走到正常返回，是被 `System.exit` /
+     * 崩溃带走的 → 写一份 `last-launch-failure.json`，下次进启动器由
+     * `LaunchFailureNotice` 弹提示。
+     *
+     * 整段都包在 runCatching 里：守护进程的首要职责是把启动器拉回来，
+     * 记录失败信息只是附带，绝不能因此不拉起。
+     */
+    private fun recordAbnormalExitIfLaunching() {
+        runCatching {
+            val inProgress = java.io.File(filesDir, "launch-in-progress.json")
+            if (!inProgress.isFile) return
+            val o = org.json.JSONObject(inProgress.readText())
+            val startedAt = o.optLong("at", 0L)
+            val nowSec = System.currentTimeMillis() / 1000
+            val elapsed = if (startedAt > 0) (nowSec - startedAt).coerceAtLeast(0) else 0L
+            java.io.File(filesDir, "last-launch-failure.json").writeText(
+                org.json.JSONObject()
+                    .put("instanceId", o.optString("instanceId"))
+                    .put("code", -1)
+                    .put("elapsed", elapsed)
+                    .put("at", nowSec)
+                    .toString()
+            )
+            inProgress.delete()
+            Log.w(TAG, "记录一次异常退出（存活 ${elapsed}s）")
+        }.onFailure { Log.w(TAG, "记录异常退出失败", it) }
     }
 
     private fun isProcessAlive(pid: Int): Boolean {
