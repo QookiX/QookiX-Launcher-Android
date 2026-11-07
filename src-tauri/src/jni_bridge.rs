@@ -21,6 +21,11 @@ fn launch_game_blocking(instance_id: String, account_uuid: String) -> i32 {
         Ok(status) => status.exit_code.unwrap_or(0),
         Err(e) => {
             let err_str = e.to_string();
+            // 这里必须再落一次盘：`launch::launch_game` 只在自己内部失败时记，
+            // 而走到这一步的错误可能来自它**之前**（账号解析、实例 id 校验、
+            // 状态机拒绝），那些分支以前完全不落盘 —— 现象就是弹窗只有
+            // 「异常退出（退出码 -1）」，诊断目录还是空的。
+            crate::launch_log::record_launch_failure(&instance_id, "启动命令返回错误", &err_str);
             // 顺序要紧：JRE 运行时目录名形如 `Pojav-JRE-17`，
             // 所以任何提到运行时路径的错误都会命中 "JRE" ——
             // 先判 JVM/Dlopen/JliLaunch，否则「找不到 libjvm.so」这类错误
@@ -78,10 +83,13 @@ pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeLaunchGame(
     instance_id: JString,
     account_uuid: JString,
 ) -> jint {
+    // 留给闭包外面用：panic 被 catch_unwind 吞掉之后也要能落盘说明是哪个实例
+    let mut instance_for_log = String::new();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let instance_id: String = env.get_string(&instance_id)
             .map(|s| s.to_str().unwrap_or("").to_string())
             .unwrap_or_default();
+        instance_for_log = instance_id.clone();
 
         let account_uuid: String = env.get_string(&account_uuid)
             .map(|s| s.to_str().unwrap_or("").to_string())
@@ -90,7 +98,20 @@ pub extern "C" fn Java_com_zhayi_qookix_tauri_TauriBridge_nativeLaunchGame(
         launch_game_blocking(instance_id, account_uuid)
     }));
 
-    result.unwrap_or(-1)
+    match result {
+        Ok(code) => code,
+        // panic 跨 JNI 会 abort 整个进程，所以只能是「吞掉 + 落盘 + 返回 -1」。
+        // 以前这里直接 `unwrap_or(-1)`，用户只看到退出码 -1，现场什么都没有。
+        Err(payload) => {
+            let detail = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "（无 panic 信息）".to_string());
+            crate::launch_log::record_launch_failure(&instance_for_log, "启动流程 panic", &detail);
+            -1
+        }
+    }
 }
 
 /// Kotlin → Rust 的**通用命令入口**（阶段 1：绕开 WebView）。

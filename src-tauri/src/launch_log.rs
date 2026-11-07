@@ -51,6 +51,32 @@ fn append_line(path: &std::path::Path, line: &str) {
     }
 }
 
+/// 「启动失败」诊断落盘：`<私有目录>/diagnostics/last-launch-error.txt`。
+///
+/// 为什么单独一个文件：`logs/launch-<实例>.log` 要等 `redirect_output` 之后才有内容，
+/// JVM 根本没建起来时它一个字都不写，页面上却只会显示一个退出码
+/// （例如 `-1`）。这份记录补的就是这段空白：阶段 + 原始错误文本。
+///
+/// 读取方有两处：游戏页崩溃弹窗（`GameActivity.dumpDiagnostics`）直接读，
+/// 以及启动器启动时把 `diagnostics/` 镜像到外部目录供 `adb pull`。
+pub fn record_launch_failure(instance_id: &str, stage: &str, detail: &str) {
+    let Some(dir) = crate::settings::data_dir_sync() else {
+        return;
+    };
+    let diag = std::path::Path::new(&dir).join("diagnostics");
+    if std::fs::create_dir_all(&diag).is_err() {
+        return;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let body = format!("时间（epoch 秒）：{now}\n实例：{instance_id}\n阶段：{stage}\n错误：{detail}\n");
+    let _ = std::fs::write(diag.join("last-launch-error.txt"), body);
+    // 同时进常规诊断日志：那条链会带时间戳，排查时能对上先后顺序
+    log_line(&format!("[launcher] 启动失败（{stage}）instance={instance_id}：{detail}"));
+}
+
 /// 落盘诊断日志（追加写）。
 /// 供 `log_debug` 命令与关键错误排查使用，避免 GUI 无控制台时无法定位问题。
 pub fn log_line(msg: &str) {

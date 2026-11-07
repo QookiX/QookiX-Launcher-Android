@@ -1191,29 +1191,13 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
     }
 
     /**
-     * 把游戏日志与崩溃报告复制到外部私有目录
+     * 把游戏日志 / 崩溃报告 / 启动失败原因复制到外部私有目录
      * （`Android/data/com.zhayi.qookix/files/diagnostics/`），
      * 这样不用 adb 也能用文件管理器取出来发给开发者。
+     *
+     * 具体实现在 [dumpGameDiagnostics]（这个类已经太长，体量闸门会拦）。
      */
-    private fun dumpDiagnostics(): String? {
-        return try {
-            val external = getExternalFilesDir(null) ?: return null
-            val target = File(external, "diagnostics")
-            target.mkdirs()
-
-            val logFile = File(filesDir, "logs/launch-$instanceId.log")
-            if (logFile.isFile) logFile.copyTo(File(target, "launch-$instanceId.log"), true)
-
-            val crashDir = File(DataDirs.instanceDir(filesDir, instanceId), "crash-reports")
-            crashDir.listFiles()?.sortedByDescending { it.lastModified() }?.firstOrNull()?.let {
-                it.copyTo(File(target, it.name), true)
-            }
-
-            "日志与崩溃报告已保存到：\n$target"
-        } catch (e: Exception) {
-            null
-        }
-    }
+    private fun dumpDiagnostics(): String? = dumpGameDiagnostics(this, instanceId)
 }
 
     // ══════════════════════════════════════════════════════════════════════

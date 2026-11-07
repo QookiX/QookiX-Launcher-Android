@@ -102,19 +102,36 @@ internal fun mirrorCrashReportsToExternal(ctx: Context) {
     }.onFailure { Log.w(TAG, "镜像崩溃报告失败", it) }
 }
 
-internal fun mirrorLaunchLogsToExternal(ctx: Context) {
+/**
+ * 把 `files/<子目录>/` 原样镜像到 `Android/data/<pkg>/files/<子目录>/`。
+ *
+ * 只复制文件、覆盖同名，单文件失败就跳过 —— 这是排查用的旁路，不能影响启动。
+ * 日志和诊断都走这一份实现，别再各写一遍。
+ */
+private fun mirrorPrivateDirToExternal(ctx: Context, subDir: String) {
     runCatching {
-        val src = File(ctx.filesDir, "logs")
+        val src = File(ctx.filesDir, subDir)
         if (!src.isDirectory) return
-        val dst = ctx.getExternalFilesDir("logs") ?: return
+        val dst = ctx.getExternalFilesDir(subDir) ?: return
         if (!dst.isDirectory && !dst.mkdirs()) return
         src.listFiles()?.forEach { f ->
             if (f.isFile && f.length() > 0) {
                 runCatching { f.copyTo(File(dst, f.name), overwrite = true) }
             }
         }
-    }.onFailure { Log.w(TAG, "镜像启动日志失败", it) }
+    }.onFailure { Log.w(TAG, "镜像 $subDir 到外部目录失败", it) }
 }
+
+internal fun mirrorLaunchLogsToExternal(ctx: Context) = mirrorPrivateDirToExternal(ctx, "logs")
+
+/**
+ * 把 `files/diagnostics/`（JVM 都没建起来时的失败原因）镜像到外部。
+ *
+ * Rust 只能写进私有目录，而 release 包不可 `run-as`；不镜像的话
+ * `Android/data/<pkg>/files/diagnostics/` 永远是空的，弹窗里那句
+ * 「日志与崩溃报告已保存到…」等于骗人。
+ */
+internal fun mirrorDiagnosticsToExternal(ctx: Context) = mirrorPrivateDirToExternal(ctx, "diagnostics")
 
 /**
  * 挂在启动器根组合里：进来先镜像日志，再根据标记决定要不要弹「上次启动失败」。
@@ -131,6 +148,7 @@ internal fun LaunchFailureNoticeHost() {
         Thread {
             mirrorLaunchLogsToExternal(context.applicationContext)
             mirrorCrashReportsToExternal(context.applicationContext)
+            mirrorDiagnosticsToExternal(context.applicationContext)
         }.apply {
             priority = Thread.MIN_PRIORITY
         }.start()
