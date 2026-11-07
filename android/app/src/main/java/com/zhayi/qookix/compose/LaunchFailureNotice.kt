@@ -71,6 +71,37 @@ internal fun clearLastLaunchFailure(ctx: Context) {
  *
  * 只复制文件、覆盖同名，失败就跳过 —— 这是排查用的旁路，不能影响启动。
  */
+/**
+ * 把 Minecraft 自己的崩溃报告也镜像到外部目录。
+ *
+ * 2026-11-07：MC 崩溃时会把完整报告写到
+ * `files/game/<实例>/crash-reports/crash-*.txt`（里面有异常栈、模组列表、
+ * 渲染器信息）—— 那才是定位问题的第一手材料。但它在**私有目录**里，
+ * release 包 `run-as` 不可用，用户和我们都拿不到。
+ *
+ * 这里在启动时扫一遍，按「实例前 8 位-报告名」平铺到
+ * `Android/data/<pkg>/files/crash-reports/`，`adb pull` 就能取。
+ * 报告通常只有几十 KB，全量复制也不心疼。
+ */
+internal fun mirrorCrashReportsToExternal(ctx: Context) {
+    runCatching {
+        val gameRoot = File(ctx.filesDir, "game")
+        if (!gameRoot.isDirectory) return
+        val dst = ctx.getExternalFilesDir("crash-reports") ?: return
+        if (!dst.isDirectory && !dst.mkdirs()) return
+        gameRoot.listFiles()?.forEach { inst ->
+            val dir = File(inst, "crash-reports")
+            if (!dir.isDirectory) return@forEach
+            dir.listFiles { f -> f.isFile && f.name.endsWith(".txt") }?.forEach { f ->
+                val tag = inst.name.take(8)
+                runCatching {
+                    f.copyTo(File(dst, "$tag-${f.name}"), overwrite = true)
+                }
+            }
+        }
+    }.onFailure { Log.w(TAG, "镜像崩溃报告失败", it) }
+}
+
 internal fun mirrorLaunchLogsToExternal(ctx: Context) {
     runCatching {
         val src = File(ctx.filesDir, "logs")
@@ -96,8 +127,11 @@ internal fun LaunchFailureNoticeHost() {
     var failure by remember { mutableStateOf<LastLaunchFailure?>(null) }
 
     LaunchedEffect(Unit) {
-        // 复制日志放后台线程：日志文件可能几 MB，别卡首帧
-        Thread { mirrorLaunchLogsToExternal(context.applicationContext) }.apply {
+        // 复制日志 / 崩溃报告放后台线程：日志可能几 MB，别卡首帧
+        Thread {
+            mirrorLaunchLogsToExternal(context.applicationContext)
+            mirrorCrashReportsToExternal(context.applicationContext)
+        }.apply {
             priority = Thread.MIN_PRIORITY
         }.start()
         failure = readLastLaunchFailure(context)
