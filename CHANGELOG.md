@@ -19,6 +19,13 @@
 
 ## [Unreleased]
 
+## [0.2.2-beta35] - 2026-11-07
+
+0. 修复：**1.21.11 等版本启动崩溃**（续 beta34）—— 原生库回滚后不再出现 `__emutls_get_address` 的 `UnsatisfiedLinkError`，1.21.11 可正常进入主菜单、单人、创建世界
+1. 修复：**正常退出游戏被报成「上次启动失败」** —— MC 退出和崩溃都是 Java 直接结束进程，改用一个「游戏真的跑起来过」的标记来区分
+2. 优化：启动失败提示带上 MC 版本（如「Minecraft 1.21.11 启动后约 2 秒就退出」），多实例时知道是哪一个
+3. 优化：用户主动结束游戏 / 划掉启动器不再误报失败；玩了很久之后的崩溃也不再算「启动失败」
+
 ## [0.2.2-beta34] - 2026-11-07
 
 0. 修复：**1.21.11 等版本点启动后立刻崩溃** —— `liblwjgl_stb.so` 用旧 NDK 编译，引用了 Android 16 已移除的 `__emutls_get_address`，`dlopen` 失败导致渲染上下文建不起来。回滚 `liblwjgl_stb / liblwjgl_nanovg / libopenal / libfreetype / libSDL3` 为原版
