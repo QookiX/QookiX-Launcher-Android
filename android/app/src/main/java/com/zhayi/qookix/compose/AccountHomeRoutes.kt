@@ -605,17 +605,17 @@ internal fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
         // 初始化状态
         api.getPluginSetupStatus { r ->
             r.onSuccess { o ->
-                // ⚠️ 2026-11-04（审计 C-04）：Rust `SetupStatus` 的字段是
-                // needed（还缺插件）/ dismissed（用户点过「稍后」），没有 ready / initialized。
-                // 原来 `optBoolean("ready", true)` 因为键不存在恒为 true → 首启补齐窗口
-                // **永远不弹**，缺渲染器/驱动插件时用户毫无提示，进游戏才黑屏。
-                // 两种写法都认，兼容以后后端改命名。
+                // ⚠️ Rust `SetupStatus` 只有 needed / dismissed（「稍后」），没有 ready /
+                // initialized：原来 `optBoolean("ready", true)` 恒为 true，首启补齐窗口
+                // **永远不弹**。`missing` 单独记数：装上再卸掉时也要能重新给补齐入口。
+                val needed = o.optBoolean("needed", false)
                 val ready = if (o.has("needed") || o.has("dismissed")) {
-                    !o.optBoolean("needed", false) || o.optBoolean("dismissed", false)
+                    !needed || o.optBoolean("dismissed", false)
                 } else {
                     o.optBoolean("ready", true) || o.optBoolean("initialized", false)
                 }
-                state = state.copy(ready = ready)
+                val missing = if (needed) (o.optJSONArray("missing")?.length() ?: 0) else 0
+                state = state.copy(ready = ready, missingRecommended = missing)
             }
         }
         // 已装插件

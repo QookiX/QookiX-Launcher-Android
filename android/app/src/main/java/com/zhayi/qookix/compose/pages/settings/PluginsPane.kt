@@ -70,68 +70,98 @@ fun PluginsPane(
     var pendingUninstall by remember { mutableStateOf<PluginUi?>(null) }
 
     SettingsPane(title = stringResource(R.string.plugins_title)) {
-        // ── 初始化状态 ────────────────────────────────────────────────
-        if (!state.ready) {
+        // ── 顶部提示卡：未初始化 / 还缺推荐插件 ──────────────────────────
+        //
+        // 横屏优先：卡片里是「文字 + 按钮同一行」，进度条也塞进卡片，
+        // 不再用「卡片 / 独立按钮 / 独立进度」三层，纵向省下 ~90dp。
+        //
+        // 「安装推荐插件」以前只在 `!state.ready` 时显示，而 ready 的算法是
+        // `!needed || dismissed` —— 用户点过一次「稍后」之后 dismissed 恒为 true，
+        // 之后哪怕把渲染器/驱动插件卸了、needed 又变回 true，按钮也**再也不会出现**，
+        // 只能进游戏撞黑屏。现在按「还缺几个」独立显示，与略过与否无关。
+        if (!state.ready || state.missingRecommended > 0) {
+            val isError = !state.ready
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(QkSpacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Filled.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                colors = if (isError) {
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
                     )
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.plugins_not_initialized),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                } else {
+                    CardDefaults.cardColors()
+                },
+            ) {
+                Column(modifier = Modifier.padding(QkSpacing.md)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isError) {
+                            Icon(
+                                Icons.Filled.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (state.missingRecommended > 0) {
+                                    stringResource(
+                                        R.string.plugins_missing_recommended,
+                                        state.missingRecommended,
+                                    )
+                                } else {
+                                    stringResource(R.string.plugins_not_initialized)
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isError) {
+                                    MaterialTheme.colorScheme.onErrorContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                            Spacer(Modifier.height(QkSpacing.xxs))
+                            Text(
+                                text = if (state.missingRecommended > 0) {
+                                    stringResource(R.string.plugins_missing_recommended_desc)
+                                } else {
+                                    stringResource(R.string.plugins_not_initialized_desc)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isError) {
+                                    MaterialTheme.colorScheme.onErrorContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                        Spacer(Modifier.width(QkSpacing.sm))
+                        FilledTonalButton(
+                            onClick = onInstallRecommended,
+                            enabled = !state.busy,
+                        ) {
+                            Text(
+                                if (state.busy) stringResource(R.string.plugins_installing)
+                                else stringResource(R.string.plugins_install_recommended)
+                            )
+                        }
+                    }
+                    // 安装进度（审计 H-6）：显示正在装哪个、进度多少
+                    if (state.busy && (state.installMessage.isNotBlank() || state.installProgress > 0f)) {
+                        Spacer(Modifier.height(QkSpacing.sm))
+                        LinearProgressIndicator(
+                            progress = { state.installProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                        Spacer(Modifier.height(QkSpacing.xxs))
+                        Spacer(Modifier.height(QkSpacing.xs))
                         Text(
-                            text = stringResource(R.string.plugins_not_initialized_desc),
+                            text = state.installMessage.ifBlank {
+                                stringResource(R.string.plugins_installing_progress)
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
-            }
-            Spacer(Modifier.height(QkSpacing.md))
-
-            FilledTonalButton(
-                onClick = onInstallRecommended,
-                enabled = !state.busy,
-            ) {
-                Text(
-                    if (state.busy) stringResource(R.string.plugins_installing)
-                    else stringResource(R.string.plugins_install_recommended)
-                )
-            }
-            // 安装进度（审计 H-6）：显示正在装哪个、进度多少
-            if (state.busy && (state.installMessage.isNotBlank() || state.installProgress > 0f)) {
-                Spacer(Modifier.height(QkSpacing.sm))
-                Column {
-                    LinearProgressIndicator(
-                        progress = { state.installProgress.coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(QkSpacing.xs))
-                    Text(
-                        text = state.installMessage.ifBlank {
-                            stringResource(R.string.plugins_installing_progress)
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
             Spacer(Modifier.height(QkSpacing.lg))
@@ -303,6 +333,14 @@ data class PluginsUiState(
     val plugins: List<PluginUi> = emptyList(),
     val manifestUrl: String = "",
     val error: String? = null,
+    /**
+     * 还缺几个「推荐插件」（渲染器 / 驱动 / 组件包）。
+     *
+     * 来自 `get_plugin_setup_status` 的 `needed` + `missing.length()`。
+     * 与 [ready] 分开记：`ready` 现在只表示「清单能不能拉到」，
+     * 装上之后再卸掉也要能重新给用户一个补齐入口。
+     */
+    val missingRecommended: Int = 0,
     /**
      * 正在安装的插件名与进度（2026-10-17 补，审计 H-6）。
      *

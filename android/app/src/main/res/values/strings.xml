@@ -507,6 +507,8 @@
     <string name="plugins_not_initialized">插件尚未初始化</string>
     <string name="plugins_not_initialized_desc">部分功能在初始化前不会生效</string>
     <string name="plugins_install_recommended">安装推荐插件</string>
+    <string name="plugins_missing_recommended">还缺 %1$d 个推荐插件</string>
+    <string name="plugins_missing_recommended_desc">渲染器 / 驱动 / 组件包。不装的话部分版本进游戏会黑屏，或退回随包自带的老驱动。</string>
     <string name="plugins_installing">安装中…</string>
     <string name="plugins_installing_progress">正在安装…</string>
     <string name="plugins_installed_count">已安装（%1$d）</string>
