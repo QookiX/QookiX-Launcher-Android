@@ -36,6 +36,14 @@ class GameGuardService : Service() {
 
     private var thread: Thread? = null
 
+    /**
+     * 多久之内退出才算「启动失败」（秒）。
+     *
+     * 与 Rust 侧 `EARLY_EXIT_SECS` 保持同一个量级：正常玩起来之后
+     *（1~2 分钟进世界）再崩，那是游戏内问题，不该说成「没启动成功」。
+     */
+    private val EARLY_EXIT_WINDOW_SECS = 300L
+
     /** 主进程 pid（Service 没有 Activity 那个 intent 属性，从 onStartCommand 的参数取） */
     private var mainPid: Int = -1
 
@@ -107,6 +115,13 @@ class GameGuardService : Service() {
             val startedAt = o.optLong("at", 0L)
             val nowSec = System.currentTimeMillis() / 1000
             val elapsed = if (startedAt > 0) (nowSec - startedAt).coerceAtLeast(0) else 0L
+            // 玩了好几个小时才崩（或玩家关了机）—— 这不算「启动失败」，
+            // 报这个只会误导。只记「刚起来没多久就没了」这一种。
+            if (elapsed > EARLY_EXIT_WINDOW_SECS) {
+                inProgress.delete()
+                Log.i(TAG, "主进程在游戏运行 ${elapsed}s 后消失，不记为启动失败")
+                return
+            }
             java.io.File(filesDir, "last-launch-failure.json").writeText(
                 org.json.JSONObject()
                     .put("instanceId", o.optString("instanceId"))
