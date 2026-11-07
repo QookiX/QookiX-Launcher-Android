@@ -19,6 +19,13 @@
 
 ## [Unreleased]
 
+## [0.2.2-beta34] - 2026-11-07
+
+0. 修复：**1.21.11 等版本点启动后立刻崩溃** —— `liblwjgl_stb.so` 用旧 NDK 编译，引用了 Android 16 已移除的 `__emutls_get_address`，`dlopen` 失败导致渲染上下文建不起来。回滚 `liblwjgl_stb / liblwjgl_nanovg / libopenal / libfreetype / libSDL3` 为原版
+1. 修复：上一版的「上次启动失败」提示在**崩溃型退出**下不会触发 —— 崩溃时 JVM 直接结束进程，收尾代码执行不到。改由守护进程判定并记录
+
+> 说明：回滚的 5 个库回到 4KB 段对齐，16KB 适配范围缩小；等用新 NDK 重建后再换回。
+
 ## [0.2.2-beta33] - 2026-11-07
 
 0. 修复：**1.21.11 等版本点启动后立刻崩溃** —— `liblwjgl_stb.so` 用旧 NDK 编译，引用了 Android 16 已移除的 `__emutls_get_address`，`dlopen` 失败导致渲染上下文建不起来。回滚 `liblwjgl_stb / liblwjgl_nanovg / libopenal / libfreetype / libSDL3` 为原版
