@@ -1286,6 +1286,9 @@
     <string name="launch_not_installed">游戏文件还没装好，先点「补全文件」把缺失的补齐再启动</string>
     <string name="launch_not_installed_short">游戏文件还没装好。打开实例详情，点「补全文件」补齐后再启动</string>
     <string name="launch_failed_msg">启动失败：%1$s</string>
+    <!-- 2026-11-07：游戏「起来没几秒就静默退出」时，下次进启动器弹这个 -->
+    <string name="launch_failed_last_time_title">上次启动没有成功</string>
+    <string name="launch_failed_last_time_body">游戏启动后约 %1$d 秒就退出了（退出码 %2$d），没有真正进入游戏。\n\n常见原因：游戏文件没下载完整、渲染器与该版本不兼容、模组冲突。\n这次启动的完整输出可以在「实例 → 日志」里查看。</string>
     <string name="renderer_hint_body">这个实例是 Minecraft %1$s，%2$s 在它上面可能起不来要切换为 %3$s 吗？（只改这一个实例）</string>
 <string name="backup_restore_msg">确定要用「%1$s」的这份备份覆盖当前存档吗？恢复前会自动为当前存档留一份快照</string>
     <!-- ── PageHost 续 7（账号 / 皮肤 / 更新 / FRP / 导入）── -->

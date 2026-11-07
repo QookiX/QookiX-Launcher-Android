@@ -1556,6 +1556,10 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             // 接线收在 FirstRunSetupHost 里（本文件已顶到体量预算）。
             FirstRunSetupHost(bridge = bridge, bridgeReady = bridgeReady)
 
+            // 2026-11-07：上次启动「秒退」时给一次可见提示；顺手把内部启动日志
+            // 镜像到应用专属外部目录（release 包不可 run-as，只有那里 adb 能拿到）。
+            LaunchFailureNoticeHost()
+
             LauncherShell(
                 current = current,
                 onNavigate = { navigate(it) },

@@ -12,6 +12,24 @@ use crate::jvm_launcher::JvmLauncher;
 
 static GAME_STATUS: OnceLock<Mutex<GameStatus>> = OnceLock::new();
 
+/// 本次启动的时间戳（epoch 秒），用来判断「起来没几秒就退出」。
+///
+/// ⚠️ 2026-11-07：真机上 1.21.11 点启动后 JVM 窗口都出来了，2 秒后进程
+/// 静默退出（没有 tombstone、没有报错），`GameGuard` 又把启动器拉回来 ——
+/// 用户只看到「闪一下」，完全不知道发生了什么。这里记下起点，退出时
+/// 只要跑得够短就写一个失败标记，下次进启动器时弹出来（含日志路径）。
+static LAUNCH_STARTED_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 短于这个秒数就当成「没真正玩起来」。
+const EARLY_EXIT_SECS: u64 = 20;
+
+fn now_epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn init_statics() {
     GAME_STATUS.get_or_init(|| Mutex::new(GameStatus {
         is_running: false,
@@ -720,6 +738,9 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             85.0,
         );
 
+        // 记下「真正开始创建 JVM」的时刻：退出时用它判断是不是秒退
+        LAUNCH_STARTED_AT.store(now_epoch_secs(), std::sync::atomic::Ordering::Relaxed);
+
         // 安卓进程的 stdout 默认丢弃：把 fd 1/2 转到日志文件，并把新增行推给前端日志面板
         #[cfg(target_os = "android")]
         {
@@ -958,6 +979,34 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             return Err(e);
         }
     };
+
+    // ⚠️ 2026-11-07：跑得特别短就退出 = 没真正玩起来（初始化异常 / 缺文件 /
+    // 渲染器起不来）。这种情况必须留痕，否则用户只看到「点启动 → 回到启动器」。
+    // 写标记文件放在**清 launch_log 之前**，下次进启动器由 Kotlin 弹出提示。
+    let started_at = LAUNCH_STARTED_AT.load(std::sync::atomic::Ordering::Relaxed);
+    if started_at != 0 {
+        let elapsed = now_epoch_secs().saturating_sub(started_at);
+        if elapsed < EARLY_EXIT_SECS {
+            println!(
+                "[launcher] 启动后 {elapsed} 秒即退出（退出码 {exit_code}）—— 判定为启动失败"
+            );
+            crate::util::log_line(&format!(
+                "启动后 {elapsed} 秒即退出（退出码 {exit_code}）"
+            ));
+            if let Some(dir) = crate::settings::data_dir_sync() {
+                let marker = std::path::Path::new(&dir).join("last-launch-failure.json");
+                let body = serde_json::json!({
+                    "instanceId": instance_id,
+                    "code": exit_code,
+                    "elapsed": elapsed,
+                    "at": now_epoch_secs(),
+                });
+                if let Err(e) = std::fs::write(&marker, body.to_string()) {
+                    println!("[launcher] 写启动失败标记失败：{e}");
+                }
+            }
+        }
+    }
 
     {
         let mut status = crate::util::cell_lock(&GAME_STATUS).unwrap();
