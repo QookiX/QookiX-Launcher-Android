@@ -605,15 +605,12 @@ internal fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
         // 初始化状态
         api.getPluginSetupStatus { r ->
             r.onSuccess { o ->
-                // ⚠️ Rust `SetupStatus` 只有 needed / dismissed（「稍后」），没有 ready /
-                // initialized：原来 `optBoolean("ready", true)` 恒为 true，首启补齐窗口
-                // **永远不弹**。`missing` 单独记数：装上再卸掉时也要能重新给补齐入口。
+                // ⚠️ Rust `SetupStatus` 只有 needed / dismissed（「稍后」）/ error，没有
+                // ready / initialized。`ready` 只表示「清单拉到了」，别再掺 needed/dismissed：
+                // 原来 ready = `!needed || dismissed`，用户点过一次「稍后」后它就恒为 true，
+                // 之后再卸掉渲染器/驱动插件，「补齐」入口永久消失（只能进游戏撞黑屏）。
                 val needed = o.optBoolean("needed", false)
-                val ready = if (o.has("needed") || o.has("dismissed")) {
-                    !needed || o.optBoolean("dismissed", false)
-                } else {
-                    o.optBoolean("ready", true) || o.optBoolean("initialized", false)
-                }
+                val ready = o.optText("error") == null
                 val missing = if (needed) (o.optJSONArray("missing")?.length() ?: 0) else 0
                 state = state.copy(ready = ready, missingRecommended = missing)
             }
