@@ -996,7 +996,12 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             status.error = Some(e.to_string());
             drop(status);
             crate::progress::emit_launch_progress(&format!("启动失败：{e}"), 100.0);
-            crate::progress::emit_launch_exit(instance_id, -1);
+            // ⚠️ 2026-11-07：这里**不能**发 `launch://exit`。
+            // 那条事件的含义是「游戏已经退出，JVM 用废了，得换个进程」——
+            // 前端收到就重启整个应用。而走到这个分支时 JVM 根本没创建成功
+            //（例如 1.8.9 缺 Java 8 运行时），重启只会把错误提示吞掉：
+            // 真机表现是「点启动 → 直接回到首页，什么都没有」。
+            // 交给命令返回值让 UI 显示具体错误即可。
             crate::progress::emit_launch_state(instance_id, "exited", 0, None);
             #[cfg(target_os = "android")]
             crate::android_env::stop_log_tail();
