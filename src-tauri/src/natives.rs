@@ -77,7 +77,6 @@ impl NativesExtractor {
         let mut jars: Vec<PathBuf> = Vec::new();
         Self::collect_jars(libraries_dir, &mut jars, 0);
 
-        let mut budget = crate::zip_guard::ZipBudget::new();
         for path in jars {
             let file = match std::fs::File::open(&path) {
                 Ok(f) => f,
@@ -88,6 +87,12 @@ impl NativesExtractor {
                 Ok(a) => a,
                 Err(_) => continue,
             };
+
+            // ⚠️ 预算是**每个 zip 一份**（见 zip_guard 的说明）。这里曾经把它建在
+            // jar 循环外面，于是整个 `libraries/` 里所有 jar 的条目数累加到一个计数器上
+            // —— 1.21.11 这种依赖多的版本轻松破 10 万条，启动时误报
+            // 「压缩包条目过多（超过 100000 个），已中止解压」，JVM 根本起不来。
+            let mut budget = crate::zip_guard::ZipBudget::new();
 
             for i in 0..archive.len() {
                 let mut zip_file = match archive.by_index(i) {
