@@ -19,6 +19,12 @@
 
 ## [Unreleased]
 
+## [0.2.2-beta33] - 2026-11-07
+
+0. 修复：**1.21.11 等版本点启动后立刻崩溃** —— `liblwjgl_stb.so` 用旧 NDK 编译，引用了 Android 16 已移除的 `__emutls_get_address`，`dlopen` 失败导致渲染上下文建不起来。回滚 `liblwjgl_stb / liblwjgl_nanovg / libopenal / libfreetype / libSDL3` 为原版
+
+> 说明：这 5 个库因此回到 4KB 段对齐，16KB 适配范围缩小；等用新 NDK 重建后再换回。
+
 ## [0.2.2-beta32] - 2026-11-07
 
 0. 新增：**启动失败不再「闪一下就没」** —— 游戏起来后 20 秒内就退出时，下次进启动器会弹「上次启动没有成功」，说明可能原因并指到「实例 → 日志」
