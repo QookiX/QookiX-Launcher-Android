@@ -38,6 +38,8 @@ import java.io.File
 /** Rust 写下的失败标记（字段名与 `launch.rs` 的 `json!` 保持一致）。 */
 internal data class LastLaunchFailure(
     val instanceId: String,
+    /** MC 版本（如 1.21.11）；老标记文件里没有这个字段，可能为空。 */
+    val mcVersion: String,
     val code: Int,
     val elapsedSecs: Long,
 )
@@ -52,6 +54,8 @@ internal fun readLastLaunchFailure(ctx: Context): LastLaunchFailure? {
         val o = JSONObject(f.readText())
         LastLaunchFailure(
             instanceId = o.optString("instanceId"),
+            mcVersion = o.optString("mcVersion").takeIf { it.isNotBlank() && it != "null" }
+                .orEmpty(),
             code = o.optInt("code", 0),
             elapsedSecs = o.optLong("elapsed", 0),
         )
@@ -108,11 +112,20 @@ internal fun LaunchFailureNoticeHost() {
         title = { Text(stringResource(R.string.launch_failed_last_time_title)) },
         text = {
             Text(
-                stringResource(
-                    R.string.launch_failed_last_time_body,
-                    f.elapsedSecs,
-                    f.code,
-                )
+                if (f.mcVersion.isNotBlank()) {
+                    stringResource(
+                        R.string.launch_failed_last_time_body_v,
+                        f.mcVersion,
+                        f.elapsedSecs,
+                        f.code,
+                    )
+                } else {
+                    stringResource(
+                        R.string.launch_failed_last_time_body,
+                        f.elapsedSecs,
+                        f.code,
+                    )
+                }
             )
         },
         confirmButton = {

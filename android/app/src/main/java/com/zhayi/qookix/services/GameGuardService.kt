@@ -125,6 +125,7 @@ class GameGuardService : Service() {
             java.io.File(filesDir, "last-launch-failure.json").writeText(
                 org.json.JSONObject()
                     .put("instanceId", o.optString("instanceId"))
+                    .put("mcVersion", o.optString("mcVersion"))
                     .put("code", -1)
                     .put("elapsed", elapsed)
                     .put("at", nowSec)

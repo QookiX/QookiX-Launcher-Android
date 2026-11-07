@@ -271,7 +271,7 @@
   "src-tauri/src/jni_bridge.rs": 313,
   "src-tauri/src/jvm_launcher.rs": 483,
   "src-tauri/src/lan_sync.rs": 785,
-  "src-tauri/src/launch.rs": 2111,
+  "src-tauri/src/launch.rs": 2118,
   "src-tauri/src/lib.rs": 93,
   "src-tauri/src/loader_install.rs": 1006,
   "src-tauri/src/main.rs": 3,

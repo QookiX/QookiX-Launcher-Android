@@ -68,6 +68,9 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
     let mut previous_dir: Option<std::path::PathBuf> = None;
 
     
+    // 版本号要带到**闭包外面**：退出后写「启动失败」标记时 instance 已经出作用域了
+    let mut mc_version_for_log = String::new();
+
     let launch_result = async {
         let data_dir = crate::settings::get_data_dir().await?;
         let instance_dir = crate::settings::instance_dir(instance_id).await?;
@@ -78,6 +81,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
 
         let instance: MinecraftProfile = serde_json::from_str(&content)
             .map_err(|e| anyhow::anyhow!("INSTANCE_CONFIG_CORRUPT: {}", e))?;
+        mc_version_for_log = instance.mc_version.clone();
 
         // 空实例兜底：没装游戏文件就启动，JVM 找不到 client jar 会直接失败 ——
         // 现象是「黑屏 / 秒退」，日志里只有 LWJGL 报错，用户完全看不出是没装。
@@ -750,6 +754,8 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             let p = std::path::Path::new(&dir).join("launch-in-progress.json");
             let body = serde_json::json!({
                 "instanceId": instance_id,
+                // 一起记下版本号：下次弹「上次启动失败」时能直接说清是哪个实例/版本
+                "mcVersion": instance.mc_version,
                 "at": now_epoch_secs(),
             });
             let _ = std::fs::write(&p, body.to_string());
@@ -1018,6 +1024,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
                 let marker = std::path::Path::new(&dir).join("last-launch-failure.json");
                 let body = serde_json::json!({
                     "instanceId": instance_id,
+                    "mcVersion": mc_version_for_log,
                     "code": exit_code,
                     "elapsed": elapsed,
                     "at": now_epoch_secs(),
