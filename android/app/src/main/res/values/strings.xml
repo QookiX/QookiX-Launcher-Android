@@ -661,8 +661,8 @@
     <string name="settings_download_update_group">更新</string>
     <string name="settings_download_auto_update">自动检查更新</string>
     <string name="settings_download_auto_update_desc">启动时检查启动器新版本</string>
-    <string name="settings_download_update_source">更新源</string>
-    <string name="settings_download_update_source_desc">国内访问 GitHub 慢时可换镜像</string>
+    <string name="settings_download_update_source">下载源（GitHub）</string>
+    <string name="settings_download_update_source_desc">影响 Java 运行时、更新包与插件。自动 = 先试镜像，失败回落官方</string>
     <string name="settings_download_check_now">检查更新</string>
     <string name="settings_download_check_now_desc">手动触发一次更新检查</string>
     <string name="settings_download_check">检查</string>
@@ -672,8 +672,9 @@
     <string name="settings_download_start_test">开始测速</string>
     <string name="settings_download_mirror_hint">对比官方源与国内镜像的耗时，选快的</string>
     <string name="settings_download_update_result_title">更新检查</string>
-    <string name="settings_download_source_github">GitHub</string>
-    <string name="settings_download_source_mirror">镜像</string>
+    <string name="settings_download_source_auto">自动</string>
+    <string name="settings_download_source_github">仅官方</string>
+    <string name="settings_download_source_mirror">仅镜像</string>
 
     <!-- ── 设置：游戏（DownloadGameStoragePanes.kt）── -->
     <string name="settings_game_title">游戏内</string>

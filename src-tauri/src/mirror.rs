@@ -66,17 +66,69 @@ pub const GITHUB_MIRRORS: [&str; 3] = [
     "https://ghproxy.net/",
 ];
 
-/// `github.com` 的下载地址展开成「镜像 → 官方」候选链；其它域名返回 `None`。
+/// GitHub 下载的取源策略（设置项「下载源」，存 `updateSource` / `update_source`）。
+///
+/// 只管 `github.com` 这一条线（JRE / 更新包 / 插件）。
+/// Mojang 那条线由独立的 `mirror` 设置控制，两者不要混用：
+/// 选了「BMCLAPI」不代表想让 GitHub 也走镜像，反之亦然。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GithubSource {
+    /// 镜像 → 官方，镜像失败自动回落（默认）
+    Auto,
+    /// 只走官方，不碰任何第三方代理
+    OfficialOnly,
+    /// 只走镜像（隐私/网络环境需要时用；镜像全挂时下载会失败，这是预期）
+    MirrorOnly,
+}
+
+impl GithubSource {
+    pub fn from_raw(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "github" | "official" => Self::OfficialOnly,
+            "mirror" | "mirror_only" | "mirroronly" => Self::MirrorOnly,
+            // "auto" / 空串 / 历史遗留的 "bucket"（桌面端字段）一律按自动处理
+            _ => Self::Auto,
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::OfficialOnly => "github",
+            Self::MirrorOnly => "mirror",
+        }
+    }
+}
+
+/// 当前生效的 GitHub 取源策略。
+pub fn github_source() -> GithubSource {
+    let map = crate::settings::load_raw_settings_sync();
+    let raw = map
+        .get("updateSource")
+        .or_else(|| map.get("update_source"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("auto");
+    GithubSource::from_raw(raw)
+}
+
+/// `github.com` 的下载地址展开成候选链；其它域名返回 `None`。
 fn github_candidates(url: &str) -> Option<Vec<String>> {
     if !url.starts_with("https://github.com/") {
         return None;
     }
-    let mut urls: Vec<String> = GITHUB_MIRRORS
-        .iter()
-        .map(|m| format!("{m}{url}"))
-        .collect();
-    urls.push(url.to_string());
-    Some(urls)
+    Some(github_chain(github_source(), url))
+}
+
+/// 按策略展开候选链。链尾是否官方决定了「镜像全挂还能不能下」。
+fn github_chain(policy: GithubSource, url: &str) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    if policy != GithubSource::OfficialOnly {
+        urls.extend(GITHUB_MIRRORS.iter().map(|m| format!("{m}{url}")));
+    }
+    if policy != GithubSource::MirrorOnly {
+        urls.push(url.to_string());
+    }
+    urls
 }
 
 /// 官方版本清单地址
@@ -341,6 +393,23 @@ mod tests {
     fn github_chain_ignores_mirror_setting() {
         // BMCLAPI 不镜像 github.com，选哪个源都不该改变候选链
         assert_eq!(candidate_urls("", GH), candidate_urls(BMCLAPI_BASE, GH));
+    }
+
+    #[test]
+    fn github_chain_respects_download_source() {
+        // 仅官方：链上只有官方地址
+        assert_eq!(
+            github_chain(GithubSource::OfficialOnly, GH),
+            vec![GH.to_string()]
+        );
+        // 仅镜像：不再挂官方兜底（镜像全挂时下载会失败，这是用户选择的语义）
+        let mirror_only = github_chain(GithubSource::MirrorOnly, GH);
+        assert_eq!(mirror_only.len(), GITHUB_MIRRORS.len());
+        assert!(mirror_only.iter().all(|u| u != GH));
+        // 历史遗留值 / 乱填的值一律按自动，别变成「一个候选都没有」
+        assert_eq!(GithubSource::from_raw("bucket"), GithubSource::Auto);
+        assert_eq!(GithubSource::from_raw(""), GithubSource::Auto);
+        assert_eq!(GithubSource::from_raw("GITHUB"), GithubSource::OfficialOnly);
     }
 
     #[test]

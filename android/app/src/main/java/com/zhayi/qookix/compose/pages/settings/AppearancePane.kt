@@ -394,7 +394,7 @@ data class SettingsUiState(
     val downloadThreads: Int = 8,
     val downloadChunkThreads: Int = 4,
     val autoUpdate: Boolean = true,
-    val updateSource: String = "github",
+    val updateSource: String = "auto",
 
     // ── 游戏 ──────────────────────────────────────────────────────────────
     val memoryMode: String = "auto",

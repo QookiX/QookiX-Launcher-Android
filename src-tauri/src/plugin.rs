@@ -364,24 +364,19 @@ pub async fn fetch_manifest(data_dir: &str, force: bool) -> Result<Manifest, Str
         return cached_manifest(data_dir).ok_or_else(|| "未配置插件源地址".to_string());
     }
 
-    let client = crate::util::http_client().await;
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("请求插件清单失败：{e}"))?;
-    if !resp.status().is_success() {
-        // 网络失败但本地有旧清单：降级用旧的，别把设置页变成错误页
-        if let Some(m) = cached_manifest(data_dir) {
-            crate::util::log_line(&format!("插件清单刷新失败（HTTP {}），沿用缓存", resp.status()));
-            return Ok(m);
+    // 候选链：插件源默认也是 GitHub Release 资产，国内直连只有几十 KB/s。
+    // 取不到（含镜像返回 HTML 登录页）时降级用旧清单，别把设置页变成错误页。
+    let candidates = crate::mirror::candidate_urls(&crate::mirror::current_base(), &url);
+    let text = match crate::netdl::fetch_text(&candidates).await {
+        Ok(t) => t,
+        Err(e) => {
+            if let Some(m) = cached_manifest(data_dir) {
+                crate::util::log_line(&format!("插件清单刷新失败（{e}），沿用缓存"));
+                return Ok(m);
+            }
+            return Err(format!("请求插件清单失败：{e}"));
         }
-        return Err(format!("插件清单返回 HTTP {}", resp.status()));
-    }
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("读取插件清单失败：{e}"))?;
+    };
     let manifest: Manifest =
         serde_json::from_str(&text).map_err(|e| format!("插件清单格式不正确：{e}"))?;
 
@@ -567,21 +562,27 @@ pub async fn install(data_dir: &str, id: &str) -> Result<(), String> {
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("创建临时目录失败：{e}"))?;
     let zip_path = tmp_dir.join(format!("{id}-{}.zip", spec.version));
 
-    // 1) 下载
-    emit(id, "download", 0, archive.size.unwrap_or(0), "开始下载");
-    download_with_progress(&archive.url, &zip_path, id, archive.size.unwrap_or(0)).await?;
-
-    // 2) 校验（清单里给了 sha1 才校验；本地无网络调试时允许留空）
-    if let Some(expected) = &archive.sha1 {
-        emit(id, "verify", 0, 0, "校验文件完整性");
-        let actual = sha1_file(&zip_path).await?;
-        if !actual.eq_ignore_ascii_case(expected) {
-            let _ = std::fs::remove_file(&zip_path);
-            return Err(format!(
-                "文件校验失败（期望 {expected}，实际 {actual}），已删除下载内容"
-            ));
-        }
-    }
+    // 1) 下载 + 校验：候选链（GitHub 镜像 → 官方）逐个试，
+    //    清单登记了 sha1 就每下完一个源**立刻**校验，对不上自动换下一个源。
+    let size = archive.size.unwrap_or(0);
+    emit(id, "download", 0, size, "开始下载");
+    let progress = |done: u64, total: u64| emit(id, "download", done, total.max(size), "下载中");
+    let candidates = crate::mirror::candidate_urls(&crate::mirror::current_base(), &archive.url);
+    let expected = match archive.sha1.as_deref() {
+        Some(s) => crate::netdl::Expected::Sha1(s),
+        None => crate::netdl::Expected::None,
+    };
+    crate::netdl::download_candidates(&candidates, &zip_path, size, expected, &progress)
+        .await
+        .map_err(|e| format!("下载失败：{e}"))?;
+    emit(
+        id,
+        "verify",
+        0,
+        0,
+        // 清单没登记 sha1 的老插件包：别假报「已校验」
+        if archive.sha1.is_some() { "文件完整性已校验" } else { "下载完成（清单未提供校验值）" },
+    );
 
     // 3) 解压到 <id>/<version>.tmp，成功后改名 —— 中途失败不会留下「半成品」版本目录
     emit(id, "extract", 0, 0, "解压组件");
@@ -805,80 +806,11 @@ async fn read_descriptor(zip_path: &Path) -> Result<PluginDescriptor, String> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 下载与校验
+// 进度事件
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// 带进度的下载：先写 `.part` 再改名，配合 sha1 校验做到「要么完整，要么没有」。
-///
-/// 没复用 `download::download_file`：那条会套用 Minecraft 镜像设置（对插件源是错的），且进度只进全局表
-async fn download_with_progress(
-    url: &str,
-    dest: &Path,
-    id: &str,
-    expected_size: u64,
-) -> Result<(), String> {
-    use futures::StreamExt;
-
-    let client = crate::util::http_client().await;
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("下载失败：{e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("下载失败：HTTP {}", resp.status()));
-    }
-    let total = resp.content_length().unwrap_or(expected_size);
-
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败：{e}"))?;
-    }
-    let part = dest.with_extension("part");
-    let mut file = std::fs::File::create(&part).map_err(|e| format!("创建文件失败：{e}"))?;
-    let mut done = 0u64;
-    let mut last_emit = std::time::Instant::now();
-
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("下载中断：{e}"))?;
-        std::io::Write::write_all(&mut file, &chunk).map_err(|e| format!("写入失败：{e}"))?;
-        done += chunk.len() as u64;
-        if last_emit.elapsed().as_millis() >= 200 {
-            last_emit = std::time::Instant::now();
-            emit(id, "download", done, total, "下载中");
-        }
-    }
-    std::io::Write::flush(&mut file).ok();
-    drop(file);
-    // BE-11：截断时别 rename 成正式包（下游只有清单带 sha1 才校验，多数插件没有）
-    if expected_size > 0 && done != expected_size { let _ = std::fs::remove_file(&part); return Err(format!("下载不完整：{done} / {expected_size} 字节")); }
-    emit(id, "download", done, total, "下载完成");
-
-    std::fs::rename(&part, dest).map_err(|e| format!("落盘失败：{e}"))?;
-    Ok(())
-}
-
-async fn sha1_file(path: &Path) -> Result<String, String> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || -> Result<String, String> {
-        use std::io::Read;
-        let mut file = std::fs::File::open(&path).map_err(|e| format!("打开文件失败：{e}"))?;
-        let mut hasher = Sha1::new();
-        let mut buf = vec![0u8; 1 << 20];
-        loop {
-            let n = file.read(&mut buf).map_err(|e| format!("读取失败：{e}"))?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
-        Ok(format!("{:x}", hasher.finalize()))
-    })
-    .await
-    .map_err(|e| format!("校验任务失败：{e}"))?
-}
-
-use sha1::{Digest, Sha1};
+// 下载与校验统一走 `crate::netdl`：候选链、超时、摘要校验、失败源冷却都在那边，
+// 插件这条不再单独维护一份「单流下载 + 事后 sha1」。
 
 fn emit(id: &str, phase: &str, done: u64, total: u64, message: &str) {
     crate::progress::emit_plugin_progress(id, phase, done, total, message);

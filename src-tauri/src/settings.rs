@@ -423,7 +423,7 @@ pub async fn get_settings() -> Result<Settings> {
             show_home_stats: raw_bool(&settings, &["show_home_stats", "showHomeStats"], true),
             dismissed_update_version: raw_str(&settings, &["dismissed_update_version", "dismissedUpdateVersion"]),
             auto_update: raw_bool(&settings, &["auto_update", "autoUpdate"], true),
-            update_source: raw_str(&settings, &["update_source", "updateSource"]).unwrap_or_else(|| "bucket".into()),
+            update_source: raw_str(&settings, &["update_source", "updateSource"]).unwrap_or_else(|| "auto".into()),
             // 手机上启动器是「清单+操作」型界面，竖屏单列信息密度最合适（游戏自己会转横屏）
             orientation: raw_str(&settings, &["orientation"]).unwrap_or_else(|| "portrait".into()),
             // 外观页滑杆写入的值；clamp 到滑杆范围，防手改 settings.json 写坏布局
@@ -474,7 +474,7 @@ pub async fn get_settings() -> Result<Settings> {
             show_home_stats: true,
             dismissed_update_version: None,
             auto_update: true,
-            update_source: "bucket".to_string(),
+            update_source: "auto".to_string(),
             sidebar_width: 168,
             orientation: "portrait".to_string(),
             update_channel: "stable".to_string(),

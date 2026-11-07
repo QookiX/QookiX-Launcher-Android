@@ -176,8 +176,7 @@ fun DownloadPane(
 
         // ── 下载源测速 ────────────────────────────────────────────────
         //
-        // 为什么需要：国内直连 GitHub / Mojang 经常很慢，
-        // 换镜像能快十倍。但**不同镜像在不同网络下表现不同** ——
+        // 为什么需要：国内直连经常很慢，换镜像能快十倍。但不同镜像在不同网络下表现不同 ——
         // 与其让用户盲目试，不如直接测出耗时。
         // ── 网络代理 ──────────────────────────────────────────────────
         //
@@ -228,8 +227,9 @@ fun DownloadPane(
     }
 }
 
-/** 更新源。 */
+/** 下载源（Rust: `mirror::GithubSource`）：auto = 镜像→官方回落，github = 只走官方，mirror = 只走镜像。 */
 enum class UpdateSource(val id: String, @StringRes val labelRes: Int) {
+    Auto("auto", R.string.settings_download_source_auto),
     Github("github", R.string.settings_download_source_github),
     Mirror("mirror", R.string.settings_download_source_mirror),
 }

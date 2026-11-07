@@ -137,7 +137,8 @@ class SettingsRepo(private val api: QookixApi) {
             downloadChunkThreads = int(json, "downloadChunkThreads", "download_chunk_threads", 4)
                 .coerceIn(1, 16),
             autoUpdate = bool(json, "autoUpdate", "auto_update", true),
-            updateSource = str(json, "updateSource", "update_source", "github"),
+            // 默认 auto：镜像 → 官方，镜像挂了自动回落官方（见 Rust mirror::GithubSource）
+            updateSource = str(json, "updateSource", "update_source", "auto"),
 
             // 游戏
             memoryMode = str(json, "memoryMode", "memory_mode", "auto"),

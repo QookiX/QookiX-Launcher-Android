@@ -84,7 +84,8 @@ mod updater_version;
 mod controls;
 mod control_import;
 mod jre_bundled;
-mod jre_download;
+/// 按候选链下载（JRE / 更新包 / 插件共用，含镜像冷却与摘要校验）。
+mod netdl;
 /// 局域网直传同步：安卓端 HTTP 客户端（连桌面端起的 HTTP 服务拉实例）。
 mod lan_sync;
 mod lan_sync_upload;

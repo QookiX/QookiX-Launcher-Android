@@ -10,9 +10,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use futures::StreamExt as _;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 /// 仓库坐标与 API 地址（桌面端用的是 latest.json 清单，安卓直接用 GitHub API）。
 const REPO: &str = "QookiX/QookiX-Launcher-Android";
@@ -57,16 +55,11 @@ struct PendingRelease {
 
 static PENDING: Mutex<Option<PendingRelease>> = Mutex::new(None);
 
-fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .user_agent("QookiX-Launcher-Android")
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("创建网络客户端失败：{e}"))
-}
+/// 查版本元数据的超时（纯 JSON，几十 KB）。
+const META_TIMEOUT: Duration = Duration::from_secs(20);
 
 use crate::updater_version::{
-    fetch_text, find_sha256, is_newer, parse_version_full, published_after, UpdateChannel,
+    find_sha256, is_newer, parse_version_full, published_after, UpdateChannel,
 };
 
 /// 下载目录：`<files>/updates`（与 Kotlin 侧 FileProvider 的 updates 路径一致）。
@@ -91,9 +84,15 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
 
     // 用列表接口而不是 `/releases/latest`：后者只给一个「最新」，
     // 没法按渠道挑（正式版用户不该被推 beta）。
+    //
+    // ⚠️ 这一步**走不了镜像链**：`ghfast.top` / `gh-proxy.com` / `ghproxy.net`
+    // 都不代理 `api.github.com`（2026-11-07 实测全部 403），只代 `github.com` 文件。
+    // 所以元数据只能直连；真正的瓶颈（几十 MB 的 APK）在 download_update 里换源。
     let url = format!("{API_LATEST}/{REPO}/releases?per_page=30");
-    let resp = client()?
+    let resp = crate::util::http_client()
+        .await
         .get(&url)
+        .timeout(META_TIMEOUT)
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
@@ -270,109 +269,57 @@ pub async fn download_update(
     // 用时间戳区分，两次各写各的。
     let part = target.with_extension(format!("{}.part", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
 
-    let resp = client()?
-        .get(&pending.url)
-        .send()
-        .await
-        .map_err(|e| format!("下载失败：{e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("下载失败：HTTP {}", resp.status().as_u16()));
-    }
-
-    let total = pending.size.max(resp.content_length().unwrap_or(0));
-    let mut file = std::fs::File::create(&part).map_err(|e| format!("写入失败：{e}"))?;
-    let mut hasher = Sha256::new();
-    let mut done: u64 = 0;
-    let mut last_emit = std::time::Instant::now();
-
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("下载中断：{e}"))?;
-        use std::io::Write as _;
-        file.write_all(&chunk).map_err(|e| format!("写入失败：{e}"))?;
-        hasher.update(&chunk);
-        done += chunk.len() as u64;
-        if last_emit.elapsed().as_millis() >= 200 {
-            last_emit = std::time::Instant::now();
-            crate::progress::push_ser(
-                PROGRESS_EVENT,
-                UpdateProgress {
-                    downloaded: done,
-                    total,
-                },
-            );
-        }
-    }
-    use std::io::Write as _;
-    // ⚠️ 2026-11-04（审计 BE-04）：原来 `file.flush().ok()` 把写盘失败吞了，
-    // 后面照样 rename 成正式更新包并返回成功。
-    if let Err(e) = file.flush() {
-        let _ = std::fs::remove_file(&part);
-        return Err(format!("写入更新包失败：{e}"));
-    }
-    drop(file);
-    // 服务端给了长度就必须收满（弱网截断时不能当成完整包）
-    if total > 0 && done < total {
-        let _ = std::fs::remove_file(&part);
-        return Err(format!("更新包不完整（已收 {done}/{total} 字节）"));
-    }
-    crate::progress::push_ser(
-        PROGRESS_EVENT,
-        UpdateProgress {
-            downloaded: done,
-            total,
-        },
-    );
-
+    // ① 先取 SHA256SUMS：期望摘要要在**下载前**拿到，候选链每下完一个源就能立刻校验、
+    //    对不上自动换源。以前是「先下完再取摘要」，换个源就得整包重下。
     // ⚠️ 2026-11-04（审计 BE-04）：原来 `if let Ok(sums) = ...` —— release 没附
-    // SHA256SUMS、请求失败/超时、client() 构造失败，全都会**静默跳过校验**，
-    // 然后照样 rename 并返回成功（装的是未校验甚至截断的 APK）。
+    // SHA256SUMS、请求失败/超时，全都会**静默跳过校验**，然后照样 rename 并返回成功。
     // 现在：拿不到校验文件就明确拒绝，不再放行。
-    let sums = match &pending.sums_url {
-        Some(url) => match fetch_text(&client()?, url).await {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = std::fs::remove_file(&part);
-                return Err(format!(
-                    "无法获取 SHA256SUMS.txt（{e}），拒绝安装未校验的更新包"
-                ));
-            }
-        },
-        None => {
-            let _ = std::fs::remove_file(&part);
-            return Err("该版本没有提供 SHA256SUMS.txt，拒绝安装未校验的更新包".to_string());
-        }
-    };
+    let sums_url = pending
+        .sums_url
+        .as_deref()
+        .ok_or_else(|| "该版本没有提供 SHA256SUMS.txt，拒绝安装未校验的更新包".to_string())?;
+    let sums = crate::netdl::fetch_text(&candidates_for(sums_url))
+        .await
+        .map_err(|e| format!("无法获取 SHA256SUMS.txt（{e}），拒绝安装未校验的更新包"))?;
+
     // ⚠️ 用**远程资产原名**，不是本地落盘名（B14）：
     // 本地是 local_apk_path() 拼的名字，去 SHA256SUMS 里永远找不到。
-    let local_name = target
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let file_name = if pending.asset_name.is_empty() {
-        local_name.as_str()
-    } else {
-        pending.asset_name.as_str()
+    let file_name = pending.asset_name.clone();
+    let expected = find_sha256(&sums, &file_name).ok_or_else(|| {
+        format!("SHA256SUMS.txt 里没有找到 {file_name} 的校验值，拒绝安装未校验的更新包")
+    })?;
+
+    // ② 按候选链下载（镜像 → 官方）：每源限时、下完立即校验 sha256，对不上自动换源。
+    //    用 `util::http_client` 而不是本文件那个 30s 总超时的 `client()` ——
+    //    79MB 的包在 30 秒内下不完，那等于把更新功能废掉。
+    let size = pending.size;
+    let progress = |done: u64, total: u64| {
+        crate::progress::push_ser(
+            PROGRESS_EVENT,
+            UpdateProgress {
+                downloaded: done,
+                total: size.max(total),
+            },
+        );
     };
-    match find_sha256(&sums, file_name) {
-        Some(expected) => {
-            let actual = format!("{:x}", hasher.finalize());
-            if actual != expected {
-                let _ = std::fs::remove_file(&part);
-                return Err(format!("校验失败（期望 {expected}，实际 {actual}）"));
-            }
-            crate::util::log_line(&format!("更新包校验通过：{file_name}"));
-        }
-        None => {
-            let _ = std::fs::remove_file(&part);
-            return Err(format!(
-                "SHA256SUMS.txt 里没有找到 {file_name} 的校验值，拒绝安装未校验的更新包"
-            ));
-        }
-    }
+    crate::netdl::download_candidates(
+        &candidates_for(&pending.url),
+        &part,
+        size,
+        crate::netdl::Expected::Sha256(&expected),
+        &progress,
+    )
+    .await
+    .map_err(|e| format!("下载失败：{e}"))?;
 
     std::fs::rename(&part, &target).map_err(|e| format!("落盘失败：{e}"))?;
+    crate::util::log_line(&format!("更新包校验通过：{file_name}"));
     Ok(target.to_string_lossy().to_string())
+}
+
+/// 某个 GitHub 地址的候选链（镜像 → 官方）。
+fn candidates_for(url: &str) -> Vec<String> {
+    crate::mirror::candidate_urls(&crate::mirror::current_base(), url)
 }
 
 /// 交给系统安装器（会弹「是否安装」确认，安卓不允许静默装）。

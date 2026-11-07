@@ -344,15 +344,18 @@ impl JreManager {
 
         let archive_path = runtime_dir.join("jre.tar.xz");
 
-        let download_progress = |p: f32| progress(p * 0.7);
+        let download_progress = |done: u64, total: u64| {
+            let p = if total > 0 { done as f32 / total as f32 } else { 0.0 };
+            progress(p * 0.7);
+        };
         // 候选链：GitHub 镜像 → 官方（见 `mirror::GITHUB_MIRRORS`）。
         // 下完必须过 sha256 —— 镜像返回登录页 / 半截文件都会被挡掉并换下一个源。
         let candidates = crate::mirror::candidate_urls(&crate::mirror::current_base(), mirror.url);
-        crate::jre_download::download_candidates(
+        crate::netdl::download_candidates(
             &candidates,
             &archive_path,
             mirror.size,
-            mirror.sha256,
+            crate::netdl::Expected::Sha256(mirror.sha256),
             &download_progress,
         )
         .await?;
