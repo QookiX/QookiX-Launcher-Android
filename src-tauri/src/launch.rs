@@ -995,6 +995,20 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             status.is_running = false;
             status.error = Some(e.to_string());
             drop(status);
+            // 2026-11-07：把「JVM 都没起来」的具体原因落盘。
+            // 这个分支不进 launch-<id>.log（那要 redirect_output 之后才写），
+            // 只在页面上弹一句「异常退出（退出码 -1）」——用户和我们都没法定位。
+            // 写进 diagnostics/，崩溃提示里指的就是这个目录。
+            if let Some(dir) = crate::settings::data_dir_sync() {
+                let diag = std::path::Path::new(&dir).join("diagnostics");
+                let _ = std::fs::create_dir_all(&diag);
+                let body = format!(
+                    "时间（epoch 秒）：{}\n实例：{}\n阶段：JVM 创建之前\n错误：{e}\n",
+                    now_epoch_secs(),
+                    instance_id,
+                );
+                let _ = std::fs::write(diag.join("last-launch-error.txt"), body);
+            }
             crate::progress::emit_launch_progress(&format!("启动失败：{e}"), 100.0);
             // ⚠️ 2026-11-07：这里**不能**发 `launch://exit`。
             // 那条事件的含义是「游戏已经退出，JVM 用废了，得换个进程」——
