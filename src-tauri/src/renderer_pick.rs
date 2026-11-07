@@ -32,12 +32,26 @@ pub(crate) fn version_parts(mc_version: &str) -> (u32, u32) {
 ///
 /// 自动结果只是**默认值**：实例设置里随时可以改成「跟随全局」或具体渲染器。
 pub(crate) fn auto_renderer_for(mc_version: &str) -> &'static str {
-    let (major, minor) = version_parts(mc_version);
-    if major >= 26 || (major == 1 && minor >= 21) {
+    if needs_mobileglues(mc_version) {
         "mobileglues"
     } else {
         "opengles2"
     }
+}
+
+/// 这个版本是否**必须**用 MobileGlues。
+///
+/// 2026-11-07 真机确认：1.21.11 用 GL4ES 能进主菜单、也能点开「创建世界」，
+/// 但一进世界就崩：
+/// ```text
+/// IllegalStateException: Can't map buffer, opengl error 0
+/// ```
+/// 因为 1.21 起区块渲染用 `glMapBufferRange`，GL4ES 不支持。
+/// 自动模式早就按这个规则选 MobileGlues；这里把它抽出来，供「用户手选了
+/// GL4ES」时给一条明确提示，而不是让他崩一次才知道。
+pub(crate) fn needs_mobileglues(mc_version: &str) -> bool {
+    let (major, minor) = version_parts(mc_version);
+    major >= 26 || (major == 1 && minor >= 21)
 }
 
 #[cfg(test)]
@@ -63,6 +77,19 @@ mod tests {
         assert_eq!(auto_renderer_for("1.21.1"), "mobileglues");
         assert_eq!(auto_renderer_for("26.3"), "mobileglues");
         assert_eq!(auto_renderer_for("26.3-snapshot-3"), "mobileglues");
+    }
+
+    /// `needs_mobileglues` 是给「用户手选渲染器」提示用的，判据必须和自动选择一致。
+    #[test]
+    fn needs_mobileglues_matches_auto_pick() {
+        for v in ["1.21", "1.21.1", "1.21.11", "26.1", "26.3"] {
+            assert!(needs_mobileglues(v), "{v} 应该判定为需要 MobileGlues");
+            assert_eq!(auto_renderer_for(v), "mobileglues");
+        }
+        for v in ["1.20.6", "1.12.2", "1.8.9", ""] {
+            assert!(!needs_mobileglues(v), "{v} 不该判定为需要 MobileGlues");
+            assert_eq!(auto_renderer_for(v), "opengles2");
+        }
     }
 
     #[test]

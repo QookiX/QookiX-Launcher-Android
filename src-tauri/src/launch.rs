@@ -1566,8 +1566,19 @@ pub(crate) fn resolve_renderer(
         }
         // 显式指定
         other => {
-            *source = "本实例指定".to_string();
-            normalize_renderer(other)
+            let picked = normalize_renderer(other);
+            // 2026-11-07：1.21+ 手选 GL4ES 会在「进世界」时崩
+            //（`Can't map buffer, opengl error 0`，GL4ES 不支持 glMapBufferRange）。
+            // 自动模式不会给出这种组合，所以这里只提醒，不擅自改用户的选择。
+            *source = if picked == "opengles2"
+                && crate::renderer_pick::needs_mobileglues(&mc_version)
+            {
+                "本实例指定（⚠️ MC 1.21+ 需要 MobileGlues：GL4ES 进世界会崩在 glMapBufferRange）"
+                    .to_string()
+            } else {
+                "本实例指定".to_string()
+            };
+            picked
         }
     }
 }
