@@ -45,6 +45,40 @@ const MCIM_PREFIXES: [&str; 2] = [
     "https://edge.forgecdn.net/",
 ];
 
+/// GitHub release 下载的加速镜像（**前缀式**：`<镜像><官方完整 URL>`）。
+///
+/// ## 为什么单独一档
+///
+/// BMCLAPI 那套只镜像 Mojang 资源与各加载器 maven，**不含** `github.com`
+/// 的 release 资产；而 JRE 运行时、启动器更新包、插件包全都托管在那里。
+/// 国内直连的典型表现不是连不上，而是「连上以后 55KB/s，几分钟后掉到 0.3KB/s」
+/// （连接不死、吞吐趋零），所以除了分片并发，还需要能换源。
+///
+/// 2026-11-07 实测（本机，`Range: bytes=0-0` 的一次往返）：
+/// `ghfast.top` ≈1.2s、`gh-proxy.com` ≈3.0s、`ghproxy.net` ≈7.4s；
+/// `hub.gitmirror.com` / `gh.llkk.cc` / `ghp.ci` 已连不上 —— 死掉的不挂在这里。
+///
+/// ⚠️ 这些都是**第三方社区服务**，可用性不受我们控制；候选链最后一条永远是官方，
+/// 镜像全挂时最坏只多几次连接超时，下载仍会走官方完成。
+pub const GITHUB_MIRRORS: [&str; 3] = [
+    "https://ghfast.top/",
+    "https://gh-proxy.com/",
+    "https://ghproxy.net/",
+];
+
+/// `github.com` 的下载地址展开成「镜像 → 官方」候选链；其它域名返回 `None`。
+fn github_candidates(url: &str) -> Option<Vec<String>> {
+    if !url.starts_with("https://github.com/") {
+        return None;
+    }
+    let mut urls: Vec<String> = GITHUB_MIRRORS
+        .iter()
+        .map(|m| format!("{m}{url}"))
+        .collect();
+    urls.push(url.to_string());
+    Some(urls)
+}
+
 /// 官方版本清单地址
 pub const OFFICIAL_MANIFEST: &str =
     "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -232,6 +266,12 @@ pub fn map(base: &str, url: &str) -> String {
 ///
 /// 这两类地址的包在 Maven Central 上都有，所以最后再挂一条 Central。
 pub fn candidate_urls(mirror_base: &str, url: &str) -> Vec<String> {
+    // ⓪ GitHub release：走前缀代理链（见 GITHUB_MIRRORS），与 mirror_base 无关 ——
+    //    BMCLAPI 不镜像这个域名，用户选什么源都匹配不到规则。
+    if let Some(urls) = github_candidates(url) {
+        return urls;
+    }
+
     let mut urls: Vec<String> = Vec::new();
 
     // ① Modrinth / CurseForge → MCIM 中转（**放最前**，国内直连这两个 CDN 只有几十 KB/s）。
@@ -277,5 +317,37 @@ pub fn manifest_url(base: &str) -> String {
         OFFICIAL_MANIFEST.to_string()
     } else {
         format!("{base}/mc/game/version_manifest_v2.json")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GH: &str = "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre25/jre25-android-arm64.tar.xz";
+
+    #[test]
+    fn github_url_expands_to_mirrors_then_official() {
+        let urls = candidate_urls("", GH);
+        assert_eq!(urls.len(), GITHUB_MIRRORS.len() + 1);
+        for (i, m) in GITHUB_MIRRORS.iter().enumerate() {
+            assert_eq!(urls[i], format!("{m}{GH}"));
+        }
+        // 最后一条必须是官方地址，镜像全挂时还能下
+        assert_eq!(urls.last().unwrap(), GH);
+    }
+
+    #[test]
+    fn github_chain_ignores_mirror_setting() {
+        // BMCLAPI 不镜像 github.com，选哪个源都不该改变候选链
+        assert_eq!(candidate_urls("", GH), candidate_urls(BMCLAPI_BASE, GH));
+    }
+
+    #[test]
+    fn mojang_url_does_not_get_github_prefixes() {
+        let urls = candidate_urls("", OFFICIAL_MANIFEST);
+        assert!(!urls.iter().any(|u| u.starts_with("https://ghfast.top/")));
+        // 官方地址仍在链上（默认源会再挂一条 BMCLAPI 兜底，所以不是最后一条）
+        assert!(urls.iter().any(|u| u == OFFICIAL_MANIFEST));
     }
 }

@@ -9,7 +9,11 @@ pub struct JreMirrorSource {
     pub java_version: i32,
     pub arch: &'static str,
     pub url: &'static str,
-    pub sha1: &'static str,
+    /// GitHub 资产元数据里的 `digest`（`sha256:<hex>` 去掉前缀后的值）。
+    ///
+    /// 以前这一列是空的 `sha1`，等于**完全没有内容校验** —— 一旦允许走镜像，
+    /// 任何中间人都能替换包体。现在下完必校验，失败就删包重试下一个候选源。
+    pub sha256: &'static str,
     pub size: u64,
 }
 
@@ -20,56 +24,51 @@ pub struct JreMirrorSource {
 /// aarch64 的架构名是 **arm64**（不是 aarch64），写错会直接 404。
 /// x86_64 那三组是给 Android Studio 的模拟器用的（模拟器镜像是 x86_64）。
 ///
-/// ## 关于 `sha1` 全是空串
+/// ## 校验
 ///
-/// 这些条目的 `sha1` 都是空的（上游就没给）。**没有**去补真实 SHA1，因为这个格式
-/// 自带完整性校验，重复校验的收益很低：
-///   1. `tar.xz` 的 xz 容器自带 CRC64 校验，字节损坏在解压阶段就会失败；
-///   2. 字节数被严格核对（`total` 取 Content-Length，缺失时回退 `size` 字段）；
-///   3. 解压后再用 `has_libjli()` 确认 JRE 根下有 libjli.so，残缺包会被清理并报错。
-/// 真要进一步加固，应该换成 GitHub release 资产的 `digest`（sha256），
-/// 而不是给这里的 `sha1` 随便填一个值 —— 填错会变成「永远校验失败」。
+/// `sha256` 全部取自 GitHub release 资产的 `digest` 字段（`gh api .../releases`），
+/// `size` 与资产 `size` 逐条核对过。下完必校验，不匹配就删包并换下一个候选源。
 const JRE_MIRRORS: &[JreMirrorSource] = &[
     JreMirrorSource {
         java_version: 8,
         arch: "arm64-v8a",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre8/jre8-android-arm64.tar.xz",
-        sha1: "",
+        sha256: "9a59124d9791957d55c68be664ab76831f336cf2e1e1cd4414220c6fdbf0e06d",
         size: 28_026_736,
     },
     JreMirrorSource {
         java_version: 8,
         arch: "armeabi-v7a",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre8/jre8-android-arm.tar.xz",
-        sha1: "",
+        sha256: "9dbee3b09af5f170e2ed9dd596bc81d0e573c88f8bf760c59c8fadbb9073d1e7",
         size: 27_035_664,
     },
     JreMirrorSource {
         java_version: 17,
         arch: "arm64-v8a",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre17/jre17-android-arm64.tar.xz",
-        sha1: "",
+        sha256: "e162c860fe05ee4a4e4af7606437419879f6c748386a7b09fa77d10db6a64091",
         size: 26_900_804,
     },
     JreMirrorSource {
         java_version: 17,
         arch: "armeabi-v7a",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre17/jre17-android-arm.tar.xz",
-        sha1: "",
+        sha256: "4a9134f1ebf6340dd855805d351712462cddab6f3c2684da7e7da10ccf06648d",
         size: 25_001_168,
     },
     JreMirrorSource {
         java_version: 21,
         arch: "arm64-v8a",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre21/jre21-android-arm64.tar.xz",
-        sha1: "",
+        sha256: "8d41ec401ee59f7722df60ed991f81ad146e130452804bfdd8a05d3436f7bbfe",
         size: 28_675_516,
     },
     JreMirrorSource {
         java_version: 21,
         arch: "armeabi-v7a",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre21/jre21-android-arm.tar.xz",
-        sha1: "",
+        sha256: "96c297487def64666e379a9a363d9955c05b1a0b091b0cf24af88359a66f394a",
         size: 26_586_292,
     },
     // x86_64：模拟器（Android Studio x86_64 镜像）。命名同样是 `android-x86_64`。
@@ -77,21 +76,21 @@ const JRE_MIRRORS: &[JreMirrorSource] = &[
         java_version: 8,
         arch: "x86_64",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre8/jre8-android-x86_64.tar.xz",
-        sha1: "",
+        sha256: "b1fbcef4965c17925894febe8216d089c6dd47b37950b5f945a89616443c1d0e",
         size: 29_132_884,
     },
     JreMirrorSource {
         java_version: 17,
         arch: "x86_64",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre17/jre17-android-x86_64.tar.xz",
-        sha1: "",
+        sha256: "893e27d2aed8b40407f29fe939e2a0f193e5d55f72892a303db634b0808a2b61",
         size: 27_780_012,
     },
     JreMirrorSource {
         java_version: 21,
         arch: "x86_64",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre21/jre21-android-x86_64.tar.xz",
-        sha1: "",
+        sha256: "cb88723961f5f9ad63afa1f212eb199816c27cabfd7dc66567bde1d8fb69713b",
         size: 29_662_988,
     },
     // ── Java 25：新版 Minecraft 需要它 ────────────────────────────────
@@ -102,21 +101,21 @@ const JRE_MIRRORS: &[JreMirrorSource] = &[
         java_version: 25,
         arch: "arm64-v8a",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre25/jre25-android-arm64.tar.xz",
-        sha1: "",
+        sha256: "d3eb7afe2240c26728a1bb440502c5f18ac3883e932d202dd7f0c9bcbbce4c37",
         size: 38_031_580,
     },
     JreMirrorSource {
         java_version: 25,
         arch: "armeabi-v7a",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre25/jre25-android-arm.tar.xz",
-        sha1: "",
+        sha256: "9ae13aee9cba7b2d2d8f40965061667e876d7380d866f37a992db3eff296ffb5",
         size: 28_252_088,
     },
     JreMirrorSource {
         java_version: 25,
         arch: "x86_64",
         url: "https://github.com/AngelAuraMC/angelauramc-openjdk-build/releases/download/download_jre25/jre25-android-x86_64.tar.xz",
-        sha1: "",
+        sha256: "7fca862ee1b2d5fe23cd9c9c3d9b7ad3c241947ad1a6cc9464ef2e674867105d",
         size: 39_061_384,
     },
 ];
@@ -346,7 +345,17 @@ impl JreManager {
         let archive_path = runtime_dir.join("jre.tar.xz");
 
         let download_progress = |p: f32| progress(p * 0.7);
-        crate::jre_download::download_with_retry(&mirror.url, &archive_path, mirror.size, &download_progress).await?;
+        // 候选链：GitHub 镜像 → 官方（见 `mirror::GITHUB_MIRRORS`）。
+        // 下完必须过 sha256 —— 镜像返回登录页 / 半截文件都会被挡掉并换下一个源。
+        let candidates = crate::mirror::candidate_urls(&crate::mirror::current_base(), mirror.url);
+        crate::jre_download::download_candidates(
+            &candidates,
+            &archive_path,
+            mirror.size,
+            mirror.sha256,
+            &download_progress,
+        )
+        .await?;
 
         on_phase("正在解压 Java 运行时…");
         let runtime = Self::install_from_archive(java_version, arch, &archive_path).await?;

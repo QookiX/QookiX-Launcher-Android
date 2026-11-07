@@ -25,35 +25,102 @@ const JRE_PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 /// 小于这个大小就不分片了：多连接握手 + 落盘开销反而不划算。
 const CHUNK_MIN: u64 = 4 * 1024 * 1024;
 
-/// 带重试的下载入口（原 `JreManager::download_with_retry`）。
-pub async fn download_with_retry(
-    url: &str,
+/// 建连 / 探测阶段的超时。
+///
+/// 为什么必须有：镜像挂掉时的表现往往不是「拒绝连接」，而是**连上不回包**，
+/// 没有超时就等于卡死（真机见过「准备运行环境…」停在 137 秒以上）。
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
+
+/// 单次读数据的停顿超时（>30 秒一个字节都没有就换源）。
+///
+/// 不是总时长超时：38MB 的包在慢速链路上正常也要几分钟，
+/// 但**吞吐掉到 0** 是 GitHub 直连的典型故障（连接不死、永远不收尾）。
+const STALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// 每个候选源的重试次数。
+const ATTEMPTS_PER_CANDIDATE: usize = 2;
+
+/// 按候选链下载 JRE 包，并校验 sha256（原 `JreManager::download_with_retry`）。
+///
+/// 候选链由 `mirror::candidate_urls` 给出（GitHub 镜像 → 官方），
+/// 逐个尝试；每个候选源最多 [`ATTEMPTS_PER_CANDIDATE`] 次，
+/// 下完立刻算 sha256，对不上就删包换下一个 —— 镜像返回网页 / 半截文件都会被挡住。
+pub async fn download_candidates(
+    candidates: &[String],
     dest: &Path,
     expected_size: u64,
+    expected_sha256: &str,
     progress: &(impl Fn(f32) + Send + Sync),
 ) -> Result<()> {
+    if candidates.is_empty() {
+        return Err(anyhow::anyhow!("JRE_DOWNLOAD_FAILED: 没有可用的下载地址"));
+    }
     let client = crate::util::http_client().await;
+    let mut last_error: Option<String> = None;
 
-    let max_retries = 3;
-    let mut last_error = None;
-
-    for attempt in 1..=max_retries {
-        match download_once(&client, url, dest, expected_size, progress).await {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                tracing::warn!("JRE download attempt {} failed: {}", attempt, e);
-                // 删掉半截文件：失败路径留 27MB 垃圾会一直占着存储
-                let _ = fs::remove_file(dest).await;
-                last_error = Some(e);
+    for (idx, url) in candidates.iter().enumerate() {
+        for attempt in 1..=ATTEMPTS_PER_CANDIDATE {
+            match download_once(&client, url, dest, expected_size, progress).await {
+                Ok(()) => match verify_sha256(dest, expected_sha256).await {
+                    Ok(()) => {
+                        if idx > 0 {
+                            crate::util::log_line(&format!(
+                                "JRE 下载改用备用源成功：#{} {url}",
+                                idx + 1
+                            ));
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::warn!("JRE 校验失败（{url}）：{e}");
+                        let _ = fs::remove_file(dest).await;
+                        last_error = Some(e.to_string());
+                        // 内容不对再重试同一个源没意义，直接换下一个
+                        break;
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("JRE download attempt {attempt} failed（{url}）：{e}");
+                    let _ = fs::remove_file(dest).await;
+                    last_error = Some(e.to_string());
+                }
             }
         }
     }
 
     Err(anyhow::anyhow!(
-        "JRE_DOWNLOAD_FAILED: download failed after {} retries: {}",
-        max_retries,
-        last_error.unwrap_or_else(|| anyhow::anyhow!("unknown error"))
+        "JRE_DOWNLOAD_FAILED: 所有下载源都失败：{}",
+        last_error.unwrap_or_else(|| "unknown error".to_string())
     ))
+}
+
+/// 校验文件 sha256；期望值为空时直接通过（没有登记摘要的包）。
+async fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
+    if expected.is_empty() {
+        return Ok(());
+    }
+    use sha2::{Digest, Sha256};
+    use tokio::io::AsyncReadExt;
+
+    let mut file = fs::File::open(path)
+        .await
+        .with_context(|| format!("打开下载结果失败：{}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).await.context("读取下载结果失败")?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let actual = format!("{:x}", hasher.finalize());
+    if actual != expected {
+        return Err(anyhow::anyhow!(
+            "包内容校验失败（sha256 不符）：期望 {expected}，实际 {actual}"
+        ));
+    }
+    Ok(())
 }
 
 /// 单次下载：先试分片并发，不行再回退单流（原 `JreManager::download_once`）。
@@ -69,13 +136,10 @@ async fn download_once(
     let size = if expected_size > 0 {
         expected_size
     } else {
-        client
-            .head(url)
-            .send()
-            .await
-            .ok()
-            .and_then(|r| r.content_length())
-            .unwrap_or(0)
+        match tokio::time::timeout(CONNECT_TIMEOUT, client.head(url).send()).await {
+            Ok(Ok(r)) => r.content_length().unwrap_or(0),
+            _ => 0,
+        }
     };
     if size >= CHUNK_MIN && try_chunked(client, url, dest, size, progress).await {
         progress(1.0);
@@ -84,10 +148,9 @@ async fn download_once(
 
     // ② 单流回退（原有逻辑，保留不动的理由：有些 CDN 嘴上说支持 Range、
     //    实际返回 416/404，或者直接忽略 Range 回 200）。
-    let mut resp = client
-        .get(url)
-        .send()
+    let mut resp = tokio::time::timeout(CONNECT_TIMEOUT, client.get(url).send())
         .await
+        .map_err(|_| anyhow::anyhow!("连接超时（{CONNECT_TIMEOUT:?}）"))?
         .context("Failed to send download request")?;
 
     if !resp.status().is_success() {
@@ -111,10 +174,15 @@ async fn download_once(
     let mut written: u64 = 0;
     let mut last_report = std::time::Instant::now();
     loop {
-        let chunk = match resp.chunk().await.context("Failed to read response body")? {
-            Some(c) => c,
-            None => break,
+        let chunk = match tokio::time::timeout(STALL_TIMEOUT, resp.chunk()).await {
+            Ok(r) => r.context("Failed to read response body")?,
+            Err(_) => {
+                return Err(anyhow::anyhow!(
+                    "下载停顿超过 {STALL_TIMEOUT:?}（已收到 {written} 字节）"
+                ))
+            }
         };
+        let Some(chunk) = chunk else { break };
         file.write_all(&chunk).await.context("Failed to write data")?;
         written += chunk.len() as u64;
         if total > 0 && last_report.elapsed() >= JRE_PROGRESS_INTERVAL {
@@ -147,12 +215,11 @@ async fn try_chunked(
     size: u64,
     progress: &(impl Fn(f32) + Send + Sync),
 ) -> bool {
-    // 先探 Accept-Ranges：不支持就别浪费时间
-    let supports = client
-        .head(url)
-        .send()
+    // 先探 Accept-Ranges：不支持就别浪费时间（探测本身也要有超时，见 CONNECT_TIMEOUT）
+    let supports = tokio::time::timeout(CONNECT_TIMEOUT, client.head(url).send())
         .await
         .ok()
+        .and_then(|r| r.ok())
         .map(|r| {
             r.headers()
                 .get(reqwest::header::ACCEPT_RANGES)
@@ -194,11 +261,15 @@ async fn try_chunked(
         let dest = dest.to_path_buf();
         let done = done.clone();
         handles.push(tokio::spawn(async move {
-            let mut resp = client
-                .get(&url)
-                .header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
-                .send()
-                .await?;
+            let mut resp = tokio::time::timeout(
+                CONNECT_TIMEOUT,
+                client
+                    .get(&url)
+                    .header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
+                    .send(),
+            )
+            .await
+            .map_err(|_| anyhow::anyhow!("分片连接超时: bytes={start}-{end}"))??;
             if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
                 anyhow::bail!("分片请求未返回 206: {}", resp.status());
             }
@@ -206,7 +277,12 @@ async fn try_chunked(
             use tokio::io::{AsyncSeekExt, AsyncWriteExt};
             f.seek(std::io::SeekFrom::Start(start)).await?;
             let mut got = 0u64;
-            while let Some(b) = resp.chunk().await? {
+            loop {
+                // 同样要有停顿超时：分片卡住时整条下载会一直挂着
+                let next = tokio::time::timeout(STALL_TIMEOUT, resp.chunk())
+                    .await
+                    .map_err(|_| anyhow::anyhow!("分片停顿超过 {STALL_TIMEOUT:?}: bytes={start}-{end}"))??;
+                let Some(b) = next else { break };
                 got += b.len() as u64;
                 f.write_all(&b).await?;
                 done.fetch_add(b.len() as u64, Ordering::Relaxed);
