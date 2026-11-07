@@ -290,8 +290,8 @@ pub async fn download_update(
     })?;
 
     // ② 按候选链下载（镜像 → 官方）：每源限时、下完立即校验 sha256，对不上自动换源。
-    //    用 `util::http_client` 而不是本文件那个 30s 总超时的 `client()` ——
-    //    79MB 的包在 30 秒内下不完，那等于把更新功能废掉。
+    //    统一走 `util::http_client`（read 30s / 总 1h）—— 这里原来自建 client 带 30s
+    //    **总超时**，79MB 的包在稍慢的网络上必然被掐断，等于把更新功能废掉。
     let size = pending.size;
     let progress = |done: u64, total: u64| {
         crate::progress::push_ser(
