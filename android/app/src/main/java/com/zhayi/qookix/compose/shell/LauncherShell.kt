@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -288,6 +289,10 @@ fun LauncherShell(
         // 最左侧的侧栏 / 最右侧的内容（用户反馈「部分按键受摄像头影响，轻微遮挡」）。
         // 只避让 displayCutout，不动 systemBars —— 后者本来就没问题，
         // 一起加反而会多出一圈空白。
+        // ⚠️ 2026-11-08：键盘弹出时把顶栏收起来。横屏键盘占掉 ~700/1080 px，
+        // 顶栏 + 实例头部 + 页签再吃掉 260 px，行内输入框就没地方了（真机复现：
+        // 实例设置里的「JVM 参数」聚焦后整块被键盘盖住）。键盘收起会自动回来。
+        val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -310,7 +315,7 @@ fun LauncherShell(
                 // 加了也不缩 —— 表现就是键盘直接盖住输入区。
                 .imePadding(),
         ) {
-            topBar()
+            if (!imeVisible) topBar()
             Row(modifier = Modifier.weight(1f)) {
             Surface(
                 modifier = Modifier
