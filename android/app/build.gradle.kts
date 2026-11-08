@@ -45,6 +45,14 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            // ⚠️ 2026-11-08：debug 包加 `.dev` 后缀，让它能和**正式包并存**。
+            // 背景：进入 rc 之后不能随手发版，但改动还得上真机验证 —— 本地 release 包
+            // 没有签名密钥（和 CI 包签名不同，`adb install -r` 会 INSTALL_FAILED_UPDATE_INCOMPATIBLE），
+            // `adb uninstall` 又会清掉账号 / settings.json。
+            // 有了后缀：`node scripts/build-android.mjs arm64` 出的 debug 包直接装，
+            // 正式包（rc / 正式版）原样留着，两个应用互不覆盖。
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true

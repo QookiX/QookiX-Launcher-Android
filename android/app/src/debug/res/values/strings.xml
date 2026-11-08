@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  debug 包（com.zhayi.qookix.dev）与正式包并存，桌面上得能分清哪个是开发包。
+  只在 debug 源集生效，正式包仍然叫「QookiX」。
+-->
+<resources>
+    <string name="app_name">QookiX Dev</string>
+</resources>
