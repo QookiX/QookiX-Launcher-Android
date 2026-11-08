@@ -34,6 +34,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,6 +52,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.QookixApi
@@ -348,15 +350,41 @@ fun LanSyncRoute(
                     }
                 }
             }
-            // 未连接 → 扫码 / 手动输入
-            else -> {
-                if (showManualInput) {
-                    // UI-09：横屏只有约 480dp 高，键盘一弹，第三个输入框和「连接」按钮全在屏幕外。
-                    // 这块只要滚动；键盘高度由 LauncherShell 的根布局统一吃掉（2026-11-08），
-                    // 这里再加一次 imePadding 会变成双份 padding，输入框反而被顶出屏幕。
+            // 未连接 → 扫码（「手动输入」是弹窗，见本页末尾的 Dialog）
+            else -> ScannerSection(
+                onScanned = { text ->
+                    val uri = Uri.parse(text)
+                    // ⚠️ 2026-10-28（「扫码没反应」）：原来只写 pending、靠 params == null 才消费，
+                    // 之前连过一次就永远不消费。现在扫码直接接管：清旧会话、立刻连。
+                    val parsed = LanSyncDeepLink.parse(uri)
+                    if (parsed != null) {
+                        LanSyncDeepLink.pending.value = null
+                        deviceInfo = null
+                        connectError = null
+                        instances.clear()
+                        selectedIds = emptySet()
+                        params = parsed
+                        connectRetry += 1
+                    } else {
+                        connectError = context.getString(R.string.lan_sync_bad_qr)
+                    }
+                },
+                onSwitchToManual = { showManualInput = true },
+            )
+        }
+
+        // ⚠️ 2026-11-08（横屏：键盘一弹三个输入框全被挤没）：手动输入改成弹窗 ——
+        // 页内滚动区只剩约 176dp；弹窗有独立窗口，会被系统顶到键盘上方。
+        if (showManualInput) {
+            Dialog(onDismissRequest = { showManualInput = false }) {
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
                     Column(
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(QkSpacing.lg)
                             .verticalScroll(rememberScrollState()),
                     ) {
                         ManualInputSection(
@@ -367,30 +395,6 @@ fun LanSyncRoute(
                             onSwitchToScanner = { showManualInput = false },
                         )
                     }
-                } else {
-                    ScannerSection(
-                        onScanned = { text ->
-                            val uri = Uri.parse(text)
-                            // ⚠️ 2026-10-28 修（「扫码没反应」第二层原因）：
-                            // 原来只是 `handle()` 写 pending，靠
-                            // `LaunchedEffect(deepLinkPending)` 在 `params == null` 时才消费。
-                            // 只要之前连过一次（或连接失败留下 params），条件不成立 →
-                            // 扫到码也毫无反应。现在扫码直接接管：清掉旧会话、立刻连。
-                            val parsed = LanSyncDeepLink.parse(uri)
-                            if (parsed != null) {
-                                LanSyncDeepLink.pending.value = null
-                                deviceInfo = null
-                                connectError = null
-                                instances.clear()
-                                selectedIds = emptySet()
-                                params = parsed
-                                connectRetry += 1
-                            } else {
-                                connectError = context.getString(R.string.lan_sync_bad_qr)
-                            }
-                        },
-                        onSwitchToManual = { showManualInput = true },
-                    )
                 }
             }
         }
@@ -405,10 +409,7 @@ private fun ScannerSection(
     onSwitchToManual: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // ⚠️ 2026-10-28（真机逐页检查）：这里原来还有一行 headlineSmall 的
-        // 「局域网同步」大标题 —— 而共用顶栏已经写着「QookiX 局域网同步」，
-        // 同一屏出现两次页面名。删掉它，说明文字直接跟在顶栏下面。
-        // （下面「手动输入」的大标题保留：那是切换后的子状态标题，不是页面名。）
+        // ⚠️ 2026-10-28：删掉重复的 headlineSmall「局域网同步」标题（共用顶栏已有）。
         Text(
             stringResource(R.string.lan_sync_desc),
             style = MaterialTheme.typography.bodyMedium,
