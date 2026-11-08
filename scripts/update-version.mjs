@@ -100,9 +100,13 @@ const patchNo = Number(patchS);
 const pre = channel ? Number(preS) : 0;
 
 if (channel && (pre < 1 || pre > CHANNEL_MAX[channel])) {
+  // ⚠️ 2026-11-08（用户明确要求）：号段用完**不要**顺手提升 patch（0.2.2 → 0.2.3），
+  // 那属于发布节奏决策。同一个 patch 上改用 rc 号段（70–98）继续，
+  // 例如 `0.2.2-rc1`；确实要跨 patch 得先跟用户确认。
   console.error(
-    `${channel} 的序号必须在 1–${CHANNEL_MAX[channel]} 之间（收到 ${pre}）。` +
-      `该通道号段用完了，提升 patch 重新开始。`,
+    `${channel} 的序号必须在 1–${CHANNEL_MAX[channel]} 之间（收到 ${pre}）。\n` +
+      `该通道号段用完了：请在**同一个 patch** 上改用 rc（如 ${major}.${minor}.${patchNo}-rc1），\n` +
+      `不要自动升 patch —— 跨 patch 发版要先征得同意。`,
   );
   process.exit(1);
 }
