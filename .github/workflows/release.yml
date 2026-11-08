@@ -143,6 +143,20 @@ jobs:
           done
           exit $fail
 
+      # ⚠️ 2026-11-08：wrapper 自己下载 gradle 发行包会超时（services.gradle.org 与
+      # github 镜像都实测 timeout，连续 4 次失败）。这里用 curl 自己拉（带重试），
+      # 之后 Gradle 任务直接用 PATH 上的 `gradle`，完全不走 wrapper。
+      - name: 准备 Gradle（绕开 wrapper 下载超时）
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          VER=8.14.3
+          curl -fL --retry 8 --retry-delay 5 --connect-timeout 20 --max-time 900 \
+            -o /tmp/gradle.zip \
+            "https://github.com/gradle/gradle-distributions/releases/download/v$VER/gradle-$VER-bin.zip"
+          unzip -q /tmp/gradle.zip -d "$HOME/gradle-dist"
+          echo "$HOME/gradle-dist/gradle-$VER/bin" >> "$GITHUB_PATH"
+
       # ①c Kotlin 侧闸门：JVM 单测真跑；仪器化冒烟测试只编译（runner 没设备）
       #
       # 仪器化测试要真机才能执行，这里只保证**它能编译** ——
@@ -150,12 +164,12 @@ jobs:
       - name: Kotlin 单测
         working-directory: android
         timeout-minutes: 20
-        run: ./gradlew :app:testArm64DebugUnitTest --no-daemon --max-workers=2 --console=plain
+        run: gradle :app:testArm64DebugUnitTest --no-daemon --max-workers=2 --console=plain
 
       - name: 编译仪器化冒烟测试（不执行）
         working-directory: android
         timeout-minutes: 20
-        run: ./gradlew :app:assembleArm64DebugAndroidTest --no-daemon --max-workers=2 --console=plain
+        run: gradle :app:assembleArm64DebugAndroidTest --no-daemon --max-workers=2 --console=plain
 
       - name: 复制 .so 到 jniLibs
         working-directory: src-tauri
@@ -241,7 +255,7 @@ jobs:
       - name: Gradle 打包
         working-directory: android
         timeout-minutes: 45
-        run: ./gradlew :app:assembleArm64Release :app:assembleX86_64Release --no-daemon --max-workers=2 --console=plain
+        run: gradle :app:assembleArm64Release :app:assembleX86_64Release --no-daemon --max-workers=2 --console=plain
 
       # ④ 产物改名：带版本号（多版本下载时不会认错）
       - name: 整理产物

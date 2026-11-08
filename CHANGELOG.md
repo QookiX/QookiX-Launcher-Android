@@ -17,13 +17,10 @@
    （发布说明里想加"已知问题"，在条目下面写 `### 已知问题` 小节即可）
 -->
 
-## [0.2.2-beta50] - 2026-11-08
+## [0.2.3-beta1] - 2026-11-08
 
-0. 优化：**CI 不再依赖 services.gradle.org** —— GitHub runner 连它连续三次读超时，Gradle 发行包改从 `gradle/gradle-distributions` 的 GitHub 发行页取，构建更稳
-
-## [0.2.2-beta49] - 2026-11-08
-
-0. 修复：**网络稍慢时更新直接失败**（「无法获取 SHA256SUMS.txt（连接超时 12s）」）—— 现在优先用 GitHub API 自带的资产 sha256 校验，不再依赖多下一次小文件；镜像建连超时也从 12s 放宽到 20s
+0. 修复：**网络稍慢时更新直接失败**（「无法获取 SHA256SUMS.txt（连接超时）」）—— 改用 GitHub API 自带的资产 sha256 校验，少下一个文件、少一次失败机会；镜像建连超时 12s → 20s
+1. 优化：**CI 不再靠 wrapper 下载 Gradle**（runner 连 services.gradle.org 和 github 发行页都连续超时）—— 改用 curl 自取并走 PATH 上的 gradle
 
 ## [0.2.2-beta48] - 2026-11-08
 
