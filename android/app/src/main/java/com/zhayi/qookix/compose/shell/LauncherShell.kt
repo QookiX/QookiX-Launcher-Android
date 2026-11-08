@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -301,7 +302,13 @@ fun LauncherShell(
                     } else {
                         Modifier
                     },
-                ),
+                )
+                // ⚠️ 2026-11-08（横屏问题：键盘遮住文件编辑正文 / 局域网同步输入框）：
+                // 必须在**根布局**吃掉 IME inset。窗口是 `setDecorFitsSystemWindows(false)`
+                // 的全屏模式，`adjustResize` 不会缩窗口；而各页面自己加的 `imePadding()`
+                // 大多落在「可滚动容器」里（fillMaxSize 在滚动里等于不限高），
+                // 加了也不缩 —— 表现就是键盘直接盖住输入区。
+                .imePadding(),
         ) {
             topBar()
             Row(modifier = Modifier.weight(1f)) {
