@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -353,12 +352,12 @@ fun LanSyncRoute(
             else -> {
                 if (showManualInput) {
                     // UI-09：横屏只有约 480dp 高，键盘一弹，第三个输入框和「连接」按钮全在屏幕外。
-                    // 单独给这块加滚动 + imePadding（整页不能加：里面有 weight 和 LazyColumn）。
+                    // 这块只要滚动；键盘高度由 LauncherShell 的根布局统一吃掉（2026-11-08），
+                    // 这里再加一次 imePadding 会变成双份 padding，输入框反而被顶出屏幕。
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .imePadding(),
+                            .verticalScroll(rememberScrollState()),
                     ) {
                         ManualInputSection(
                             onConnect = { host, port, token ->

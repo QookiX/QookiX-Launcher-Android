@@ -2,15 +2,21 @@ package com.zhayi.qookix.compose.pages
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.friendlyError
@@ -161,11 +167,25 @@ fun FileEditorOverlay(ctl: FileEditorController): Boolean {
             },
         )
     }
-    FileEditorPage(
-        state = ed,
-        onContentChange = ctl::edit,
-        onSave = ctl::save,
-        onBack = { attemptClose() },
-    )
+    // ⚠️ 2026-11-08（横屏问题：键盘把正文全遮住）：编辑区原来只是「文件 tab 的内容」，
+    // 上方还留着实例头部 + 页签（约 150dp），横屏键盘一弹就只剩几十 dp，正文彻底看不见。
+    // 改成**满屏 Dialog**：Dialog 自己的窗口会被输入法压缩（设置里那些输入弹窗就是这么
+    // 被顶上去的），编辑区拿到的是「整屏减键盘」，与页面头部无关。
+    Dialog(
+        onDismissRequest = { attemptClose() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            FileEditorPage(
+                state = ed,
+                onContentChange = ctl::edit,
+                onSave = ctl::save,
+                onBack = { attemptClose() },
+            )
+        }
+    }
     return true
 }
