@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose.pages
 
+import com.zhayi.qookix.compose.pages.settings.SettingsRow
+import com.zhayi.qookix.compose.pages.settings.TextInputDialog
 import com.zhayi.qookix.compose.theme.QkSpacing
 
 import androidx.compose.foundation.horizontalScroll
@@ -98,6 +100,9 @@ fun InstanceSettingsTab(
     // 系统返回键直接退出、改动静默丢失。这里拦一次，让用户明确选择。
     // 确认后清 dirty（BackHandler 失效）并放行这次返回，避免又弹一次。
     var confirmDiscard by remember { mutableStateOf(false) }
+    // 正在编辑哪个多行参数（"" = 无）。横屏键盘一弹只剩 ~20dp 内容区，行内文本框
+    // 根本没法用（2026-11-08 真机），所以 JVM / 游戏参数改成弹窗编辑。
+    var editingArgs by remember { mutableStateOf("") }
     val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner
         .current?.onBackPressedDispatcher
     androidx.activity.compose.BackHandler(enabled = state.dirty && !confirmDiscard) {
@@ -197,21 +202,10 @@ fun InstanceSettingsTab(
             }
         }
 
-        // ── 启动参数 ──────────────────────────────────────────────────
         // ── 渲染器 ────────────────────────────────────────────────────
-        //
-        // ⚠️ 这一项直接决定「游戏能不能启动」（2026-10-13 实测定位）。
-        //
-        // Rust 的 `resolve_renderer` **只认实例的 `renderer` 字段**：
-        //   - 空 / "auto" → 按 MC 版本自动挑
-        //   · **MC 26.3 会被自动挑成 MobileGlues**
-        //   - "global"    → 读 Pojav 偏好里的全局值
-        //   - 其它具体键  → 就用它
-        //
-        // 而 MobileGlues **不在 APK 里**（改插件分发了，APK 只随包 GL4ES），
-        // 于是必然崩在 `UnsatisfiedLinkError: libmobileglues.so`。
-        //
-        // 旧 Vue 的实例设置里有这个三态选择，我先前漏做 ——
+        // ⚠️ 直接决定「游戏能不能启动」：Rust `resolve_renderer` 只认实例的 `renderer`
+        // 字段（空/auto 按 MC 版本自动挑，26.3 会被挑成 **MobileGlues**，而它不在 APK 里、
+        // 只以插件分发 → 必然 UnsatisfiedLinkError）。所以这里必须给出三态 + 具体键选择。
         SettingsCard(stringResource(R.string.instance_settings_card_renderer)) {
             // ⚠️ 横屏下这页内容很高（内存 + 渲染器 + 参数 + 别名 + 其他），
             // 所以把「模式」与「具体渲染器」压成**一组 chips 单行**：
@@ -252,27 +246,32 @@ fun InstanceSettingsTab(
             )
         }
         SettingsCard(stringResource(R.string.instance_settings_card_launch_args)) {
-            OutlinedTextField(
-                value = state.jvmArgs,
-                onValueChange = { onChange(InstanceSettingsPatch.JvmArgs(it)) },
-                label = { Text(stringResource(R.string.instance_settings_jvm_args)) },
-                placeholder = { Text(stringResource(R.string.instance_settings_follow_global_hint)) },
-                singleLine = false,
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                ),
+            val followHint = stringResource(R.string.instance_settings_follow_global_hint)
+            SettingsRow(
+                title = stringResource(R.string.instance_settings_jvm_args),
+                subtitle = state.jvmArgs.ifBlank { followHint },
+                onClick = { editingArgs = "jvm" },
             )
-            Spacer(Modifier.height(QkSpacing.xs))
-            OutlinedTextField(
-                value = state.gameArgs,
-                onValueChange = { onChange(InstanceSettingsPatch.GameArgs(it)) },
-                label = { Text(stringResource(R.string.instance_settings_game_args)) },
-                placeholder = { Text(stringResource(R.string.instance_settings_follow_global_hint)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            SettingsRow(
+                title = stringResource(R.string.instance_settings_game_args),
+                subtitle = state.gameArgs.ifBlank { followHint },
+                showDivider = false,
+                onClick = { editingArgs = "game" },
+            )
+        }
+
+        // 参数编辑弹窗（与「设置 → 游戏内」的 Java 路径同一个组件，横屏也能用）
+        if (editingArgs.isNotEmpty()) {
+            val isJvm = editingArgs == "jvm"
+            val label = stringResource(if (isJvm) R.string.instance_settings_jvm_args else R.string.instance_settings_game_args)
+            TextInputDialog(
+                title = label, initial = if (isJvm) state.jvmArgs else state.gameArgs, label = label,
+                helperText = stringResource(R.string.instance_settings_follow_global_hint), multiline = isJvm,
+                onDismiss = { editingArgs = "" },
+                onConfirm = { v ->
+                    editingArgs = ""
+                    onChange(if (isJvm) InstanceSettingsPatch.JvmArgs(v) else InstanceSettingsPatch.GameArgs(v))
+                },
             )
         }
 
