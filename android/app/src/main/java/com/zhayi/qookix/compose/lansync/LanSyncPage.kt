@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -53,6 +54,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.QookixApi
@@ -373,19 +375,17 @@ fun LanSyncRoute(
             )
         }
 
-        // ⚠️ 2026-11-08（横屏：键盘一弹三个输入框全被挤没）：手动输入改成弹窗 ——
-        // 页内滚动区只剩约 176dp；弹窗有独立窗口，会被系统顶到键盘上方。
+        // ⚠️ 2026-11-08（横屏：键盘一弹三个输入框全被挤没）：手动输入改成弹窗，
+        // 并且自己吃 IME inset —— 页内滚动区只剩约 176dp，弹窗才有足够高度。
         if (showManualInput) {
-            Dialog(onDismissRequest = { showManualInput = false }) {
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.surface,
-                ) {
+            Dialog(
+                onDismissRequest = { showManualInput = false },
+                properties = DialogProperties(decorFitsSystemWindows = false),
+            ) {
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(QkSpacing.lg)
-                            .verticalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth().imePadding()
+                            .padding(QkSpacing.lg).verticalScroll(rememberScrollState()),
                     ) {
                         ManualInputSection(
                             onConnect = { host, port, token ->
