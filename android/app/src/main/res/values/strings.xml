@@ -304,6 +304,7 @@
     <string name="frp_rooms_empty_title">还没有房间</string>
     <!-- 2026-11-05：读失败时不能再说「还没有房间」，否则用户以为真没房间 -->
     <string name="frp_rooms_load_failed">房间列表读取失败</string>
+    <string name="frp_rooms_go_login">去登录面板</string>
     <string name="frp_rooms_empty_desc">点「创建房间」建一个，别人就能看到并加入</string>
     <string name="frp_rooms_has_password">有密码</string>
     <string name="frp_rooms_reviewing">房间审核中</string>

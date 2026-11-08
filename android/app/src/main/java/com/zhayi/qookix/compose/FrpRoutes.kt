@@ -494,6 +494,8 @@ internal fun FrpRoomsRoute(
     bridge: RustBridge,
     bridgeReady: Boolean,
     activity: ComposeMainActivity? = null,
+    /** 「还没登录面板」时回 FRP 面板页登录（null = 不显示该入口）。 */
+    onOpenFrpPanel: (() -> Unit)? = null,
 ) {
     // i18n（2026-10-17）：本函数内的错误消息需要 Context
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -521,8 +523,7 @@ internal fun FrpRoomsRoute(
 
     fun reload() {
         state = state.copy(busy = true, error = null)
-        // ⚠️ frp_room_list 返回的是**对象** {rooms:[...], total, page, pageSize}，
-        // 不是数组（Rust frp.rs:1043-1048）。以前按数组解，必然抛 JSONException。
+        // ⚠️ frp_room_list 返回**对象** {rooms:[...], total}，不是数组（按数组解必抛 JSONException）。
         api.frpRoomList { r ->
             r.fold(
                 onSuccess = { obj ->
@@ -543,10 +544,8 @@ internal fun FrpRoomsRoute(
             r.onSuccess { arr ->
                 val nodes = (0 until arr.length()).mapNotNull { i ->
                     val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                    // ⚠️ 节点 id 在 Rust 侧是 **i64**（frp.rs:982-983 `RoomNode.id`）。
-                    // 以前用 optString("id") 读成字符串 "3"，发给 frp_room_create
-                    // （Rust `node_id: i64`）就报 invalid type: string "3", expected i64
-                    // → 建房 100% 失败。必须用 optInt 保持数字类型。
+                    // ⚠️ 节点 id 在 Rust 侧是 i64：用 optString 读成 "3" 再发回去会
+                    // invalid type，建房 100% 失败。必须 optInt 保持数字类型。
                     val nid = o.optInt("id", -1).takeIf { it > 0 }
                     if (nid == null) null
                     else FrpNodeUi(nid, o.optString("name").ifBlank { nid.toString() })
@@ -563,6 +562,7 @@ internal fun FrpRoomsRoute(
     FrpRoomsPage(
         state = state,
         onRefresh = { reload() },
+        onOpenFrpPanel = onOpenFrpPanel,
         onCreate = { name, nodeId, port, pwd ->
             state = state.copy(busy = true, error = null)
             api.frpRoomCreate(name, nodeId, port, pwd) { r ->

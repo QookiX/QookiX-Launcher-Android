@@ -33,6 +33,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,32 +55,15 @@ import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.ui.SkeletonList
 
 /**
- * FRP 联机房间。
+ * FRP 联机房间（旧界面 `FrpRoomsView.vue` / 344 行 / 9 个命令）。
  *
- * 对应旧界面 `FrpRoomsView.vue`（344 行 / 9 个调用点）。
+ * 与「陶瓦联机」的区别：陶瓦是独立进程 + localhost HTTP、要 TUN；
+ * FRP 是 frpc 把端口暴露到公网节点中转、不要 VPN。两种并存。
  *
- * ⚠️ **我第一遍做页面覆盖对照时漏了这个页面。**
- * 原因是搜「FrpRooms」没命中（Compose 侧还没有对应文件），
- * 而它又是 14 个 view 里唯一名字比较特别的。是逐页列清单才发现的。
- * 教训：**页面覆盖不能靠"搜一搜看有没有"，要逐条列出来对**。
- *
- * ── 与「陶瓦联机」的区别 ────────────────────────────────────────────────
- * | | 陶瓦（Terracotta） | FRP 房间 |
- * |---|---|---|
- * | 原理 | 独立进程 + localhost HTTP | frpc 客户端把端口暴露到公网节点 |
- * | 网络要求 | 需要 TUN（VPN 授权） | 走公网节点中转，不需要 VPN |
- * | 适用 | 朋友之间直连 | 有公网节点时更稳 |
- *
- * 两种并存，用户按情况选。
- *
- * ── 界面 ────────────────────────────────────────────────────────────────
- * **房主**与**访客**的操作不同，所以按钮文案按 `isHost` 切换：
- *   房主：「开启」（起 frpc 暴露端口）/「关闭」
- *   访客：「加入」（把房主代理绑到本地）/「离开」
- *
- * 访客加入后会拿到一个 `connect` 地址（如 `127.0.0.1:25565`），
- * 要**显示出来**让用户去游戏里连 —— 这是这个页面最关键的一步，
- * 只显示"已加入"而不给地址等于没用。
+ * **房主**与**访客**操作不同，按钮文案按 `isHost` 切换：
+ *   房主：「开启」/「关闭」；访客：「加入」/「离开」。
+ * 访客加入后拿到的 `connect` 地址（如 `127.0.0.1:25565`）**必须显示**，
+ * 只显示「已加入」不给地址等于没用。
  */
 @Composable
 fun FrpRoomsPage(
@@ -100,6 +84,8 @@ fun FrpRoomsPage(
      * 拿到文本后回调给页面填进输入框；剪贴板为空/失败时回调 null。
      */
     onReadClipboard: (((String?) -> Unit) -> Unit)? = null,
+    /** 读失败且原因是「没登录面板」时，给一条直接回 FRP 面板登录的路。 */
+    onOpenFrpPanel: (() -> Unit)? = null,
 ) {
     var showCreate by remember { mutableStateOf(false) }
     // 建房请求已提交、正在等结果（用来决定对话框何时收起）
@@ -194,9 +180,9 @@ fun FrpRoomsPage(
                 SkeletonList(rows = 2, rowHeight = 96.dp)
             }
 
-            // ⚠️ 2026-11-05（用户复现）：读失败时同时显示「读取失败」和
-            // 「还没有房间」—— 后者是在骗人：不知道有没有房间，只是没读到。
-            // 失败态优先，并给重试入口（原来只能退出去再进）。
+            // ⚠️ 读失败时不能同时显示「还没有房间」—— 没读到不等于没有。
+            // 失败态优先，并且区分「没登录」：那种情况重试只会再失败一次，
+            // 得给一条回 FRP 面板登录的路（横屏下两个按钮同一行）。
             state.rooms.isEmpty() && state.error != null -> Box(
                 Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -208,8 +194,15 @@ fun FrpRoomsPage(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(QkSpacing.sm))
-                    Button(onClick = onRefresh) {
-                        Text(stringResource(R.string.common_retry))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onRefresh) {
+                            Text(stringResource(R.string.common_retry))
+                        }
+                        if (onOpenFrpPanel != null && state.error.contains("登录")) {
+                            OutlinedButton(onClick = onOpenFrpPanel) {
+                                Text(stringResource(R.string.frp_rooms_go_login))
+                            }
+                        }
                     }
                 }
             }

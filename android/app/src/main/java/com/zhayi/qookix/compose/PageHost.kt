@@ -966,8 +966,7 @@ fun PageHost(
             onClearFinished = { tasksRepo.clearFinished() },
         )
 
-        // ⚠️ FRP 隧道页 —— 上一轮对照旧 UI 时整个漏掉了（FrpView.vue 568 行）。
-        // 它是 MohuaFrp 的入口：登录面板、隧道列表、启停隧道。
+        // ⚠️ FRP 隧道页（FrpView.vue 568 行）：登录面板、隧道列表、启停隧道。
         NavDestination.Frp -> FrpRoute(
             bridge = bridge,
             bridgeReady = bridgeReady,
@@ -980,6 +979,7 @@ fun PageHost(
             bridge = bridge,
             bridgeReady = bridgeReady,
             activity = activity,
+            onOpenFrpPanel = { onNavigate(NavDestination.Frp) },
         )
 
         NavDestination.Playtime -> PlaytimeRoute(bridge, bridgeReady)
