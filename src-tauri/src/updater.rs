@@ -48,6 +48,12 @@ struct PendingRelease {
     url: String,
     size: u64,
     sums_url: Option<String>,
+    /// GitHub API 给的资产 sha256（`digest` 字段，形如 `sha256:...`，已去前缀）。
+    ///
+    /// 2026-11-08 加：设备网络差时取 SHA256SUMS.txt 常常超时（实测 12s 连接超时直接失败），
+    /// 而检查更新这一步本来就要直连 api.github.com，digest 已经在响应里了 —— 用它校验
+    /// 既少一次往返，又不依赖「镜像能不能取到那个小文件」。
+    digest: Option<String>,
     /// 远程资产原名（`QookiX-Launcher-Android-<tag>-arm64.apk`）。
     /// 审计 B14：原来拿本地拼的名字去 SHA256SUMS 里查，永远查不到 → 校验被静默跳过。
     asset_name: String,
@@ -178,7 +184,7 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
 
     // 挑 arm64 的 APK；顺带找 SHA256SUMS 用于校验
     // (url, 资产原名, 大小) —— 资产原名要留着给 SHA256SUMS 比对（见 B14）
-    let mut apk: Option<(String, String, u64)> = None;
+    let mut apk: Option<(String, String, u64, Option<String>)> = None;
     let mut sums_url: Option<String> = None;
     if let Some(assets) = body.get("assets").and_then(|v| v.as_array()) {
         for asset in assets {
@@ -194,12 +200,16 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
                     url.to_string(),
                     name.to_string(),
                     asset.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
+                    asset
+                        .get("digest")
+                        .and_then(|v| v.as_str())
+                        .map(|d| d.trim_start_matches("sha256:").to_string()),
                 ));
             }
         }
     }
 
-    let Some((apk_url, apk_asset_name, size)) = apk else {
+    let Some((apk_url, apk_asset_name, size, digest)) = apk else {
         return Err("这个版本里没有 arm64 的 APK 产物".to_string());
     };
 
@@ -213,6 +223,7 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
         url: apk_url,
         size,
         sums_url,
+        digest,
         asset_name: apk_asset_name,
     });
 
@@ -269,25 +280,26 @@ pub async fn download_update(
     // 用时间戳区分，两次各写各的。
     let part = target.with_extension(format!("{}.part", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
 
-    // ① 先取 SHA256SUMS：期望摘要要在**下载前**拿到，候选链每下完一个源就能立刻校验、
-    //    对不上自动换源。以前是「先下完再取摘要」，换个源就得整包重下。
-    // ⚠️ 2026-11-04（审计 BE-04）：原来 `if let Ok(sums) = ...` —— release 没附
-    // SHA256SUMS、请求失败/超时，全都会**静默跳过校验**，然后照样 rename 并返回成功。
-    // 现在：拿不到校验文件就明确拒绝，不再放行。
-    let sums_url = pending
-        .sums_url
-        .as_deref()
-        .ok_or_else(|| "该版本没有提供 SHA256SUMS.txt，拒绝安装未校验的更新包".to_string())?;
-    let sums = crate::netdl::fetch_text(&candidates_for(sums_url))
-        .await
-        .map_err(|e| format!("无法获取 SHA256SUMS.txt（{e}），拒绝安装未校验的更新包"))?;
-
-    // ⚠️ 用**远程资产原名**，不是本地落盘名（B14）：
-    // 本地是 local_apk_path() 拼的名字，去 SHA256SUMS 里永远找不到。
+    // ① 期望摘要必须在**下载前**拿到（候选链每下完一个源就立刻校验，对不上换源）。
+    // 优先用 GitHub API 的资产 digest：检查更新本来就直连 api.github.com，那段 JSON 里
+    // 已经带 sha256，比再跑一趟 SHA256SUMS.txt 稳 —— 设备网络差时那个小文件常 12s 超时。
+    // ⚠️ 两条路都拿不到就明确拒绝（审计 BE-04：以前静默跳过校验照样 rename）。
+    // ⚠️ 比对时用**远程资产原名**（B14）：本地落盘名在 SHA256SUMS 里查不到。
     let file_name = pending.asset_name.clone();
-    let expected = find_sha256(&sums, &file_name).ok_or_else(|| {
-        format!("SHA256SUMS.txt 里没有找到 {file_name} 的校验值，拒绝安装未校验的更新包")
-    })?;
+    let expected = match pending.digest.clone() {
+        Some(d) => d,
+        None => {
+            let sums_url = pending.sums_url.as_deref().ok_or_else(|| {
+                "该版本没有校验值（digest / SHA256SUMS 都没有），拒绝安装未校验的更新包".to_string()
+            })?;
+            let sums = crate::netdl::fetch_text(&candidates_for(sums_url))
+                .await
+                .map_err(|e| format!("无法获取 SHA256SUMS.txt（{e}），拒绝安装未校验的更新包"))?;
+            find_sha256(&sums, &file_name).ok_or_else(|| {
+                format!("SHA256SUMS.txt 里没有找到 {file_name} 的校验值，拒绝安装未校验的更新包")
+            })?
+        }
+    };
 
     // ② 按候选链下载（镜像 → 官方）：每源限时、下完立即校验 sha256，对不上自动换源。
     //    统一走 `util::http_client`（read 30s / 总 1h）—— 这里原来自建 client 带 30s
