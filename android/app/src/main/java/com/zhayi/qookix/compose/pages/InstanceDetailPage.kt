@@ -1266,8 +1266,9 @@ private fun LogsTab(
     onExportLog: () -> Unit = {},
     onSaveLog: (() -> Unit)? = null,
 ) {
-    // 进 tab 时自动读一次
-    LaunchedEffect(Unit) { onLoadLog() }
+    // ⚠️ key 必须带 state.id：切到另一个实例时组合树可能不销毁（tab 没变），
+    // Unit 会让日志/崩溃列表一直显示上一个实例的
+    LaunchedEffect(state.id) { onLoadLog() }
 
     if (state.logs.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1357,11 +1358,9 @@ private fun CrashTab(
     /** 查看崩溃报告原文（2026-10-21 补：getCrashReportContent 一直没 UI）。 */
     onViewRaw: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
 ) {
-    LaunchedEffect(Unit) { onLoadCrashes() }
+    LaunchedEffect(state.id) { onLoadCrashes() }
 
-    // 分析结果弹层。结果由 state.crashHint 承载（外层 AI 分析完成后写入），
-    // 关闭时调一次 onAnalyzeCrash("") 之外的清空由外层负责 —— 
-    // 这里用局部 dismissed 标记避免重复弹出。
+    // 分析结果弹层。结果由 state.crashHint 承载，用局部 dismissed 标记避免重复弹出。
     // ⚠️ 2026-10-29（外部审计 B22 核实成立）：`remember { }` 不带 key ——
     // 用户关掉一次崩溃分析后 dismissed 永久为 true，之后**新的**崩溃结果
     // 也不会再弹（得退出实例详情重进才恢复）。用 crashHint 做 key：
@@ -1417,7 +1416,8 @@ private fun CrashTab(
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
     ) {
-        items(state.crashLogs) { name ->
+        // 报告名唯一，显式 key 避免列表刷新时按位置复用错位
+        items(state.crashLogs, key = { it }) { name ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,

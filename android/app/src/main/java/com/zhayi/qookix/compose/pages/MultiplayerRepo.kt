@@ -26,10 +26,8 @@ class MultiplayerRepo(private val api: QookixApi) {
          *   id / name / core / mc_version / port / ...
          * （序列化后用 snake_case，因为 Rust 结构体没加 rename_all）
          *
-         * ⚠️ 放在 companion 里是**故意的**：内容中心「安装到服务器」那个
-         * 对话框也要把同一份 JSON 转成 ServerUi。之前它自己写了一版
-         * 内联 mapNotNull（字段抄漏了、running 还硬编码 false），
-         * 属于典型的一份数据两套解析。
+         * ⚠️ 放 companion 是为了让内容中心「安装到服务器」复用同一份解析
+         * （之前自己写一版，字段抄漏、running 还硬编码 false）。
          */
         fun parseServers(json: JSONArray): List<ServerUi> {
             return try {
@@ -41,9 +39,10 @@ class MultiplayerRepo(private val api: QookixApi) {
                         id = id,
                         name = o.optString("name").ifBlank { "Server" },
                         core = o.optString("core").ifBlank { "paper" },
-                        mcVersion = o.optString("mc_version").ifBlank { o.optString("mcVersion") },
+                        mcVersion = o.optText("mc_version") ?: o.optText("mcVersion") ?: "",
                         running = o.optBoolean("running", false),
-                        address = o.optString("address"),
+                        // address 是 Option<String>：没运行时是 JSON null，optString 会给出字面量 "null"
+                        address = o.optText("address").orEmpty(),
                     )
                 }
             } catch (e: Exception) {

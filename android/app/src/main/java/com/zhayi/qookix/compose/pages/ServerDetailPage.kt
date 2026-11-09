@@ -375,30 +375,30 @@ private fun ConsoleTab(
 ) {
     val listState = rememberLazyListState()
     // ⚠️ 2026-10-21 真机修：用户反馈「开服务器连着 WiFi 的话，有个连接地址，
-    // 更新后找不到连接地址在哪」。原来地址只在 toolbar 的小字里、且仅运行时显示，
-    // 字小又不起眼。现在在控制台顶部放一张显眼的地址卡片，无论运行与否都显示，
-    // 并带复制按钮 —— 朋友要连的就是这个地址。
+    // 顶部地址卡片常显 + 复制按钮（朋友要连的就是这个地址）。
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var copied by remember { mutableStateOf(false) }
+    // 点过「复制」后 2 秒复原，否则文案永久停在「已复制」、再点没反馈
+    LaunchedEffect(copied) {
+        if (copied) {
+            kotlinx.coroutines.delay(2000)
+            copied = false
+        }
+    }
 
-    // 新日志到达时自动滚到底（控制台的基本要求）。
-    //
-    // ⚠️ key 用「最后一行」而不是行数：日志封顶 2000 行后 size 不再变化，
-    // 按 size 触发的话自动滚动会在跑满 2000 行后永久失效。
-    // 同时只在用户本来就在底部时跟：他翻上去看历史时不该被拽回来。
-    LaunchedEffect(state.logs.lastOrNull()) {
+    // ⚠️ key 用整个列表引用：只看 lastOrNull() 时连续两行相同日志不触发；
+    // 只看 size 时封顶 2000 行后永久不触发。两者都兼顾。
+    LaunchedEffect(state.logs) {
         if (state.logs.isEmpty()) return@LaunchedEffect
         val info = listState.layoutInfo
         val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-        // 还没布局（首次进来）或距底部 3 行以内 → 跟日志
+        // 首次没布局、或用户本来就在底部 3 行内才跟（翻历史时不拽回来）
         if (info.visibleItemsInfo.isEmpty() || lastVisible >= state.logs.size - 3) {
             listState.animateScrollToItem(state.logs.size - 1)
         }
     }
-
     Column(modifier = Modifier.fillMaxSize()) {
-        // ── 连接地址卡片 ──────────────────────────────────────────────
         if (state.address.isNotBlank()) {
             Card(
                 modifier = Modifier

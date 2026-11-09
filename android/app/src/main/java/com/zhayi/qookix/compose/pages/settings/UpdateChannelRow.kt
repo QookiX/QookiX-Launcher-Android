@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.QookixApi
+import com.zhayi.qookix.compose.bridge.optText
 import com.zhayi.qookix.compose.theme.QkSpacing
 
 /**
@@ -86,7 +87,10 @@ fun rememberUpdateChannel(api: QookixApi, bridgeReady: Boolean): MutableState<St
         if (!bridgeReady) return@LaunchedEffect
         api.getSettings { r ->
             r.onSuccess { o ->
-                state.value = o.optString("update_channel").ifBlank { "stable" }
+                // ⚠️ 两种键名都认（patch 写过 camelCase），且 JSON null → "null" 会变成
+                // 一个谁都选不中的值；未知/缺失一律回落 stable。
+                val raw = o.optText("update_channel") ?: o.optText("updateChannel").orEmpty()
+                state.value = raw.takeIf { v -> CHANNELS.any { it.first == v } } ?: "stable"
             }
         }
     }

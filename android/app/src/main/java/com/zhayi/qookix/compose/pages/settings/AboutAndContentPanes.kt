@@ -1,5 +1,6 @@
 package com.zhayi.qookix.compose.pages.settings
 
+import com.zhayi.qookix.compose.bridge.optText
 import com.zhayi.qookix.compose.theme.QkSpacing
 
 import androidx.annotation.StringRes
@@ -787,8 +788,8 @@ private fun UpdateSection(
                 // 下载中显示「已下 / 总量 MB」，让用户知道在动
                 state.downloading && state.totalBytes > 0 -> stringResource(
                     R.string.about_update_downloading,
-                    state.downloadedBytes / 1024 / 1024,
-                    state.totalBytes / 1024 / 1024,
+                    state.downloadedBytes / 1024f / 1024f,
+                    state.totalBytes / 1024f / 1024f,
                 )
                 state.downloading -> stringResource(R.string.about_update_downloading_unknown)
                 state.error != null -> state.error
@@ -999,12 +1000,14 @@ fun loadContributors(context: android.content.Context): List<String> {
             .use { it.readText() }
         val root = org.json.JSONObject(text)
         val arr = root.optJSONArray("contributors") ?: return emptyList()
-        // 兼容两种写法：纯字符串，或 {"name": "..."} 对象（只取 name）
+        // ⚠️ 不能先 optString(i)：对象元素会被读成 `{"name":"张三"}`、null 会是 "null"，
+        // 然后 s.isNotBlank() 直接返回，下面那个对象分支永远走不到（2026-11-09 修）。
         (0 until arr.length()).mapNotNull { i ->
-            val s = arr.optString(i).trim()
-            if (s.isNotBlank()) return@mapNotNull s
-            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            o.optString("name").trim().takeIf { it.isNotBlank() }
+            when (val v = arr.opt(i)) {
+                is String -> v.trim().takeIf { it.isNotBlank() && it != "null" }
+                is org.json.JSONObject -> v.optText("name")?.trim()?.takeIf { it.isNotBlank() }
+                else -> null
+            }
         }
     }.getOrDefault(emptyList())
 }

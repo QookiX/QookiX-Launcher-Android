@@ -1551,6 +1551,13 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                     navigate(NavDestination.LanSync)
                 }
             }
+            // 自动检查更新弹窗点「去「关于」页」：切到设置页，tab 由 SettingsRoute 自己切
+            val updateNavTarget by UpdateNavRequest.target.collectAsStateWithLifecycle()
+            LaunchedEffect(updateNavTarget) {
+                if (updateNavTarget == "about" && current != NavDestination.Settings) {
+                    navigate(NavDestination.Settings)
+                }
+            }
 
             // 首启「准备运行环境」：检查 + 自动补齐 + 逐项进度 + 失败可见。
             // 接线收在 FirstRunSetupHost 里（本文件已顶到体量预算）。

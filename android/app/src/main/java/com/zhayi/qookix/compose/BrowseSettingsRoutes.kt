@@ -217,6 +217,14 @@ internal fun SettingsRoute(
     val repo = remember(api) { SettingsRepo(api) }
 
     var tab by remember { mutableStateOf(SettingsTab.General) }
+    // 自动检查更新的弹窗点「去「关于」页」：根节点切到设置页，这里切到关于 tab
+    val navTarget by UpdateNavRequest.target.collectAsState()
+    LaunchedEffect(navTarget) {
+        if (navTarget == "about") {
+            tab = SettingsTab.About
+            UpdateNavRequest.consume()
+        }
+    }
     var state by remember { mutableStateOf(SettingsUiState(loading = true)) }
     var showLicenses by remember { mutableStateOf(false) }
     // 自更新状态由 PageHost 传入（见签名注释）

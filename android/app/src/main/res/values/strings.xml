@@ -1455,7 +1455,7 @@
     <string name="about_dev_role_contributor">QookiX Launcher Android 的协助开发者</string>
     <string name="about_contributors">社区贡献</string>
     <string name="about_contributors_empty">喵？</string>
-    <string name="about_update_downloading">正在下载…%1$d / %2$d MB</string>
+    <string name="about_update_downloading">正在下载…%1$.1f / %2$.1f MB</string>
     <string name="about_update_downloading_unknown">正在下载…</string>
     <string name="account_code_label">登录代码</string>
     <string name="layout_rename_title">重命名布局</string>
