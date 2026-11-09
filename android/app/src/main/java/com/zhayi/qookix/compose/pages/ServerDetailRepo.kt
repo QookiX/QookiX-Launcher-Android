@@ -21,6 +21,8 @@ import org.json.JSONObject
  *   open_hosted_server_directory   → 用系统文件管理器打开目录
  */
 class ServerDetailRepo(private val api: QookixApi, private val context: android.content.Context) {
+    /** 页面还在不在：VPN 授权轮询醒来时先检查，别往已销毁的 state 写结果。 */
+    var shareAlive = true
 
     companion object {
         private const val TAG = "ServerDetailRepo"
@@ -39,19 +41,13 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         /** 隧道请求重试间隔（旧 Vue 是 2000ms）。 */
         const val tunnelRetryDelayMs = 2000L
 
-        /**
-         * 从隧道返回的原始 JSON 里掏错误信息。
-         *
-         * 隧道回 `{"ok":false,"error":"…"}`；**必须检查** ——
-         * 旧 Vue 就吃过这个亏：不看返回值往下走，用户只看到
-         * 「请先在游戏里开放局域网世界」，永远不知道请求其实被拒了。
-         * 返回 null 表示没有错误。
-         */
+        /** 隧道回 `{"ok":false,"error":"…"}` 时必须检查；返回 null 表示没错误。 */
         fun tunnelError(body: String?, refusedMsg: String = "\u96a7\u9053\u62d2\u7edd\u4e86\u8bf7\u6c42"): String? {
-            val raw = body.orEmpty()
-            if (raw.contains("\"ok\":true")) return null
-            val err = Regex("\"error\":\"([^\"]*)\"").find(raw)?.groupValues?.getOrNull(1)
-            return err?.takeIf { it.isNotBlank() } ?: refusedMsg
+            // ⚠️ 原来硬匹配紧凑 JSON：隧道回 `{"ok": true, "error": "..."}`（带空格）
+            // 时成功也被判失败、错误文案也取不到。改用 JSONObject 解析。
+            val o = runCatching { JSONObject(body.orEmpty()) }.getOrNull() ?: return refusedMsg
+            if (o.optBoolean("ok", false)) return null
+            return o.optText("error")?.takeIf { it.isNotBlank() } ?: refusedMsg
         }
 
         /** URL 编码（隧道接口的 query 参数）。 */
@@ -341,7 +337,12 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
             val path = "/advertise?port=$port&name=" + enc(label)
             tunnelCall(path) { r1 ->
                 r1.fold(
-                    onSuccess = {
+                    onSuccess = { body ->
+                        // /advertise 也会回 `{"ok":false,...}`，不看就继续 /host，最终白等房间码
+                        tunnelError(body)?.let {
+                            onResult(Result.failure(IllegalStateException(it)))
+                            return@fold
+                        }
                         onProgress(context.getString(R.string.stage_opening_room))
                         // /host?player=… 与旧 Vue 一致（QookixApi.terracottaHost 里也编码了）
                         api.terracottaHost(label) { r2 ->
@@ -387,16 +388,15 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         }
     }
 
-    /**
-     * 停止分享。
-     *
-     * ⚠️ 顺序同样有讲究（旧 Vue 注释原话）：
-     * **先停广播、再 /waiting**。`/waiting` 里也会顺手停广播，
-     * 但先停一次能保证「立刻」不再对外宣称有台服务器。
-     */
+    /** 停止分享：先 /no-advertise 立刻停广播，再 /waiting 收尾。 */
     fun stopShare(onResult: (Result<String>) -> Unit = {}) {
-        tunnelCall("/no-advertise") {
-            tunnelCall("/waiting") { r -> onResult(r) }
+        tunnelCall("/no-advertise") { r1 ->
+            // 原来丢弃这个结果：停广播失败也照发 /waiting，用户以为已经停了
+            if (r1.isFailure) {
+                onResult(Result.failure(r1.exceptionOrNull() ?: IllegalStateException("no-advertise failed")))
+            } else {
+                tunnelCall("/waiting") { r -> onResult(r) }
+            }
         }
     }
 
@@ -444,7 +444,9 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
                 var waited = 0
                 val handler = android.os.Handler(android.os.Looper.getMainLooper())
                 fun tick() {
+                    if (!shareAlive) return
                     api.terracottaVpnGranted { vr ->
+                        if (!shareAlive) return@terracottaVpnGranted
                         when {
                             vr.getOrNull()?.trim() == "true" -> onResult(true)
                             waited >= 30 -> onResult(false)
@@ -493,7 +495,8 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         return try {
             val arr = org.json.JSONArray(json)
             (0 until arr.length()).mapNotNull { i ->
-                arr.optString(i).takeIf { it.isNotBlank() }
+                // optString 遇 JSON null 会给出字面量 "null"，日志里凭空多一行
+                (arr.opt(i) as? String)?.takeIf { it.isNotBlank() }
             }
         } catch (e: Exception) {
             // 兜底：可能返回的是普通字符串（换行分隔）
@@ -602,7 +605,7 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
     private fun descOf(key: String): String = when (key) {
         "motd" -> context.getString(R.string.prop_motd)
         "difficulty" -> context.getString(R.string.prop_difficulty)
-        "gamemode" -> context.getString(R.string.prop_gamemode)
+        "gamemode", "gameMode" -> context.getString(R.string.prop_gamemode)
         "maxPlayers", "max_players" -> context.getString(R.string.prop_max_players)
         "pvp" -> context.getString(R.string.prop_pvp)
         "onlineMode", "online_mode" -> context.getString(R.string.prop_online_mode)

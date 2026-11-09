@@ -1197,6 +1197,8 @@
     <string name="nav_file">文件</string>
     <!-- ── PageHost 续 2（皮肤 / 设置 / 代理 / 更新）── -->
     <string name="frp_start_failed">启动失败：%1$s</string>
+    <string name="frp_action_failed">操作失败：%1$s</string>
+    <string name="frp_panel_url_missing">面板地址还没拉到，请稍后重试</string>
     <string name="login_timeout_detail">登录超时。可能是设备码过期了，请重新点「正版登录」。</string>
     <string name="login_start_failed">无法开始登录：%1$s</string>
     <string name="skin_cape_apply_failed">皮肤已应用，但披风应用失败: %1$s</string>

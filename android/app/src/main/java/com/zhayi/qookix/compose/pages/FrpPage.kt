@@ -189,7 +189,8 @@ fun FrpPage(
                             Text(
                                 text = hint,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (state.probeResult.startsWith("自检失败") || !state.frpcReady) {
+                                // 原来硬编码 startsWith("自检失败")，而资源实际是「frpc 不可用：…」→ 永不标红
+                                color = if (state.probeOk == false || !state.frpcReady) {
                                     MaterialTheme.colorScheme.error
                                 } else {
                                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -343,12 +344,7 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
-/**
- * 一条隧道。
- *
- * 显示：名称 + 状态徽标 + `协议 · 本地端口 → 地址` + 节点名。
- * 运行中额外显示地址 + 复制按钮；已退出显示退出码提示。
- */
+/** 一条隧道：名称 + 状态 + `协议 · 本地端口 → 地址` + 节点名 + 复制 / 退出码。 */
 @Composable
 private fun FrpTunnelCard(
     tunnel: FrpTunnelUi,
@@ -648,6 +644,8 @@ data class FrpUiState(
     val loadError: String = "",
     val probeBusy: Boolean = false,
     val probeResult: String = "",
+    /** 自检结果（null = 还没查）。文案会被翻译，不能靠 startsWith 判断成功失败。 */
+    val probeOk: Boolean? = null,
     /** 正在启停的隧道 id（按钮转圈）。 */
     val busyTunnelId: Int? = null,
 )

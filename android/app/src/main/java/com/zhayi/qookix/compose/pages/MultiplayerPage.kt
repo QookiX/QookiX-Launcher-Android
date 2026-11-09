@@ -279,7 +279,8 @@ private fun ServersTab(
                                     pinging = false
                                     pingResult = r.fold(
                                         onSuccess = { it },
-                                        onFailure = { _ -> pingFail },
+                                        // 后端给了具体原因（超时/协议不符）就别用通用「无法连接」盖掉
+                                        onFailure = { e -> e.message?.takeIf { it.isNotBlank() } ?: pingFail },
                                     )
                                 }
                             },

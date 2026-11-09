@@ -48,9 +48,9 @@ fun ServerDetailRoute(
     val repo = remember(api) { ServerDetailRepo(api, ctx) }
 
     var state by remember(serverId) { mutableStateOf(ServerDetailUiState(id = serverId)) }
-    // ── 监听 server://stage（审计 H-4）：Rust 的「正在生成补丁 / 下原版包」
-    // 这类过程不在运行态里，只靠轮询查不到。必须按 serverId 过滤（可能多台在启动）。
+    // ── 监听 server://stage（过程态轮询查不到，按 serverId 过滤）
     androidx.compose.runtime.DisposableEffect(bridge, serverId) {
+        repo.shareAlive = true
         val sub = bridge.listen("server://stage") { payload ->
             runCatching {
                 org.json.JSONObject(payload).optString("id") to
@@ -61,7 +61,7 @@ fun ServerDetailRoute(
                 }
             }
         }
-        onDispose { bridge.unlisten(sub) }
+        onDispose { repo.shareAlive = false; bridge.unlisten(sub) }
     }
 
     var serverName by remember(serverId) { mutableStateOf("") }

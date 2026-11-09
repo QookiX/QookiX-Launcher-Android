@@ -70,7 +70,7 @@ object InstancesRepo {
             val arr = JSONArray(json)
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                val id = o.optString("id")
+                val id = o.optText("id") ?: ""
                 // ⚠️ 2026-10-29（外部审计 B15 核实成立）：
                 // `optString` 遇到 JSON null 返回**字面量 "null"**（非空！），
                 // `.ifBlank { null }` 拦不住。后果：
@@ -118,14 +118,12 @@ object InstancesRepo {
      * 兜底：老数据里若只有 `version_id`（早期版本写过），也一并认。
      */
     private fun subtitleOf(context: Context?, o: JSONObject): String {
-        val loader = o.optString("loader").ifBlank { null }
+        val loader = o.optText("loader")
         // 优先 mc_version（Rust 当前字段），回退 version_id（历史字段）
-        val version = o.optString("mc_version")
-            .ifBlank { o.optString("version_id") }
-            .ifBlank { null }
-        // 加载器版本（Fabric/Forge 有，原版没有）—— 有就一起显示，
-        // 否则用户看不出同一个 MC 版本下装的是哪版加载器。
-        val loaderVer = o.optString("loader_version").ifBlank { null }
+        val version = o.optText("mc_version") ?: o.optText("version_id")
+        // ⚠️ loader_version 是 Option<String>：缺值时 optString 会给出 "null"，
+        // 副标题就变成「Fabric null」。这里是上次 optText 整改唯一漏掉的函数。
+        val loaderVer = o.optText("loader_version")
         // ⚠️ i18n：「原版」是唯一需要翻译的加载器名，走 string 资源；
         // Fabric / Forge / NeoForge / Quilt / OptiFine 都是产品名，不翻译。
         val vanillaLabel = context?.getString(R.string.instances_loader_vanilla) ?: "Vanilla"
@@ -147,7 +145,7 @@ object InstancesRepo {
         }
         // 实例名里已经带版本号时（整合包常被自动命名成「xxx 1.21.1」）不再重复一遍，
         // 否则卡片上会出现「月落花野（1.21.1）3.1.2 / NeoForge 21.1.251 1.21.1」。
-        val name = o.optString("name")
+        val name = o.optText("name").orEmpty()
         val versionPart = version?.takeUnless { name.contains(it) }
         return listOfNotNull(loaderFull, versionPart).joinToString(" ")
     }

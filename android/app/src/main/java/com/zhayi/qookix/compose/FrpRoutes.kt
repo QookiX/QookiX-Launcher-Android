@@ -325,8 +325,9 @@ internal fun FrpRoute(
         onRefresh = { refresh() },
         onOpenSite = {
             val url = state.apiBase
-            if (url.isBlank()) activity?.openExternalUrl("")
-            else activity?.openExternalUrl(url)
+            if (url.isBlank()) {
+                state = state.copy(loadError = context.getString(R.string.frp_panel_url_missing))
+            } else activity?.openExternalUrl(url)
         },
         onProbe = {
             state = state.copy(probeBusy = true, probeResult = "")
@@ -334,6 +335,7 @@ internal fun FrpRoute(
                 // 返回的是说明文本（String），不是对象
                 state = state.copy(
                     probeBusy = false,
+                    probeOk = pr.isSuccess,
                     probeResult = pr.fold(
                         onSuccess = { context.getString(R.string.selfcheck_passed, it) },
                         onFailure = { context.getString(R.string.selfcheck_failed, friendlyError(context, it)) },
@@ -415,7 +417,11 @@ internal fun FrpRoute(
             }
         },
         onLogout = {
-            api.frpLogout {
+            api.frpLogout { r ->
+                // 登出失败不能只刷新：刷新完仍显示已登录，用户以为没点中
+                r.onFailure { e ->
+                    state = state.copy(loadError = context.getString(R.string.frp_action_failed, e.message))
+                }
                 refresh()
             }
         },
@@ -425,6 +431,10 @@ internal fun FrpRoute(
             if (t.alive) {
                 api.frpStopTunnel(t.id) { r ->
                     state = state.copy(busyTunnelId = null)
+                    // 停止失败被吞：照样清 busy 并刷新，用户以为已经停了
+                    r.onFailure { e ->
+                        state = state.copy(loadError = context.getString(R.string.frp_action_failed, e.message))
+                    }
                     refresh()
                 }
             } else {
@@ -470,17 +480,7 @@ internal fun FrpRoute(
 }
 
 
-/**
- * 账号面板 + 数据加载。
- *
- * 没有账号就没法启动游戏，所以这个页面挡在「能用」与「不能用」之间。
- */
-/**
- * FRP 联机房间。
- *
- * ⚠️ 这个页面在之前的覆盖对照里**被漏掉了** —— 见 FrpRoomsPage 的注释。
- * 344 行 / 9 个命令，不是什么小功能。
- */
+/** FRP 联机房间（旧界面 344 行 / 9 个命令，覆盖对照时曾漏掉）。 */
 @Composable
 internal fun FrpRoomsRoute(
     bridge: RustBridge,

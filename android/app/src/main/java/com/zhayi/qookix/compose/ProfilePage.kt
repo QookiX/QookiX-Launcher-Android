@@ -88,7 +88,8 @@ internal fun ProfileIdentityCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = current?.name?.take(1)?.uppercase() ?: "?",
+                    // 名字为空串时 take(1) 得到 ""，`?:` 只在 null 生效 → 头像空白
+                    text = current?.name?.trim()?.take(1)?.uppercase()?.takeIf { it.isNotBlank() } ?: "?",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
