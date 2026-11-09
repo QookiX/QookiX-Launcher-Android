@@ -148,6 +148,11 @@ fun BrowseFilterSheet(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // 吞掉面板内部的点击：否则点标题/chip 间隙会冒泡到遮罩把抽屉关掉
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { }
                     // 限高：外层 Box 是无限约束，不限高的话里面的
                     // verticalScroll 会直接抛异常（真机实测崩溃）。
                     .heightIn(max = sheetMaxHeight)

@@ -57,6 +57,8 @@ import kotlin.coroutines.resume
 @Composable
 fun LanSyncScanner(
     onScanned: (String) -> Unit,
+    /** 是不是本功能要的码（分析线程纯解析），不是就别把 scanned 置死、继续扫。 */
+    accept: (String) -> Boolean = { true },
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -145,7 +147,7 @@ fun LanSyncScanner(
             try {
                 if (!scanned.get()) {
                     val result = decodeQr(image, reader)
-                    if (result != null && scanned.compareAndSet(false, true)) {
+                    if (result != null && accept(result) && scanned.compareAndSet(false, true)) {
                         // onScanned 会去改 Compose 状态 / 跳转，必须回主线程
                         mainHandler.post { onScanned(result) }
                     }

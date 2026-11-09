@@ -3,6 +3,7 @@ package com.zhayi.qookix.compose.pages
 import android.content.Context
 import android.util.Log
 import com.zhayi.qookix.R
+import com.zhayi.qookix.compose.bridge.optText
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -36,15 +37,17 @@ fun parseNews(context: Context?, json: String): List<NewsItemUi> {
         // `IllegalArgumentException: Key ... was already present` 崩掉整页。
         (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            val title = o.optString("title").trim()
+            val title = o.optText("title")?.trim().orEmpty()
             if (title.isEmpty()) return@mapNotNull null
             NewsItemUi(
                 title = title,
-                description = o.optString("description"),
-                author = o.optString("author"),
+                // ⚠️ optString 遇 JSON null 会给出字面量 "null"：作者/描述会显示 null，
+                // url="null" 还会让 distinctBy 把多条新闻合成一条、点开是无效链接
+                description = o.optText("description") ?: "",
+                author = o.optText("author") ?: "",
                 date = fmtDateShort(context, o.optLong("time", 0L)),
-                url = o.optString("url"),
-                image = o.optString("image"),
+                url = o.optText("url") ?: "",
+                image = o.optText("image") ?: "",
             )
         }.filter { it.url.isNotBlank() }.distinctBy { it.url }
     } catch (e: Exception) {

@@ -257,7 +257,7 @@ fun AppearancePane(
                 else stringResource(R.string.settings_appearance_background_set),
                 showDivider = false,
             ) {
-                TextButton(onClick = { onPickBackground?.invoke() }) {
+                TextButton(onClick = { onPickBackground?.invoke() }, enabled = onPickBackground != null) {
                     Text(
                         if (state.backgroundImage.isBlank())
                             stringResource(R.string.settings_appearance_background_choose)
@@ -636,9 +636,9 @@ private fun hslToHex(hDeg: Float, sPct: Float, lPct: Float): String {
         else -> Triple(c, 0f, x)
     }
     fun ch(v: Float) = (min(1f, max(0f, v + m)) * 255f + 0.5f).toInt()
-    return String.format("#%02X%02X%02X", ch(r1), ch(g1), ch(b1))
+    // 必须固定 Locale.US：阿拉伯语等 locale 下 %X 会输出本地数字，parseHexColor 直接失败
+    return String.format(java.util.Locale.US, "#%02X%02X%02X", ch(r1), ch(g1), ch(b1))
 }
-
 /** 从 `#RRGGBB` 粗略反推 HSL（用于打开面板时预置滑杆位置）。 */
 private fun hexToHsl(hex: String): Triple<Float, Float, Float> {
     val h = hex.trim().removePrefix("#")

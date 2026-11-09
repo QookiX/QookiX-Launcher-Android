@@ -172,7 +172,16 @@ internal fun InstallTargets(
         }
 
         if (state.isPlugin) {
-            // 插件只能进服务器，没有第二个目标，没必要给下拉
+            // 插件只能进服务器；一台都没有时原来整块空白（noInstance 兜底把插件排除了）
+            if (state.servers.isEmpty()) {
+                Text(
+                    stringResource(R.string.install_no_server),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                return@Column
+            }
+            // 没有第二个目标，没必要给下拉
             val selected = state.servers.firstOrNull { it.id == state.selectedServerId }?.name
                 ?: state.servers.firstOrNull()?.name.orEmpty()
             if (state.servers.size <= 1) {
@@ -277,7 +286,8 @@ internal fun InstallFilters(
                 QkSelectField(
                     label = stringResource(R.string.install_game_version),
                     value = gameOptions.firstOrNull { it.key == state.gameFilter }?.label
-                        ?: stringResource(R.string.install_type_all),
+                        ?: if (state.gameFilter == "all") stringResource(R.string.install_type_all)
+                        else state.gameFilter, // 别用「全部」掩盖一个仍在生效的旧筛选
                     options = gameOptions,
                     onSelect = onGameFilterChange,
                     modifier = Modifier.weight(1f),

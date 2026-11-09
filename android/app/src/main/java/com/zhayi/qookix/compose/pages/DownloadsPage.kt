@@ -160,7 +160,8 @@ fun DownloadsPage(
 internal fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
     // 展开态（B2）：旧界面的 DownloadsView 点任务行能看分文件/分项进度，
     // 迁移时丢了 —— 下大整合包时只有一个总进度条，看不出卡在哪一步。
-    var expanded by remember { mutableStateOf(false) }
+    // ⚠️ rememberSaveable + task id：卡片滚出可视区会 dispose，普通 remember 会丢展开态
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable(t.id) { mutableStateOf(false) }
     val hasDetail = t.stage.isNotBlank() || t.bytesTotal > 0 || t.fileTotal > 0 || t.stepTotal > 0
     Surface(
         modifier = Modifier.fillMaxWidth(),

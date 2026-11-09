@@ -133,7 +133,6 @@ fun LanSyncRoute(
     var downloadTotalCount by remember { mutableStateOf(0) }
 
     var showManualInput by remember { mutableStateOf(false) }
-
     // ⚠️ 重试必须靠计数，不能靠「把 params 置空再设回去」：
     // LaunchedEffect 的 key 用 equals 比较，同一个 data class 实例（值相等）
     // 不会重启协程 —— 原来连接失败点「重试」根本没有任何反应。
@@ -421,7 +420,8 @@ private fun ScannerSection(
                 .weight(1f)
                 .clip(RoundedCornerShape(16.dp)),
         ) {
-            LanSyncScanner(onScanned = onScanned)
+            // 无关二维码不能把 scanned 置死，否则得退出重进才能再扫
+            LanSyncScanner(onScanned = onScanned, accept = { LanSyncDeepLink.parse(Uri.parse(it)) != null })
         }
         OutlinedButton(onClick = onSwitchToManual, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)

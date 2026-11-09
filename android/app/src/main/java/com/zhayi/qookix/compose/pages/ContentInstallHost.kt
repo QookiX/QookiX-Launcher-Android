@@ -326,6 +326,9 @@ fun ContentInstallHost(
         versions = emptyList()
         deps = emptyList()
         version = null
+        // 旧项目的版本/类型筛选对新项目可能一个都不匹配，留着会显示空列表还看不出原因
+        typeFilter = "all"
+        gameFilter = "all"
     }
     val onTranslate: () -> Unit = {
         descLoading = true
