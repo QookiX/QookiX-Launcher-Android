@@ -914,7 +914,9 @@ internal fun BrowseRoute(
         val q = state.query.trim()
         page = 0
         hasMore = true
-        state = state.copy(loading = true, error = null)
+        // ⚠️ 新搜索先清旧列表：否则请求失败时旧关键词的条目还挂着，触底 loadMore
+        // 会把新查询的第 1 页追加到旧列表后面，两组结果混在一起（B19 的失败分支）。
+        state = state.copy(items = emptyList(), loading = true, error = null)
         val seq = ++searchSeq
         repo.search(q, state.type, page = 0, loader = state.loader, sort = state.sort) { r ->
             // 期间又发起过搜索 → 这份是过期结果，丢掉（见 searchSeq 注释）

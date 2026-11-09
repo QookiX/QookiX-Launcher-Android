@@ -194,15 +194,9 @@ internal fun FrpRoute(
     var logLoading by remember { mutableStateOf(false) }
 
     // ── 生命周期取消闸 ─────────────────────────────────────────────────
-    // FRP 登录轮询（frpLoginPoll 的 Runnable）通过 postDelayed 自我重排，
-    // 用户放弃登录/离开页面后循环还会继续跑到 maxRounds，迟到回调会写
-    // `login` 状态 —— 写进一个已经不存在的页面。
-    //
-    // 为什么用 alive 布尔闸而不是 removeCallbacks：
-    //   轮询 Runnable 在 api 回调内部自我 postDelayed，外部拿不到稳定的
-    //   句柄；页面里多个循环又共用 Main Looper，逐个存 Handler+Runnable
-    //   再在 onDispose 里取消既繁琐又容易漏。布尔闸最简单可靠：
-    //   onDispose 一定执行，Runnable/回调醒来后读 alive 就知道该不该继续。
+    // 登录轮询用 postDelayed 自我重排，离开页面后迟到回调仍会写 login；
+    // Runnable 句柄在回调内部（外部拿不到，removeCallbacks 不可行），
+    // 所以 onDispose 关掉 alive 布尔闸，回调醒来读到就自行停下。
     var alive by remember { mutableStateOf(true) }
     DisposableEffect(Unit) { onDispose { alive = false } }
 
@@ -375,10 +369,8 @@ internal fun FrpRoute(
                         android.os.Handler(android.os.Looper.getMainLooper()).post(object : Runnable {
                             var round = 0
                             override fun run() {
-                                // 页面已销毁（用户放弃登录/离开）：停止自我重排，
-                                // 也不再写 `login` 状态。这里用布尔闸而不是
-                                // removeCallbacks —— Runnable 句柄不在外部手里，
-                                // 闸一关循环自然停。
+                                // 页面已销毁：不再重排、不再写 login。Runnable 句柄不在外部手里，
+                                // 用 alive 布尔闸，一关循环自然停。
                                 if (!alive) return
                                 if (round++ >= maxRounds) {
                                     login = login.copy(
@@ -517,7 +509,8 @@ internal fun FrpRoomsRoute(
             hasPassword = o.optBoolean("hasPassword", false),
             isHost = o.optBoolean("isHost", false),
             reviewStatus = o.optString("reviewStatus"),
-            reviewReason = o.optString("reviewReason"),
+            // Rust 是 Option<String>：裸 optString 遇 JSON null 会显示「审核原因：null」
+            reviewReason = o.optText("reviewReason").orEmpty(),
         )
     }
 
@@ -552,6 +545,8 @@ internal fun FrpRoomsRoute(
                 }
                 state = state.copy(nodes = nodes)
             }
+            // 节点拉不到时建房下拉是空的，得让用户看到原因而不是干等
+            r.onFailure { e -> state = state.copy(error = context.getString(R.string.frp_room_join_failed, e.message)) }
         }
     }
 
@@ -621,11 +616,18 @@ internal fun FrpRoomsRoute(
         },
         onExit = { room ->
             state = state.copy(busy = true, error = null)
-            val afterPrimary: (Result<org.json.JSONObject>) -> Unit = {
-                api.frpRoomStop(room.id) { _ ->
-                    state = state.copy(busy = false, connectAddress = null)
-                    reload()
-                }
+            // ⚠️ 原来完全不读 Result：关闭/离开房间失败也照样清地址 + reload，界面和成功一样
+            val afterPrimary: (Result<org.json.JSONObject>) -> Unit = { r ->
+                r.fold(
+                    onSuccess = {
+                        api.frpRoomStop(room.id) { _ ->
+                            state = state.copy(busy = false, connectAddress = null)
+                            reload()
+                        }
+                    },
+                    onFailure = { e -> state = state.copy(busy = false,
+                        error = context.getString(R.string.frp_room_join_failed, e.message)) },
+                )
             }
             if (room.isHost) api.frpRoomClose(room.id, afterPrimary)
             else api.frpRoomLeave(room.id, afterPrimary)
@@ -633,10 +635,7 @@ internal fun FrpRoomsRoute(
         onOpenConnect = { addr ->
             activity?.copyToClipboard(context.getString(R.string.multiplayer_address), addr)
         },
-        // D5b：密码框的「粘贴」走 Rust 的 read_clipboard 命令
-        // （它内部回调宿主读原生剪贴板）——绕开 Compose 输入框
-        // 长按菜单在 WebView 混合壳里弹不出来的问题。
-        // 读不到（空/失败）时回调 null，页面静默收场。
+        // 密码框「粘贴」走 Rust read_clipboard（绕开长按菜单弹不出来的问题）；空/失败回调 null。
         onReadClipboard = { cb ->
             api.readClipboard { r ->
                 cb(r.getOrNull())

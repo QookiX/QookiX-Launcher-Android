@@ -679,13 +679,16 @@ internal fun PluginsRoute(bridge: RustBridge, bridgeReady: Boolean) {
             }
         },
         onInstallRecommended = {
-            state = state.copy(busy = true)
+            state = state.copy(busy = true, error = null)
             api.installRecommendedPlugins { r ->
-                state = r.fold(
-                    onSuccess = { state.copy(busy = false, ready = true) },
-                    onFailure = { state.copy(busy = false, error = context.getString(R.string.plugins_install_failed, friendlyError(context, it))) },
-                )
+                val failed = r.exceptionOrNull()
+                state = state.copy(busy = false)
                 reload()
+                // ⚠️ reload() 第一行就会把 error 清成 null，失败提示必须在它之后写回，
+                // 否则「清单拉取失败 / 网络不通」这种安装失败会彻底静默。
+                if (failed != null) state = state.copy(
+                    error = context.getString(R.string.plugins_install_failed, friendlyError(context, failed)),
+                )
             }
         },
         onTogglePlugin = { p, enabled ->

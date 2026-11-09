@@ -394,15 +394,19 @@ internal fun SkinRoute(
     var capes by remember { mutableStateOf<List<CapeUi>>(emptyList()) }
     var capesLoading by remember { mutableStateOf(false) }
     var selectedCapeId by remember { mutableStateOf<String?>(null) }
+    // 账号切换时旧请求可能晚到，得按代际丢弃，否则新账号会显示旧账号的披风
+    var capesSeq by remember { mutableStateOf(0) }
 
     LaunchedEffect(state.accountUuid, state.accountOnline) {
+        val seq = ++capesSeq
         val uuid = state.accountUuid
         if (!state.accountOnline || uuid.isBlank()) {
             capes = emptyList()
             return@LaunchedEffect
         }
-        capesLoading = true
+        capes = emptyList(); capesLoading = true
         api.fetchPlayerCapes(uuid) { r ->
+            if (seq != capesSeq) return@fetchPlayerCapes
             capesLoading = false
             r.fold(
                 onSuccess = { arr ->
@@ -1118,24 +1122,17 @@ internal fun CreateRoute(
                         val instId = runCatching { JSONObject(json).optString("id") }
                             .getOrDefault("")
                         if (instId.isNotBlank()) {
-                            // ⚠️ 2026-10-20 真机修：**必须接结果**。
-                            //
-                            // 原来这里 `api.installGame(instId)` 不带回调 ——
-                            // 安装失败时（弱网、meta 拉不到、磁盘满）**一点痕迹都没有**：
-                            // 下载页显示「暂无进行中的任务」，实例详情显示「依赖 0/7」，
-                            // 用户完全不知道为什么，只能看到游戏一启动就闪退。
-                            // 真机实测的「Fabric 26.3 加载界面闪退」就是这么来的。
+                            // ⚠️ 2026-10-20：**必须接结果**，否则弱网/磁盘满时一点痕迹都没有。
+                            // ⚠️ 2026-11-09：失败时页面已经 onCreated() 跳走，写局部 state 没人看见，
+                            // 改用全局轻提示（QkFeedback），跟导入整合包那条路径一致。
                             api.installGame(instId) { r ->
                                 r.onFailure { e ->
                                     android.util.Log.w(
                                         "PageHost",
                                         "自动安装实例 $instId 失败: ${e.message}",
                                     )
-                                    state = state.copy(
-                                        error = context.getString(
-                                            R.string.create_install_failed,
-                                            e.message ?: "",
-                                        ),
+                                    QkFeedback.show(
+                                        context.getString(R.string.create_install_failed, e.message ?: ""),
                                     )
                                 }
                             }

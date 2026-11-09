@@ -98,6 +98,10 @@ fun ContentInstallHost(
         loadingVersions = true
         version = null
         deps = emptyList()
+        // 切项目/切目标时先清旧版本列表：新请求较慢或失败时，旧项目的版本还挂在界面上，
+        // 用户可能选中一个与当前实例不兼容的版本（mc/loader 已按新目标算过）
+        versions = emptyList()
+        error = null
         val inst = instances.firstOrNull { it.id == instanceId }
         val mc = inst?.mcVersion ?: ""
         val loader = inst?.loader?.takeUnless { it == "vanilla" } ?: ""
@@ -115,6 +119,7 @@ fun ContentInstallHost(
                                 versions = list
                                 version = pickVersion(list)
                             }
+                            r2.onFailure { e -> error = context.getString(R.string.version_load_failed, e.message) }
                             loadingVersions = false
                         }
                         return@fold

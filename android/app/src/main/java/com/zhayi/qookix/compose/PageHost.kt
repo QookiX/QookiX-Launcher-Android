@@ -1348,11 +1348,8 @@ private fun InstanceDetailRoute(
     }
 
 
-    // 进页面检查一次游戏文件完整性 —— 缺了就显示提示条 + 补全入口。
-    //
-    // ⚠️ 这个检查**必须放在前端**，不能只依赖启动流程里的那次：
-    // 用户可能只是进来看看，而提示条要在他点启动**之前**就告诉他
-    // 「文件不完整」—— 否则他点启动、崩了、再回来，才知道有问题。
+    // 进页面检查一次游戏文件完整性：提示条要在用户点启动**之前**就告诉他
+    // 「文件不完整」，不能只依赖启动流程里那次（崩了再回来才知道）。
     LaunchedEffect(bridgeReady, instanceId) {
         if (!bridgeReady) return@LaunchedEffect
         api.checkInstanceFiles(instanceId) { r ->
@@ -1385,12 +1382,14 @@ private fun InstanceDetailRoute(
     // 换图标面板（D3）：打开时才去拉游戏素材图标列表
     LaunchedEffect(showIconPicker, instanceId) {
         if (!showIconPicker) return@LaunchedEffect
-        gameIconsLoading = true
+        // 换实例后必须清旧图标，否则 B 读取失败时会显示 A 的图标并被误选到 B 上
+        gameIcons = emptyList(); gameIconsLoading = true
         api.extractGameIcons(instanceId) { r ->
             gameIconsLoading = false
             r.onSuccess { arr ->
                 gameIcons = (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i) }
             }
+            r.onFailure { e -> QkFeedback.show(context.getString(R.string.instance_detail_read_failed, e.message.orEmpty())) }
         }
     }
 
