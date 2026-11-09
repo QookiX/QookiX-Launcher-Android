@@ -896,18 +896,14 @@ fun StoragePane(
                     statsLoading = true
                     statsError = null
                     statsData = null
-                    // ⚠️ 用 refresh_storage_stats（强制重扫），不是 get_storage_stats。
-                    //
-                    // 实测踩到（2026-10-13）：存储统计显示 instance_count=0，
-                    // 但设备上明明有实例。查 storage-cache.json 发现
-                    // 「查看」读的是**缓存**，而缓存生成于实例创建之前。
-                    //
-                    // Rust 侧两个命令的分工：
-                    //   get_storage_stats      → 读缓存（快，可能过期）
-                    //   refresh_storage_stats  → 重新扫描（慢，但准确）
-                    //
-                    // 「查看」是用户主动要看准确数据，必须走 refresh。
-                    api?.refreshStorageStats { r ->
+                    // ⚠️ 走 refresh_storage_stats 强制重扫，别读可能过期的缓存
+                    // （2026-10-13 实测：缓存生成于实例创建之前，instance_count=0）。
+                    // 桥没就绪时不能只把 loading 置 true 后用 ?. 跳过 —— 弹窗会永久转圈。
+                    val a = api
+                    if (a == null) {
+                        statsLoading = false
+                        statsError = context.getString(R.string.bridge_not_ready)
+                    } else a.refreshStorageStats { r ->
                         statsLoading = false
                         r.fold(
                             onSuccess = { statsData = parseStorageStats(it) },
@@ -948,7 +944,11 @@ fun StoragePane(
                     statsLoading = true
                     statsError = null
                     statsData = null
-                    api?.refreshStorageStats { r ->
+                    val a = api
+                    if (a == null) {
+                        statsLoading = false
+                        statsError = context.getString(R.string.bridge_not_ready)
+                    } else a.refreshStorageStats { r ->
                         statsLoading = false
                         r.fold(
                             onSuccess = { statsData = parseStorageStats(it) },

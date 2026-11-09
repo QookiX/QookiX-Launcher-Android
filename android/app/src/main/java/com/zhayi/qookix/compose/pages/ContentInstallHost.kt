@@ -182,11 +182,13 @@ fun ContentInstallHost(
             }
         }
         descLoading = true
-        api.translateModDescriptions(target.provider, listOf(target.id)) { r ->
+        // 翻译服务以 slug 为键（QookixApiContent.kt 明确写了传 id 会「请求成功但查不到译文」）
+        val key = target.slug.ifBlank { target.id }
+        api.translateModDescriptions(target.provider, listOf(key)) { r ->
             descLoading = false
             r.onSuccess { o ->
                 val t = o.optJSONObject("translations")
-                descZh = t?.optString(target.id)?.takeIf { it.isNotBlank() }
+                descZh = t?.optString(key)?.takeIf { it.isNotBlank() }
             }
         }
     }
@@ -327,11 +329,12 @@ fun ContentInstallHost(
     }
     val onTranslate: () -> Unit = {
         descLoading = true
-        api.translateModDescriptions(target.provider, listOf(target.id)) { r ->
+        val key = target.slug.ifBlank { target.id }
+        api.translateModDescriptions(target.provider, listOf(key)) { r ->
             descLoading = false
             r.onSuccess { o ->
                 val t = o.optJSONObject("translations")
-                descZh = t?.optString(target.id)?.takeIf { it.isNotBlank() }
+                descZh = t?.optString(key)?.takeIf { it.isNotBlank() }
                     ?: context.getString(R.string.translation_none)
             }
         }

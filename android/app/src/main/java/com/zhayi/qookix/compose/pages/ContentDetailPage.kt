@@ -50,6 +50,7 @@ data class ContentSelection(
                             s.project.iconUrl,
                             s.project.downloads,
                             s.kind,
+                            s.project.slug, // 详情页恢复时也要保住 slug，否则翻译会退回用 id
                         )
                     }
                 },
@@ -60,6 +61,7 @@ data class ContentSelection(
                         ContentSelection(
                             project = ProjectUi(
                                 id = l[0] as String,
+                                slug = l.getOrNull(8) as? String ?: "",
                                 provider = l[1] as String,
                                 title = l[2] as String,
                                 description = l[3] as String,

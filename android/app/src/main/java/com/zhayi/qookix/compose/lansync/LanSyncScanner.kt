@@ -118,10 +118,17 @@ fun LanSyncScanner(
     LaunchedEffect(previewView) {
         val cameraProvider = suspendCancellableCoroutine { cont ->
             val future = ProcessCameraProvider.getInstance(context)
+            // ⚠️ future.get() 抛 ExecutionException（相机被占/无摄像头/服务异常）时，
+            // 不处理会让协程永远挂起、providerRef 始终为 null、onDispose 解绑不了相机。
             future.addListener(
-                { cont.resume(future.get()) },
+                {
+                    runCatching { future.get() }
+                        .onSuccess { cont.resume(it) }
+                        .onFailure { cont.cancel(it) }
+                },
                 ContextCompat.getMainExecutor(context),
             )
+            cont.invokeOnCancellation { future.cancel(true) }
         }
         providerRef.set(cameraProvider)
 

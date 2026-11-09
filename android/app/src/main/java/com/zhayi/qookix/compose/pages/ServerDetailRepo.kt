@@ -109,14 +109,10 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
 
         api.hostedServerAddress(id) { r ->
             r.onSuccess { s ->
-                // ⚠️ 2026-10-16 修：Rust 返回的是**纯字符串**（如 "192.168.1.25:25565"）。
-                // 原来按 JSONObject 解析，真机上抛
-                // `JSONException: Value 192.168.1.25 ... cannot be converted to JSONObject`，
-                // 进而让整个 load 失败、coreInstalled 卡在默认 true ——
-                // 表现就是「只有启动按钮、没有安装核心按钮」，服务器永远起不来。
-                //
-                // 注释里原本写着"两种都兜住"，但代码只处理了对象形式。
-                address = s.trim()
+                // ⚠️ 2026-10-16：Rust 返回纯字符串（如 "192.168.1.25:25565"），按 JSONObject
+                // 解析会让整个 load 失败、coreInstalled 卡默认 true（只显示启动按钮）。
+                // 2026-11-09：无 WiFi 时它是 Option<String> → 桥交出字面量 "null"，别当地址显示。
+                address = s.trim().takeUnless { it == "null" }.orEmpty()
             }
             r.onFailure { failed = it }
             done()

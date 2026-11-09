@@ -175,6 +175,7 @@ class BrowseRepo(private val api: QookixApi) {
                 if (title.isBlank()) return@mapNotNull null
                 ProjectUi(
                     id = slug,
+                    slug = slug,
                     provider = "hangar",
                     title = title,
                     description = o.optString("description"),
@@ -200,6 +201,7 @@ class BrowseRepo(private val api: QookixApi) {
                 if (title.isBlank()) return@mapNotNull null
                 ProjectUi(
                     id = id,
+                    slug = o.optString("slug").ifBlank { id },
                     provider = o.optString("provider").ifBlank { "modrinth" },
                     title = title,
                     description = o.optString("description"),

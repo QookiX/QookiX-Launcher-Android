@@ -143,11 +143,13 @@ fun LanSyncRoute(
     val context = androidx.compose.ui.platform.LocalContext.current
 
     // ── 消费 deep link ────────────────────────────────────────────────
+    // ⚠️ 无条件接管：连着 A 时扫 B 的配对码也要消费，否则断开后 key 不变、effect 不重跑。
     LaunchedEffect(deepLinkPending) {
-        if (deepLinkPending != null && params == null && !connecting) {
-            params = deepLinkPending
-            LanSyncDeepLink.pending.value = null // 已消费
-        }
+        val p = deepLinkPending ?: return@LaunchedEffect
+        params = p; LanSyncDeepLink.pending.value = null
+        deviceInfo = null; connectError = null
+        instances.clear(); selectedIds = emptySet()
+        connectRetry += 1
     }
 
     // ── 自动连接 ──────────────────────────────────────────────────────
@@ -208,6 +210,8 @@ fun LanSyncRoute(
         val sub = bridge.listen("lan://progress") { payload ->
             try {
                 val json = JSONObject(payload)
+                // 上传也走 lan://progress（带 direction=upload），别把上传失败当下载失败
+                if (json.optString("direction") == "upload") return@listen
                 val phase = json.optString("phase")
                 downloadProgress = DownloadProgress(
                     phase = phase,
@@ -374,7 +378,6 @@ fun LanSyncRoute(
                 onSwitchToManual = { showManualInput = true },
             )
         }
-
         // ⚠️ 2026-11-08（横屏：键盘一弹三个输入框全被挤没）：手动输入改成弹窗，
         // 并且自己吃 IME inset —— 页内滚动区只剩约 176dp，弹窗才有足够高度。
         if (showManualInput) {
@@ -384,14 +387,11 @@ fun LanSyncRoute(
             ) {
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().imePadding()
-                            .padding(QkSpacing.lg).verticalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth().imePadding().padding(QkSpacing.lg)
+                            .verticalScroll(rememberScrollState()),
                     ) {
                         ManualInputSection(
-                            onConnect = { host, port, token ->
-                                params = LanSyncParams(host, port, token)
-                                showManualInput = false
-                            },
+                            onConnect = { h, p, t -> params = LanSyncParams(h, p, t); showManualInput = false },
                             onSwitchToScanner = { showManualInput = false },
                         )
                     }

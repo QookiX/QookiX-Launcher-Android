@@ -19,14 +19,18 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object QkFeedback {
 
-    private val _message = MutableStateFlow<String?>(null)
+    /** 带序号：连续两次相同文案也必须是两个不同值，否则 StateFlow 会去重吞掉第二条。 */
+    data class Notice(val text: String, val seq: Long)
+
+    private val _message = MutableStateFlow<Notice?>(null)
+    private var seq = 0L
 
     /** 待显示的提示（null = 不显示）。只有 UI 层的渲染者读它。 */
-    val message: StateFlow<String?> = _message.asStateFlow()
+    val message: StateFlow<Notice?> = _message.asStateFlow()
 
     /** 显示一条提示（覆盖尚未显示的上一条，避免排队堆积）。 */
     fun show(text: String) {
-        _message.value = text
+        _message.value = Notice(text, ++seq)
     }
 
     /** 渲染方消费掉之后调用，防止重组时重复弹。 */

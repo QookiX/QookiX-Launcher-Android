@@ -87,6 +87,8 @@ fun FirstRunSetupHost(bridge: RustBridge, bridgeReady: Boolean) {
                                     state = state.copy(error = err)
                                 }
                             }
+                            // 复核请求本身失败（断网/桥异常）也得给个说法，别停在「全部就绪」
+                            s.onFailure { e -> state = state.copy(error = e.message) }
                         }
                     }
                 } else if (statusError != null && !dismissed) {

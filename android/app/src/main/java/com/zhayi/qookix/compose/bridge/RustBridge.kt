@@ -48,7 +48,19 @@ class RustBridge(@Suppress("UNUSED_PARAMETER") activity: Activity?) {
      *
      * `maxAttempts` 保留是为了兼容旧调用点（部分页面按「重试 N 次」写法调用）。
      */
+    // ⚠️ 2026-11-09：原来每次 start() 都新起一条 300ms 自轮询链且不保存句柄，
+    // 页面重进会叠加多条链、每条都可能回调 onReady；destroy() 也拦不住迟到的回调。
+    private var pollHandler: android.os.Handler? = null
+    private var pollTask: Runnable? = null
+
+    private fun cancelPoll() {
+        pollTask?.let { pollHandler?.removeCallbacks(it) }
+        pollHandler = null
+        pollTask = null
+    }
+
     fun start(maxAttempts: Int = 60, onReady: () -> Unit) {
+        cancelPoll() // 只保留一条链
         if (ready) {
             onReady()
             return
@@ -63,16 +75,20 @@ class RustBridge(@Suppress("UNUSED_PARAMETER") activity: Activity?) {
         val task = object : Runnable {
             override fun run() {
                 if (jniPing()) {
+                    cancelPoll()
                     markReady(onReady)
                     return
                 }
                 if (++tries >= maxAttempts) {
                     Log.w(TAG, "JNI 通道在 $maxAttempts 次尝试后仍不可用")
+                    cancelPoll()
                     return
                 }
                 main.postDelayed(this, 300)
             }
         }
+        pollHandler = main
+        pollTask = task
         main.postDelayed(task, 300)
     }
 
@@ -189,6 +205,7 @@ class RustBridge(@Suppress("UNUSED_PARAMETER") activity: Activity?) {
     }
 
     fun destroy() {
+        cancelPoll()
         ready = false
         globalHandlers.clear()
     }

@@ -363,6 +363,8 @@ enum class BrowseType(val id: String, @androidx.annotation.StringRes val labelRe
 /** 项目（UI 模型）。 */
 data class ProjectUi(
     val id: String,
+    /** 翻译服务以 slug 为键；缺省时退回 id（如依赖项目只有 id）。 */
+    val slug: String = "",
     val provider: String,
     val title: String,
     val description: String,

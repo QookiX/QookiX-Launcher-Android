@@ -159,7 +159,7 @@ fun LauncherShell(
     val snackbarHost = remember { SnackbarHostState() }
     val feedback = QkFeedback.message.collectAsState().value
     LaunchedEffect(feedback) {
-        val text = feedback ?: return@LaunchedEffect
+        val text = feedback?.text ?: return@LaunchedEffect
         snackbarHost.showSnackbar(text)
         QkFeedback.clear()
     }
