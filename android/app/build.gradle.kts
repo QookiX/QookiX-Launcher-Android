@@ -18,8 +18,8 @@ android {
         applicationId = "com.zhayi.qookix"
         minSdk = 24
         targetSdk = 36
-        versionCode = 20270
-        versionName = "0.2.2-rc1"
+        versionCode = 20271
+        versionName = "0.2.2-rc2"
 
         // ⚠️ 2026-10-25 真机验证时发现漏配：不写这一行，AGP 会用默认的
         // `android.test.InstrumentationTestRunner`，而我们写的 `LauncherSmokeTest`
