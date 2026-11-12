@@ -35,21 +35,10 @@ import java.net.NetworkInterface
  * ── 为什么需要这个类 ────────────────────────────────────────────────────
  * Rust 侧通过 JNI 回调宿主 Activity 上的**实例方法**：
  *
- * ```rust
- * // tauri/src/android_bridge.rs:927
- * pub fn call_activity(name: &str, sig: &str, arg: Option<&str>) -> Option<String> {
- *     let obj = activity()?;                       // ← nativeAttach 传进来的实例
- *     env.call_method(&obj, name, sig, ...)        // ← 按「方法名字符串」调用
- * }
- * ```
+ * `android_bridge.rs:927` 的 `call_activity` 在 **实例引用**（非 `Class.forName`）上
+ * 按方法名字符串 `env.call_method(&obj, ...)` 调用，所以宿主类名无所谓、方法必须在。
  *
- * 关键点（读过实现确认）：
- *   - 用的是**实例引用**，不是 `Class.forName("...MainActivity")`
- *     → 所以宿主 Activity 叫什么名字无所谓，只要有这些方法
- *   - 按**方法名字符串**查找 → 方法被 JNI 找到才会被执行
- *
- * 实测：旧 `MainActivity` 有 **19/19**，而 `ComposeMainActivity` 有 **0/19**。
- * 若直接把主入口切到 Compose，这 19 项能力会**静默失效**（不是崩溃，更难发现）：
+ * 实测旧 `MainActivity` 19/19、`ComposeMainActivity` 0/19；缺的能力**静默失效**（更难发现）：
  *
  * | 方法 | 缺失后的表现 |
  * |---|---|
@@ -662,6 +651,13 @@ class HostCapabilities(private val activity: Activity) {
         }
         mainHandler.post {
             try {
+                // 侧载首次更新会被「安装未知应用」拦下，不给指路用户不知去哪开权限。
+                if (Build.VERSION.SDK_INT >= 26 && !activity.packageManager.canRequestPackageInstalls()) {
+                    activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:${activity.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    Toast.makeText(activity, "请先允许「安装未知应用」，再回来点安装", Toast.LENGTH_LONG).show()
+                    return@post
+                }
                 val uri = androidx.core.content.FileProvider.getUriForFile(
                     activity,
                     "${activity.packageName}.fileprovider",

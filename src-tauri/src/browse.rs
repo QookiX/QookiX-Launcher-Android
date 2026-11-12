@@ -1285,7 +1285,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
             // 这里拿到的是空目录，installer 永远「没有可用的 Java 运行时」。
             // 在这里就地补齐：没有 JRE 就先下一个（与启动共用同一套逻辑）。
             if find_jre(std::path::Path::new(&data_dir)).is_none() {
-                crate::util::log_line("[loader] 没有可用的 Java 运行时，先下载（约 27MB）");
+                crate::util::log_line("[loader] 没有可用的 Java 运行时，先下载");
                 let instance_id =
                     instance_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
                 match crate::instance_files::ensure_instance_java(instance_id).await {

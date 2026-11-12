@@ -1517,8 +1517,7 @@ async fn ensure_server_jre(id: &str, mc_version: &str) -> Result<String, String>
     }
 
     let arch = crate::java::get_device_arch();
-    // 先确认这个版本**下得下来**：镜像表里没有的话，报「没有可用的 Java 运行时」
-    // 会让用户以为是自己没装，实际是这个版本我们没有对应包。
+    // 先确认版本下得下来：报「没有可用的 Java 运行时」会让人以为是自己没装。
     if let Err(e) = crate::java::resolve_download_url(required, arch) {
         return Err(format!(
             "这台服务器（{mc_version}）需要 Java {required}，但镜像里没有 {arch} 对应的包（{e}）。\
@@ -1526,9 +1525,10 @@ async fn ensure_server_jre(id: &str, mc_version: &str) -> Result<String, String>
         ));
     }
 
+    let mb = crate::java::download_size_mb(required, arch);
     crate::progress::emit_server_stage(
         id,
-        &format!("正在下载 Java {required} 运行时（约 27MB）…"),
+        &format!("正在下载 Java {required} 运行时（约 {mb}MB）…"),
     );
     // 5% 一档地上报：JRE 下载很慢，不报进度用户以为卡死；报太密又会频繁跨 FFI
     let last_pct = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(-100));

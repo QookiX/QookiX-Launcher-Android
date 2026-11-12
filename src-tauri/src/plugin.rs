@@ -138,6 +138,10 @@ struct PluginConfig {
     /// 用户在首启窗口点了「稍后」，别再每次启动都弹
     #[serde(default)]
     setup_dismissed: bool,
+    /// 点「稍后」的 unix 秒。只压 7 天，过期自动恢复提醒；
+    /// 旧配置文件没有这个字段时按「不再提醒期已过」处理，会再弹一次。
+    #[serde(default)]
+    setup_dismissed_at: Option<i64>,
 }
 
 /// 给前端用的插件视图（清单信息 + 本机安装状态合并后）。
@@ -203,7 +207,17 @@ pub fn set_manifest_url(data_dir: &str, url: &str) -> Result<(), String> {
 pub fn set_setup_dismissed(data_dir: &str, dismissed: bool) -> Result<(), String> {
     let mut cfg = read_json::<PluginConfig>(&config_path(data_dir)).unwrap_or_default();
     cfg.setup_dismissed = dismissed;
+    cfg.setup_dismissed_at = dismissed.then(now_secs);
     write_json(&config_path(data_dir), &cfg)
+}
+
+/// 「稍后」是否仍在 7 天静默期内。只压 7 天：纯 bool 会让首启断网时点过一次的用户
+/// 永远不再被提醒补齐渲染器；旧配置没有时间戳时按已过期处理（会再弹一次）。
+fn dismissed_active(cfg: &PluginConfig, now: i64) -> bool {
+    cfg.setup_dismissed
+        && cfg.setup_dismissed_at
+            .map(|t| now.saturating_sub(t) < 7 * 24 * 3600)
+            .unwrap_or(false)
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
@@ -265,9 +279,8 @@ pub struct SetupResult {
 
 /// 首启还缺哪些插件。
 pub async fn setup_status(data_dir: &str) -> SetupStatus {
-    let dismissed = read_json::<PluginConfig>(&config_path(data_dir))
-        .map(|c| c.setup_dismissed)
-        .unwrap_or(false);
+    let cfg = read_json::<PluginConfig>(&config_path(data_dir)).unwrap_or_default();
+    let dismissed = dismissed_active(&cfg, now_secs());
 
     if let Err(e) = fetch_manifest(data_dir, false).await {
         return SetupStatus {
@@ -1011,7 +1024,25 @@ pub fn renderer_libs_dir(data_dir: &str, key: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::safe_segment;
+    use super::{dismissed_active, safe_segment, PluginConfig};
+
+    #[test]
+    fn dismiss_expires_after_seven_days() {
+        let now = 1_700_000_000i64;
+        let cfg = PluginConfig {
+            setup_dismissed: true,
+            setup_dismissed_at: Some(now),
+            ..Default::default()
+        };
+        assert!(dismissed_active(&cfg, now));
+        assert!(dismissed_active(&cfg, now + 7 * 24 * 3600 - 1));
+        assert!(!dismissed_active(&cfg, now + 7 * 24 * 3600));
+        // 旧配置只有 bool：按过期处理，让用户至少再看到一次补齐入口
+        assert!(!dismissed_active(
+            &PluginConfig { setup_dismissed: true, ..Default::default() }, now
+        ));
+        assert!(!dismissed_active(&PluginConfig::default(), now));
+    }
 
     /// 审计 A01：插件的 id / version 必须是单层安全名称。
     /// 它们直接参与目录拼接，version=../../accounts 能让最终目录落到

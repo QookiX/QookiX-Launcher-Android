@@ -97,7 +97,13 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             &format!("正在检查 Java {required_java} 运行时…"),
             20.0,
         );
-        let runtime = match MultiRTManager::get_compatible_runtime(required_java).await? {
+        // 缺运行时时先用随 APK 内置的 Java 21（arm64）：包里明明有却直接联网，
+        // 弱网下会白等十几分钟。`try_install` 不适用时原样回落到下面的下载分支。
+        let mut runtime = MultiRTManager::get_compatible_runtime(required_java).await?;
+        if runtime.is_none() && crate::jre_bundled::try_install(required_java).await.is_some() {
+            runtime = MultiRTManager::get_compatible_runtime(required_java).await?;
+        }
+        let runtime = match runtime {
             Some(r) => r,
             None => {
                 // 先确认这个 Java 版本到底**下得下来**：新版 Minecraft 会要求更新的 Java
@@ -119,9 +125,10 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
                     ));
                 }
                 tracing::info!("No compatible JRE found, downloading Java {} for {}", required_java, get_device_arch());
-                // 实际下载包约 27MB（解压后 150~250MB）。以前这里写「约 100MB」，差得太远。
+                // 体积按镜像表实际 size 显示（8/17/21 约 27~30MB、25 约 38MB），不再写死 27MB。
+                let mb = crate::java::download_size_mb(required_java, get_device_arch());
                 crate::progress::emit_launch_progress(
-                    &format!("未找到 Java {required_java}，正在下载运行时（约 27MB）…"),
+                    &format!("未找到 Java {required_java}，正在下载运行时（约 {mb}MB）…"),
                     25.0,
                 );
                 // JRE 下载很慢，必须把百分比报给悬浮启动卡片，否则用户以为没反应。
@@ -452,6 +459,8 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             );
             tracing::warn!("[launcher] {msg}");
             crate::util::log_line(&msg);
+            // 只写日志用户看不到「这次被降级成了 GL4ES」，会以为选的渲染器生效了。
+            crate::progress::emit_launch_progress(&msg, 20.0);
         }
 
         // 注意：**不要**设置 LD_LIBRARY_PATH。

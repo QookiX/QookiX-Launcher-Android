@@ -136,6 +136,14 @@ pub fn resolve_download_url(java_version: i32, arch: &str) -> Result<&JreMirrorS
         .ok_or_else(|| anyhow::anyhow!("JRE_ARCH_UNSUPPORTED: no JRE for Java {} on {}", java_version, arch))
 }
 
+/// 下载包体积（MB，向下取整），供各处进度文案共用；表里没有该版本时返回 0。
+/// 以前三处各写死「约 27MB」，Java 25 实际是 38MB，一直没有同步。
+pub fn download_size_mb(java_version: i32, arch: &str) -> u64 {
+    resolve_download_url(java_version, arch)
+        .map(|m| m.size / 1024 / 1024)
+        .unwrap_or(0)
+}
+
 /// 进度回写的最小间隔（同 `download.rs`：不节流会频繁跨 FFI 回调，
 /// 全不节流又会让进度条一格一格地抖）。
 const JRE_PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);

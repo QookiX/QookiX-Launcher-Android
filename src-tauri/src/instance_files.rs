@@ -427,7 +427,7 @@ fn zip_ends_ok(path: &std::path::Path) -> bool {
     buf.windows(4).any(|w| w == b"PK\x05\x06")
 }
 
-/// 确保该实例有可用的 Java 运行时；没有就下一个（约 27MB）。
+/// 确保该实例有可用的 Java 运行时；没有就下一个（8/17/21 约 27~30MB、25 约 38MB）。
 pub(crate) async fn ensure_instance_java(instance_id: &str) -> Result<String, String> {
     use std::sync::atomic::Ordering;
 
@@ -467,10 +467,10 @@ pub(crate) async fn ensure_instance_java(instance_id: &str) -> Result<String, St
 
     crate::util::log_line(&format!("实例 {instance_id} 缺 Java {required} 运行时，开始下载（架构 {arch}）"));
     let ctx = crate::progress::TaskCtx::new(instance_id, &name, "Java 运行时");
-    crate::progress::emit_install(&ctx, "java", &format!("正在下载 Java {required} 运行时（约 27MB）…"), 0, 1);
-    // 每 5% 同时写日志 + 推 UI：JRE 走 GitHub CDN，国内实测只有 55KB/s，
-    // 27MB 要爬十分钟。原来进度只进日志（用户看不到），界面一直停在「0 / 1」，
-    // 看起来就是卡死 —— 这也是「下载这么慢」的直接观感来源。
+    let mb = crate::java::download_size_mb(required, arch);
+    crate::progress::emit_install(&ctx, "java", &format!("正在下载 Java {required} 运行时（约 {mb}MB）…"), 0, 1);
+    // 每 5% 同时写日志 + 推 UI：JRE 下载慢，只进日志（用户看不到）会让界面停在
+    // 「0 / 1」看起来像卡死 —— 这也是「下载这么慢」的直接观感来源。
     let last = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(-100));
     let last_p = last.clone();
     let ui_ctx = ctx.clone();

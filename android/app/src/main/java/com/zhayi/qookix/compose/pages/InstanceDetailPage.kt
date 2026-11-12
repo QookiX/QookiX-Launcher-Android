@@ -311,10 +311,10 @@ fun InstanceDetailPage(
                     )
                 }
             }
-            // 缺文件时的**唯一常驻入口**：hero 行末尾一个小红按钮。
-            // 原来是页面顶上一整块红卡，横屏能吃掉半个屏幕（用户报「看不到下面」）。
+            // 下载/补全期间不显示：「缺 N 项」只是中间态，红字配进度条像坏了（实测）。
             val fr = fileReport
-            if (fr != null && !repairing && onRepair != null) {
+            val taskRunning = instanceTask != null && !instanceTask.finished
+            if (fr != null && !repairing && !taskRunning && onRepair != null) {
                 Spacer(Modifier.width(QkSpacing.sm))
                 TextButton(onClick = onRepair) {
                     Text(

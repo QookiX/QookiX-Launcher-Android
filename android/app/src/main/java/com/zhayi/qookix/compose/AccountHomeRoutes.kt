@@ -250,9 +250,7 @@ internal fun AccountRoute(
                                 o.optBoolean("online", false),
                         )
                     }
-                    // 高亮哪一行必须跟后端「真正会用来启动的账号」一致 ——
-                    // 读 settings.selected_account（Rust Settings 结构体是 snake_case，
-                    // 但 update_settings_patch 的别名白名单两个都认，这里两个都试一遍）。
+                    // 高亮要跟后端真正启动用的账号一致（selected_account / selectedAccount 都认）。
                     if (currentUuid.isBlank()) {
                         currentUuid = accounts.firstOrNull()?.uuid ?: ""
                         api.getSettings { sr ->
@@ -279,10 +277,7 @@ internal fun AccountRoute(
         if (bridgeReady) reload()
     }
 
-    // 正版登录：拿到设备码后**轮询**等用户在浏览器里完成授权。
-    //
-    // 轮询间隔 3 秒 —— 微软设备码的典型等待是 10-30 秒，
-    // 3 秒足够及时又不浪费。最多轮 3 分钟（60 × 3s）。
+    // 正版登录：拿到设备码后每 3 秒轮询一次授权结果，最多 60 次（3 分钟）。
     LaunchedEffect(msFlow?.userCode) {
         if (msFlow == null) return@LaunchedEffect
         repeat(60) {
@@ -294,8 +289,12 @@ internal fun AccountRoute(
                     done = true
                     reload()
                 }
-                // 失败大多表示「用户还没授权」→ 继续轮询。
-                // 真失败（设备码过期）也走这里，靠轮询上限兜底。
+                // 真失败（非「还没授权」）立刻停轮询并给具体原因，别干等 3 分钟超时。
+                r.onFailure { e ->
+                    if (e.message?.contains("__auth_pending__") != true) {
+                        msFlow = null; done = true; error = friendlyError(context, e)
+                    }
+                }
             }
             if (done) return@LaunchedEffect
         }

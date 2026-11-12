@@ -59,9 +59,11 @@ internal fun dumpGameDiagnostics(ctx: Context, instanceId: String): String? {
                 append("\n\n")
             }
             if (copied > 0) {
-                append("日志与崩溃报告已保存到：\n$target")
+                // Android 11+ 普通文件管理器进不了 Android/data，
+                // 直接给路径只会让用户扑空；应用内「日志」页或 adb 才取得出来。
+                append("日志与崩溃报告可在应用内「日志」页查看。\nadb 取文件路径：$target")
             } else {
-                append("没有可保存的日志（JVM 可能还没建起来）。\n目录：\n$target")
+                append("没有可保存的日志（JVM 可能还没建起来）。")
             }
         }
     } catch (e: Exception) {

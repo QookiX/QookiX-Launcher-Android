@@ -110,7 +110,12 @@ fun FirstRunSetupHost(bridge: RustBridge, bridgeReady: Boolean) {
                     state = state.copy(checking = false)
                 }
             }
-            r.onFailure { e -> state = state.copy(checking = false, error = e.message) }
+            // 命令级失败也要弹窗：只写 error 而 visible=false 时用户看不到，
+            // 连「重试」按钮都出不来（那个按钮只在 visible 的弹窗里）。
+            r.onFailure { e -> state = state.copy(
+                visible = true, checking = false, running = false,
+                finished = false, planned = emptyList(), error = e.message,
+            ) }
         }
     }
 
