@@ -1138,6 +1138,8 @@ internal fun CreateRoute(
                             }
                         }
                         state = state.copy(creating = false)
+                        // 创建成功≠装好游戏，回列表前给一条明确指引（卡片另有常驻进度态）。
+                        QkFeedback.show(context.getString(R.string.create_download_started))
                         onCreated()
                     },
                     onFailure = { e ->

@@ -53,12 +53,19 @@ object InstancesRepo {
     /**
      * 启动一个实例。
      *
-     * ⚠️ 原来是 `launchGame(id, null) { }` —— **火并式调用，失败零反馈**：
-     * 核心没装、EULA 没同意、渲染器不对，界面上一点反应都没有，用户只会反复点。
-     * 现在把失败原样交给调用方去展示（实例页已有统一的错误条）。
+     * ⚠️ 2026-11-15：原来这里裸调 `launchGame` —— 从**实例列表**点播放会跳过
+     * 「检查游戏文件 → 缺可修项先补全 → 再启动」这整套流程（详情页的
+     * [InstanceDetailRepo.launch] 才有）。真机实测：新建实例的 613MB 还没下完，
+     * 用户在列表直接点启动，游戏拿着半成品 assets 崩在 `NoSuchFileException`。
+     *
+     * 现在收敛成一份实现：列表和详情共用同一条启动链，失败统一交给调用方展示。
+     * 补全的进度仍走 `install://progress`（下载任务页 / 列表卡片都会显示）。
      */
-    fun launch(bridge: RustBridge, id: String, onError: (Throwable) -> Unit) {
-        QookixApi(bridge).launchGame(id, null) { r -> r.onFailure(onError) }
+    fun launch(context: Context, bridge: RustBridge, id: String, onError: (Throwable) -> Unit) {
+        InstanceDetailRepo(QookixApi(bridge), context).launch(
+            instanceId = id,
+            onResult = { r -> r.onFailure(onError) },
+        )
     }
 
     /** 解析 Rust 返回的实例数组（无 context：加载器名回退为英文原文）。 */

@@ -111,6 +111,7 @@
     <string name="instances_pin">置顶</string>
     <string name="instances_unpin">取消置顶</string>
     <string name="instances_launch">启动</string>
+    <string name="instances_preparing">正在准备游戏文件 · %1$s</string>
     <string name="home_in_progress">进行中</string>
     <string name="home_latest_news">新闻</string>
     <string name="home_playtime">游玩统计</string>
@@ -1240,6 +1241,7 @@
     <string name="version_manifest_failed">版本清单加载失败：%1$s</string>
     <string name="create_failed">创建失败：%1$s</string>
     <string name="create_install_failed">实例已创建，但游戏文件安装失败：%1$s。可在实例详情点「补全游戏文件」重试</string>
+    <string name="create_download_started">实例已创建，正在后台下载游戏文件；实例卡片会显示进度，下完再启动</string>
     <string name="version_load_failed">版本加载失败：%1$s</string>
     <string name="search_failed">搜索失败：%1$s</string>
     <string name="load_more_failed">加载更多失败：%1$s</string>

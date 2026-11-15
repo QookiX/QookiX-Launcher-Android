@@ -81,32 +81,6 @@ import com.zhayi.qookix.compose.motion.estimatedLanding
  *   - 空态提示
  *
  * 本页不需要后端调用（数据来自 instances store，已在启动时加载）。
- *
- * ── 2026-10-17 补记：分组接线与「共享占用卡」两条遗留 ──────────────────
- *
- * **① 分组（P2）已接线 —— 但不在本文件，而在 `PageHost.kt`。**
- * 本页的 5 个 group 相关函数/字段（`InstanceSection`、`InstancesUiState.sections`
- * 以及下面 [SectionHeader] 对应的分节渲染）本身是**完备**的 —— 缺的从来不是渲染，
- * 而是上游只塞了一节硬编码的「全部」进去（`PageHost.kt` 原来的
- * `listOf(InstanceSection(key = "all", name = "全部", items = instances))`）。
- *
- * 所以修法在 `PageHost`：拉 `list_instance_groups` + 读 `list_instances` 每项的
- * `group` 字段，拼出「每个分组一节 + 未分组一节」，没有分组时退化成原来的单节。
- * 详见 `PageHost.kt` 里 `instanceSections` 的注释。
- *
- * [InstanceUi.groupId] 就是为此新增的字段 —— **注意它不由 [InstancesRepo] 填充**
- *（那个解析器只取展示字段，且不在本次可改范围内），而是由 `PageHost` 从原始 JSON
- * 映射进来后 `copy()` 上去的。因此在本文件内读到 `groupId == null` 只代表
- * 「未归组或未经 PageHost 装饰」，不要据此断言后端没存分组。
- *
- * **② 共享占用卡（P1）已接线 —— 同样在 `PageHost`，本文件不涉及。**
- * `InstanceDetailPage.kt:145` 的 `sharedUsage: SharedUsageUi? = null` 原先在调用点
- * 从未赋值（有默认值所以能编译），卡片恒不渲染。现由 `PageHost` 的
- * `InstanceDetailRoute` 用 `QookixApi.sharedGameUsage`（后端 `shared_game_usage`，
- * 见 `instance_files.rs:427`）取数并传入。数据源本就齐备，**不是缺数据源**。
- *
- * 记录在此是因为 `InstanceDetailPage.kt` 当时不在可改文件清单里 —— 实际改动
- * 全部落在其**调用点** `PageHost.kt`，本文件仅作留档。
  */
 @Composable
 fun InstancesPage(
@@ -131,6 +105,8 @@ fun InstancesPage(
      * 列表只由 Rust 的 dirty 事件触发重拉后的结果决定。
      */
     pendingIds: Set<String> = emptySet(),
+    /** 正在下载 / 安装的任务，复用详情页的 TasksRepo.activeTaskFor。 */
+    taskFor: (String) -> TaskUi? = { null },
     /** 写操作失败的文案（页面顶部红字，可自动消失）。 */
     error: String? = null,
     /** 列表读取失败时的重试出口（有 error 才有意义）。 */
@@ -222,6 +198,7 @@ fun InstancesPage(
                             onLongClick = { menuTarget = inst },
                             onLaunch = { onLaunch(inst.id) },
                             busy = inst.id in pendingIds,
+                            task = taskFor(inst.id),
                         )
                     }
                 }
@@ -431,7 +408,10 @@ private fun InstanceCard(
     onLaunch: () -> Unit = {},
     /** 该实例有写操作在飞（删除中）：显示转圈、禁掉点击，防止重复提交。 */
     busy: Boolean = false,
+    /** 正在下载 / 安装游戏文件：卡片显示进度并暂时收起启动按钮。 */
+    task: TaskUi? = null,
 ) {
+    val activeTask = task?.takeIf { !it.finished }
     // 按下缩放：combinedClickable 必须显式接收这个 source，
     // 否则它内部自建一个，pressScale 永远收不到按压事件
     val pressSource = remember { MutableInteractionSource() }
@@ -552,9 +532,29 @@ private fun InstanceCard(
                     maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
+                if (activeTask != null) {
+                    Spacer(Modifier.height(QkSpacing.xxs))
+                    Text(
+                        text = stringResource(
+                            R.string.instances_preparing,
+                            activeTask.progressText.ifBlank { activeTask.message },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
             }
 
-            if (busy) {
+            if (activeTask != null) {
+                // 下载中收起启动按钮：点了也只会重复触发补全，还容易让用户以为能玩
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(16.dp))
+            } else if (busy) {
                 // 写操作在飞（删除中）：转圈替代启动按钮，顺便告诉用户「在处理」
                 androidx.compose.material3.CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),

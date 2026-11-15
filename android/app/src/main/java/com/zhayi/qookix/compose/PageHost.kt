@@ -884,7 +884,8 @@ fun PageHost(
                 onSelectedInstanceIdChange(id)
                 onNavigate(NavDestination.InstanceDetail)
             },
-            onLaunch = { id -> InstancesRepo.launch(bridge, id) { e -> instancesError = context.getString(R.string.launch_failed_msg, friendlyError(context, e)) } },
+            onLaunch = { id -> InstancesRepo.launch(context, bridge, id) { e -> instancesError = context.getString(R.string.launch_failed_msg, friendlyError(context, e)) } },
+            taskFor = { id -> tasksRepo.activeTaskFor(id) },
             onDelete = { target ->
                 // A2 写状态机：登记 key → 发请求 → 无论成败解除。
                 // **不再本地摘列表**（那是乐观更新）：列表由 Rust 的
