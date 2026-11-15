@@ -85,6 +85,9 @@ object SharedHero {
     var launchedAtNanos by mutableStateOf(0L)
         private set
 
+    /** 内容区左上角的窗口坐标（px），由浮层同步。估算落点要基于它，不能写死侧栏宽度。 */
+    var contentOrigin: Offset = Offset.Zero
+
     fun start(from: Rect, label: String, background: Color, foreground: Color, estimate: Rect) {
         pending = Launch(from, label, background, foreground)
         current.value = from
@@ -99,10 +102,19 @@ object SharedHero {
         targetReal = true
     }
 
-    /** 落地：清掉飞行任务，目标页 hero 由 `pending == null` 淡入。 */
+    /**
+     * 落地（或中断）：清掉**全部**飞行状态。
+     *
+     * 以前只清 pending / targetReal，current / target / launchedAtNanos 会一直留着：
+     * 飞行中按返回、上报落点的组件被销毁后，浮层协程被取消但状态还在，
+     * 下次组合会拿着旧目标重新起飞（图标重飞 / 卡住）。
+     */
     fun finish() {
         pending = null
+        target = null
         targetReal = false
+        current.value = null
+        launchedAtNanos = 0L
     }
 
     /**
@@ -124,21 +136,21 @@ object SharedHero {
         val started = pending ?: return
         val start = started.from
         val t0 = withFrameNanos { it }
-        // 兜底：目标页万一没上报落点，最多 1.5s 也要收尾
-        var frames = 0
+        // 兜底按毫秒：以前用 90/120 帧当 1.5s，隐含 60Hz；
+        // 90Hz 设备上会提前 1/3 收尾，飞行看着像被截断。
         while (pending != null) {
             val now = withFrameNanos { it }
-            frames++
-            if (frames > 90 && !targetReal) {
+            val elapsedMs = (now - t0) / 1_000_000f
+            if (elapsedMs > QkMotionPolicy.HERO_LANDING_TIMEOUT_MS && !targetReal) {
                 target = target ?: current.value
                 targetReal = true
             }
-            if (frames > 120) {
+            if (elapsedMs > QkMotionPolicy.HERO_TOTAL_TIMEOUT_MS) {
                 onArrive()
                 return
             }
             val goal = target ?: continue
-            val raw = ((now - t0) / 1_000_000f / 220f).coerceIn(0f, 1f)
+            val raw = (elapsedMs / QkMotionPolicy.HERO_FLIGHT_MS).coerceIn(0f, 1f)
             val e = 1f - (1f - raw) * (1f - raw) * (1f - raw)   // cubic ease-out
             current.value = Rect(
                 start.left + (goal.left - start.left) * e,
@@ -160,17 +172,14 @@ object SharedHero {
  * 详情页 hero 固定在「内容区左上 + 页面内边距」处（48dp 图标）。
  * 误差几十 dp 无妨：真实落点到达后目标会变，指数趋近自动追。
  */
-fun estimatedLanding(density: Density): Rect {
-    val sideBar = 168.dp
-    val pagePad = 20.dp
-    val icon = 48.dp
-    val topBar = 64.dp
-    val cx = sideBar + pagePad + icon / 2
-    val cy = topBar + 20.dp + icon / 2
-    val half = icon / 2
-    return with(density) {
-        Rect((cx - half).toPx(), (cy - half).toPx(), (cx + half).toPx(), (cy + half).toPx())
-    }
+fun estimatedLanding(density: Density): Rect = with(density) {
+    // 侧栏与顶栏已经在 contentOrigin 里了：以前写死 168dp / 64dp，
+    // 横屏默认收起（88dp）时会偏右 80dp，竖屏没有侧栏会偏右 168dp。
+    val pagePad = 20.dp.toPx()
+    val half = 48.dp.toPx() / 2
+    val cx = SharedHero.contentOrigin.x + pagePad + half
+    val cy = SharedHero.contentOrigin.y + pagePad + half
+    Rect(cx - half, cy - half, cx + half, cy + half)
 }
 
 /**
@@ -183,6 +192,10 @@ fun estimatedLanding(density: Density): Rect {
 @Composable
 fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
     val launch = SharedHero.pending
+    // 估算落点要按内容区真实原点算（侧栏宽度会变、竖屏没有侧栏）
+    androidx.compose.runtime.SideEffect { SharedHero.contentOrigin = origin }
+    // 浮层销毁（旋转 / Activity 重建）时强制收尾：协程被取消后全局状态不能留着
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { SharedHero.finish() } }
     // ⚠️ 飞行循环必须由**浮层**驱动，不能由卡片启动：
     // 卡片在切页时被销毁，它的 `rememberCoroutineScope` 随之取消 → 循环死掉、
     // `current` 冻在原位，图标就永远卡在屏幕上（真机复现：「点实例图标不动了」）。

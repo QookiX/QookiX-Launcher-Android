@@ -277,7 +277,7 @@ fun LauncherShell(
             // 触发三四轮重排 —— 视觉上就是卡顿。
             // 会引起布局变化的属性（width / height / padding）只能走单调曲线；
             // 弹性的爽感留给 scale / translation（它们只走绘制，不重排）。
-            animationSpec = tween(240, easing = QookiX.EaseOut),
+            animationSpec = QookiX.pageSpec(),
             label = "sidebarW",
         )
         // ── 横屏 / 平板：常驻侧栏（图标+文字横排）────────────────────────
@@ -493,7 +493,7 @@ private fun QkRailItem(
     // 否则会出现「滑块在动 + 每项自己也变色」的双重效果。
     val fg by animateColorAsState(
         targetValue = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant,
-        animationSpec = tween(180, easing = QookiX.EaseOut),
+        animationSpec = tween(QookiX.SHORT_MS, easing = QookiX.EaseOut),
         label = "railFg",
     )
     val icon = if (selected) dest.selectedIcon else dest.unselectedIcon

@@ -216,8 +216,10 @@ internal fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
             // 直接绑定会一格一格跳；animateFloatAsState 让它连续滑动
             val animatedFraction by animateFloatAsState(
                 targetValue = t.fraction,
+                // 事件几百 ms 一次，300ms 补间会被下一个事件不断打断、进度永远滞后；
+                // 用短档让每段动画都能在下一个事件到来前跑完。
                 animationSpec = tween(
-                    durationMillis = QookiX.MEDIUM_MS,
+                    durationMillis = QookiX.SHORT_MS,
                     easing = QookiX.EaseOut,
                 ),
                 label = "dlProgress",

@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -58,19 +59,22 @@ fun QkWavyLoader(
     /** 振幅（dp）—— 波浪高度的一半。 */
     amplitude: Dp = 3.dp,
     /** 一个完整周期的时间（毫秒）—— 越小流得越快。 */
-    periodMs: Int = 900,
+    periodMs: Int = QkMotionPolicy.LOOP_MS,
 ) {
-    val transition = rememberInfiniteTransition(label = "wavy")
-    // 0f → 1f 循环，作为相位偏移
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(periodMs, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "wavyPhase",
-    )
+    // 系统关动画时停在静态相位，不启动无限过渡
+    val phase: Float = if (!QkMotionPolicy.animationsEnabled) 0f else {
+        val transition = rememberInfiniteTransition(label = "wavy")
+        val animated by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(periodMs, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "wavyPhase",
+        )
+        animated
+    }
 
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val w = size.width
@@ -146,16 +150,19 @@ fun QkWavyRing(
     size: Dp = 24.dp,
     strokeWidth: Dp = 2.5.dp,
 ) {
-    val transition = rememberInfiniteTransition(label = "wavyRing")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(1100, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "wavyRingPhase",
-    )
+    val phase: Float = if (!QkMotionPolicy.animationsEnabled) 0f else {
+        val transition = rememberInfiniteTransition(label = "wavyRing")
+        val animated by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = (2 * PI).toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(QkMotionPolicy.LOOP_SLOW_MS, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "wavyRingPhase",
+        )
+        animated
+    }
 
     Canvas(modifier = modifier.size(size)) {
         val r = (this.size.minDimension - strokeWidth.toPx()) / 2f

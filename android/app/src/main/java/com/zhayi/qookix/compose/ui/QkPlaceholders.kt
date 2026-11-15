@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
 import com.zhayi.qookix.compose.motion.QookiX
 import com.zhayi.qookix.compose.theme.QkRadius
 import com.zhayi.qookix.compose.theme.QkSpacing
@@ -60,16 +61,22 @@ fun QkSkeleton(
     height: Dp = 14.dp,
     width: Dp? = null,
 ) {
-    val transition = rememberInfiniteTransition(label = "qkSkeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.30f,
-        targetValue = 0.55f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = QookiX.EaseInOut),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "qkSkeletonAlpha",
-    )
+    // 系统关闭动画时不启动无限过渡：列表里每个骨架块一条无限动画，关了还跑纯浪费
+    val alpha: Float = if (!QkMotionPolicy.animationsEnabled) {
+        0.42f
+    } else {
+        val transition = rememberInfiniteTransition(label = "qkSkeleton")
+        val animated by transition.animateFloat(
+            initialValue = 0.30f,
+            targetValue = 0.55f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = QkMotionPolicy.LOOP_MS, easing = QookiX.EaseInOut),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "qkSkeletonAlpha",
+        )
+        animated
+    }
     Box(
         modifier
             .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())

@@ -36,6 +36,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import com.zhayi.qookix.compose.motion.QookiX
 import kotlinx.coroutines.delay
 
@@ -239,7 +242,7 @@ fun QkBusy(
  * 用普通 Set 而不是 State：它只在组合期被读一次（`remember { … }`），
  * 不需要触发重组。
  */
-private val playedScopes = mutableSetOf<String>()
+private val playedScopes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
 @Composable
 fun QkAppear(
@@ -249,9 +252,10 @@ fun QkAppear(
     maxStagger: Int = 5,
     content: @Composable () -> Unit,
 ) {
-    val alreadyPlayed = remember { playedScopes.contains(scope) }
-    var visible by remember { mutableStateOf(alreadyPlayed) }
-    LaunchedEffect(Unit) {
+    // scope 参与 key：同一个组合跨分组复用时不能沿用上一组的"已播过"
+    val alreadyPlayed = remember(scope) { playedScopes.contains(scope) }
+    var visible by remember(scope) { mutableStateOf(alreadyPlayed) }
+    LaunchedEffect(scope) {
         if (!alreadyPlayed) {
             // 错开 32ms：40ms 在 26 个卡片的列表上会把入场拖到 1 秒以上，
             // 而用户感知不到那么细的间隔，只会在意"列表还没出来"。
@@ -273,7 +277,27 @@ fun QkAppear(
         animationSpec = QookiX.enterSpec(),
         label = "qkAppearAlpha",
     )
-    Box(Modifier.graphicsLayer { this.alpha = alpha }) {
+    Box(
+        Modifier
+            .graphicsLayer { this.alpha = alpha }
+            // 淡入期间只吞按下/抬起，不吞 move：卡片还不能点，但列表仍能滚。
+            // 以前 alpha=0 时点击照常命中，会点在"还没出现"的那一行上。
+            .then(
+                if (visible) Modifier
+                else Modifier.pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.type == PointerEventType.Press ||
+                                event.type == PointerEventType.Release
+                            ) {
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    }
+                },
+            ),
+    ) {
         content()
     }
 }

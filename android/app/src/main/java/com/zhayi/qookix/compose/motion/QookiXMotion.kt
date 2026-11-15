@@ -5,9 +5,9 @@ import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.unit.IntOffset
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
@@ -132,11 +132,17 @@ object QookiX {
     // 调用方只需要说「这是进入 / 退出 / 整页切换 / 按压」，不再各自挑时长和曲线。
     // 以前那些 `tween(200, …)` / `tween(320, …)` 就是这么长出六种的。
 
+    /** 系统关闭动画时所有 spec 退化为瞬时切换（见 QkMotionPolicy）。 */
+    private fun <T> reduced(): FiniteAnimationSpec<T>? =
+        if (QkMotionPolicy.animationsEnabled) null else snap()
+
     /** 元素**进入**屏幕：MEDIUM + EaseOut。 */
-    fun <T> enterSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = EaseOut)
+    fun <T> enterSpec(): FiniteAnimationSpec<T> =
+        reduced() ?: tween(MEDIUM_MS, easing = EaseOut)
 
     /** 元素**离开**屏幕：MEDIUM + EaseIn。 */
-    fun <T> exitSpec(): FiniteAnimationSpec<T> = tween(MEDIUM_MS, easing = EaseIn)
+    fun <T> exitSpec(): FiniteAnimationSpec<T> =
+        reduced() ?: tween(MEDIUM_MS, easing = EaseIn)
 
     /**
      * 整页切换：MEDIUM + [EaseOut]。
@@ -148,7 +154,8 @@ object QookiX {
      * 回弹曲线只适合**位移/缩放**（冲过头再收回来才有弹性感）；
      * 透明度必须用单调曲线，否则「淡入」会被压缩到肉眼看不见的一瞬。
      */
-    fun <T> pageSpec(): FiniteAnimationSpec<T> = tween(240, easing = EaseOut)
+    fun <T> pageSpec(): FiniteAnimationSpec<T> =
+        reduced() ?: tween(MEDIUM_MS, easing = EaseOut)
 
     /**
      * 按压缩放：阻尼 0.45、刚度 900（明显回弹，ZL2 那种"按下去弹一下"）。
@@ -156,7 +163,7 @@ object QookiX {
      * 原来是 0.55 —— 回弹几乎看不出，手感偏"软"。0.45 会多冲一点，
      * 松手时能感到卡片"弹回来"。
      */
-    fun <T> pressSpec(): FiniteAnimationSpec<T> = spring(
+    fun <T> pressSpec(): FiniteAnimationSpec<T> = reduced() ?: spring(
         dampingRatio = 0.45f,
         stiffness = 900f,
     )
@@ -179,7 +186,8 @@ object QookiX {
     // 到位时轻微回弹，看起来有重量。ZL2 的全部动效就建立在这套参数上。
 
     /** 位移（卡片滑入、列表项移动）：有轻微弹性。 */
-    fun <T> spatialSpec(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
+    fun <T> spatialSpec(): FiniteAnimationSpec<T> =
+        reduced() ?: spring(dampingRatio = 0.8f, stiffness = 380f)
 
     /**
      * 透明度 / 颜色：无弹性、收敛快。
@@ -187,29 +195,10 @@ object QookiX {
      * ⚠️ 千万别拿 [SoftBounce] 或 `spatialSpec` 驱动 alpha —— 回弹曲线在 t=0.1
      * 就冲到终值，淡入会被压缩成一瞬，看起来「没有动画」（已踩过两次）。
      */
-    fun <T> effectsSpec(): SpringSpec<T> = spring(dampingRatio = 1f, stiffness = 1600f)
+    fun <T> effectsSpec(): FiniteAnimationSpec<T> =
+        reduced() ?: spring(dampingRatio = 1f, stiffness = 1600f)
 
     /** 大范围转场（整页切换、弹层出现）：慢一点才有分量。 */
-    fun <T> slowSpatialSpec(): SpringSpec<T> = spring(dampingRatio = 0.8f, stiffness = 200f)
+    fun <T> slowSpatialSpec(): FiniteAnimationSpec<T> =
+        reduced() ?: spring(dampingRatio = 0.8f, stiffness = 200f)
 }
-
-/** 页面转场的位移规格（IntOffset 专用，用于 AnimatedContent 的 slideIntoContainer）。 */
-fun <T> slideSpec(): FiniteAnimationSpec<T> = tween(
-    durationMillis = QookiX.LONG_MS,
-    easing = QookiX.EaseOut,
-)
-
-/** 淡入淡出规格。 */
-fun <T> fadeSpec(): FiniteAnimationSpec<T> = tween(
-    durationMillis = QookiX.FADE_MS,
-    easing = QookiX.EaseInOut,
-)
-
-/** IntOffset 的 slideIntoContainer 辅助。 */
-fun slideIntoStart(): IntOffset = IntOffset(QookiX.SLIDE_DP * 4, 0)
-
-fun slideIntoEnd(): IntOffset = IntOffset(-QookiX.SLIDE_DP * 4, 0)
-
-fun slideOutToStart(): IntOffset = IntOffset(-QookiX.SLIDE_DP * 4, 0)
-
-fun slideOutToEnd(): IntOffset = IntOffset(QookiX.SLIDE_DP * 4, 0)

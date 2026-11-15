@@ -192,6 +192,8 @@ class ComposeMainActivity : ComponentActivity() {
         // 最先挂上：之后任何未捕获异常都会落盘，用户能通过「导出日志」带出来。
         installCrashHandler()
         super.onCreate(savedInstanceState)
+        // 系统关掉动画缩放时，所有语义 spec 走 snap()、无限动画改静态
+        com.zhayi.qookix.compose.motion.QkMotionPolicy.syncFrom(this)
         TauriBridge.attach(this)
 
         // 冷启动由 deep link 唤起时，intent.data 就是 qookix://lan/pair?…

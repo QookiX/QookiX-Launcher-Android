@@ -224,7 +224,9 @@ class StartupOverlay @JvmOverloads constructor(
         if (!running && visibility != VISIBLE) return
         stop()
         android.util.Log.i("StartupOverlay", "隐藏启动浮层：$reason")
-        animate().alpha(0f).setDuration(220).withEndAction {
+        animate().alpha(0f)
+            .setDuration(com.zhayi.qookix.compose.motion.QkMotionPolicy.OVERLAY_FADE_MS.toLong())
+            .withEndAction {
             visibility = GONE
             onDismiss?.invoke()
         }.start()

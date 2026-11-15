@@ -50,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.IntOffset
 import com.zhayi.qookix.compose.motion.QookiX
 
 /**
@@ -104,6 +105,8 @@ fun BrowseFilterSheet(
     // 写 520dp 等于全屏，看起来像整页而不是抽屉）。
     val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
     val sheetMaxHeight = (screenHeightDp * 0.85f).dp
+    // 位移起点也按屏高收一下：横屏只有 384dp 时，固定 96dp 等于四分之一屏高
+    val startOffset = 96.dp.coerceAtMost((screenHeightDp * 0.15f).dp)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -119,15 +122,14 @@ fun BrowseFilterSheet(
         // 之前这块弹层是**硬出现**的：只有 Dialog 窗口自带的一点淡入，
         // 内容没有任何"弹出"的过程。
         //
-        // 现在：从下方 96dp 滑到 0，曲线用 Jelly（阻尼余弦，0.6 振幅）——
-        // 它会冲过 0 一点点再弹回来，就是"Q 弹"的来源。
+        // 现在：从下方滑到 0，位移走 spatialSpec（轻微过冲就是"Q 弹"的来源）。
         // 透明度单独用 effectsSpec（无回弹）：回弹曲线驱动 alpha 会瞬间到位，
         // 淡入等于没有（踩过两次）。
         var shown by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { shown = true }
         val slide by animateDpAsState(
-            targetValue = if (shown) 0.dp else 96.dp,
-            animationSpec = tween(340, easing = QookiX.Jelly),
+            targetValue = if (shown) 0.dp else startOffset,
+            animationSpec = QookiX.spatialSpec(),
             label = "sheetSlide",
         )
         val fade by animateFloatAsState(
@@ -156,7 +158,8 @@ fun BrowseFilterSheet(
                     // 限高：外层 Box 是无限约束，不限高的话里面的
                     // verticalScroll 会直接抛异常（真机实测崩溃）。
                     .heightIn(max = sheetMaxHeight)
-                    .offset(y = slide)
+                    // lambda 版 offset 只改绘制、不触发每帧重排（dp 版会）
+                    .offset { IntOffset(0, slide.roundToPx()) }
                     .graphicsLayer { alpha = fade },
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLow,

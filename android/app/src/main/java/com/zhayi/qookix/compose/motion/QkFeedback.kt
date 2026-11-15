@@ -4,9 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.scale
@@ -55,10 +53,9 @@ fun Modifier.pressScale(
         } else {
             1f
         },
-        animationSpec = tween(
-            durationMillis = if (pressed) 80 else QookiX.SHORT_MS,
-            easing = QookiX.EaseOut,
-        ),
+        // 与 qkPressable 共用同一套弹簧：原来这里是 tween(80/150)，
+        // 两条按压路径一个弹一个不弹，同一个按钮在不同页面手感不一样。
+        animationSpec = QookiX.pressSpec(),
         label = "pressScale",
     )
     this.scale(scale)
@@ -71,42 +68,10 @@ fun Modifier.pressAlpha(
     val pressed by interactionSource.collectIsPressedAsState()
     val alpha by animateFloatAsState(
         targetValue = if (pressed) PRESSED_ALPHA else 1f,
-        animationSpec = tween(80),
+        animationSpec = tween(QkMotionPolicy.PRESS_IN_MS, easing = QookiX.EaseOut),
         label = "pressAlpha",
     )
     this.alpha(alpha)
-}
-
-/**
- * 卡片点击的整体反馈。
- *
- * 配合 `Card(onClick = ...)` 使用（它自带 ripple），
- * 这里只加缩放。注意：**不要自己再套 clickable**，
- * 否则会有两层点击区。
- */
-@Composable
-fun rememberPressScale(): MutableInteractionSource {
-    return remember { MutableInteractionSource() }
-}
-
-/**
- * 数值变化的平滑过渡。
- *
- * 用于：下载进度、速度、内存显示这类**频繁跳动**的数字。
- * 直接显示数字会每帧跳，看起来"抖"；
- * 过渡之后读数会平滑跟随。
- */
-@Composable
-fun animateCount(target: Float): Float {
-    val value by animateFloatAsState(
-        targetValue = target,
-        animationSpec = tween(
-            durationMillis = QookiX.MEDIUM_MS,
-            easing = QookiX.EaseOut,
-        ),
-        label = "count",
-    )
-    return value
 }
 
 /**
