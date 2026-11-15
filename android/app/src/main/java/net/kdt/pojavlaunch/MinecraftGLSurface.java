@@ -50,15 +50,7 @@ import org.lwjgl.glfw.CallbackBridge;
 
 import java.io.File;
 
-/**
- * Class dealing with showing minecraft surface and taking inputs to dispatch them to minecraft
- *
- * <p><b>实体手柄</b>：手柄的第一个按键/摇杆事件会按需创建 {@link Gamepad}，
- * 之后手柄输入被翻译成键鼠喂给游戏（抓取光标时用游戏内映射表，回菜单换成菜单映射表）。
- * 上游那半靠 JitPack 上的 {@code fr.spse.gamepad_remapper} 解析原始事件，这里换成了
- * 自己写的 {@link GamepadInputDispatcher}，不再引外部依赖。
- * 虚拟控件（含 {@code ControlJoystick} 摇杆）不受影响，两条输入路径互不干扰。
- */
+/** 游戏画面承载与输入分发。 */
 public class MinecraftGLSurface extends View implements GrabListener, DirectGamepadEnableHandler {
     /* Sensitivity, adjusted according to screen size */
     private final double mSensitivityFactor = (1.4 * (1080f/ Tools.getDisplayMetrics((Activity) getContext()).heightPixels));
@@ -689,6 +681,13 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
             mCurrentTouchProcessor = pickEventProcessor(isGrabbing);
             mLastGrabState = isGrabbing;
         }
+    }
+
+    /** 窗口切换时取消两个手势定时器并全量释放鼠标按钮（孤立 DOWN 的兜底）。 */
+    public void releaseAllInput() {
+        mIngameProcessor.cancelPendingActions();
+        mInGUIProcessor.cancelPendingActions();
+        CallbackBridge.releaseAllMouseButtons();
     }
 
     /** A small interface called when the listener is ready for the first time */

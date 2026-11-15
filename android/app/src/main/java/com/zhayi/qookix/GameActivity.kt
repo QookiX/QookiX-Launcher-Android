@@ -914,6 +914,10 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         // 它盯着原生侧的出帧快照，发现"曾经出过帧但现在 1.2 秒没动静"就重绑一次 Surface。
         MinecraftGLSurface.startRenderWatchdog(this)
         setWindowAttrib(LwjglGlfwKeycode.GLFW_HOVERED, 1)
+        // 启动游戏时触摸序列可能跨 Activity 断裂，留下孤立 DOWN → 300ms 后
+        // 长按手势发出一个永不释放的左键（无人操作却一直挖方块）。
+        // 窗口拿到焦点时统一清一次，见 MinecraftGLSurface.releaseAllInput()。
+        if (this::minecraftGLView.isInitialized) minecraftGLView.releaseAllInput()
     }
 
     // ── 游戏放大镜 ──────────────────────────────────────────────────
@@ -994,6 +998,8 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         // 放大镜别在后台继续抓帧（PixelCopy 每 110ms 一次，纯浪费）
         magnifier?.stop()
         mGyroControl?.disable()
+        // 切后台必然不该继续按住鼠标键（否则回来时玩家还在自动挥手/挖方块）
+        if (this::minecraftGLView.isInitialized) minecraftGLView.releaseAllInput()
         // 游戏还抓着鼠标时先发一个 Esc：让它释放鼠标并进入暂停菜单，
         // 同时单机存档顺带自动暂停。缺了这一步，回来时游戏状态是乱的。
         if (CallbackBridge.isGrabbing()) {
@@ -1012,6 +1018,9 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         // 从别的窗口（对话框/分屏切回）拿回焦点时，SDL 状态机也要恢复——
         // 它的暂停条件里包含失去焦点。
         if (hasFocus && MinecraftGLSurface.sdlEnabled) SDLActivity.notifyAppResume()
+        // 焦点变化（含 Activity 刚创建拿到焦点）同样清一次残留输入：
+        // 对话框、分屏、通知栏下拉都可能让 ACTION_UP 送不到游戏窗口。
+        if (this::minecraftGLView.isInitialized) minecraftGLView.releaseAllInput()
     }
 
     override fun onPostResume() {

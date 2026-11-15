@@ -191,6 +191,29 @@ public class CallbackBridge {
         sendMouseKeycode(keycode, CallbackBridge.getCurrentMods(), true);
         sendMouseKeycode(keycode, CallbackBridge.getCurrentMods(), false);
     }
+
+    /**
+     * 无条件释放所有鼠标按钮，供窗口/焦点切换时兜底。
+     *
+     * 真机实测（2026-11-15，26.3）：点「启动游戏」切到 GameActivity 时，
+     * 触摸序列的 DOWN 与 UP 可能落在不同窗口，留下一个孤立 DOWN。
+     * `LeftClickGesture` 收到 DOWN 就挂 300ms 定时器，没有配对 UP 就会发出
+     * `LEFT down` 且永不释放 —— 表现为**无人操作却一直挥手破坏方块**，
+     * 直到按 ESC 触发 grab 切换、由 cancelPendingActions() 补发 mouse up 才停。
+     *
+     * 这里把 GLFW stub 与 SDL 两份按钮状态一并清干净；调用方还应同时取消
+     * 手势定时器（见 `MinecraftGLSurface.releaseAllInput()`），否则定时器会再次按下。
+     */
+    public static void releaseAllMouseButtons() {
+        try {
+            sendMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT, false);
+            sendMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_RIGHT, false);
+            sendMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_MIDDLE, false);
+        } catch (Throwable ignored) {
+            // JVM 还没起来时 nativeSendMouseButton 可能尚未注册，兜底不能把启动打断
+        }
+        sMouseButtonState = 0;
+    }
     
     public static void sendScroll(double xoffset, double yoffset) {
         nativeSendScroll(xoffset, yoffset);
