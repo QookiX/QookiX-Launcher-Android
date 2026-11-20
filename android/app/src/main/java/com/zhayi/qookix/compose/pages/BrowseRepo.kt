@@ -90,6 +90,15 @@ class BrowseRepo(private val api: QookixApi) {
             SortOption("newest", R.string.browse_sort_newest),
             SortOption("follows", R.string.browse_sort_follows),
         )
+
+        /** 统一内容类型标识（兼容 Modrinth 文本与 CurseForge 数字 classId）。 */
+        fun normalizeProjectType(raw: String): String = when (raw.trim().lowercase()) {
+            "4471" -> "modpack"
+            "6" -> "mod"
+            "12" -> "resourcepack"
+            "6552" -> "shader"
+            else -> raw.trim().lowercase()
+        }
     }
 
     /** 一个加载器筛选项（UI 标识 + 展示名资源）。 */
@@ -182,6 +191,7 @@ class BrowseRepo(private val api: QookixApi) {
                     author = o.optString("owner"),
                     iconUrl = o.optString("icon"),
                     downloads = o.optLong("downloads", 0L),
+                    projectType = "plugin",
                 )
             }
         } catch (e: Exception) {
@@ -208,6 +218,7 @@ class BrowseRepo(private val api: QookixApi) {
                     author = o.optString("author"),
                     iconUrl = o.optString("icon_url"),
                     downloads = o.optLong("downloads", 0L),
+                    projectType = normalizeProjectType(o.optString("project_type")),
                 )
             }
         } catch (e: Exception) {

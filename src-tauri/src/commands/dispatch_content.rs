@@ -25,6 +25,7 @@ pub(crate) const HANDLED: &[&str] = &[
     "clear_translation_cache",
     "test_translate_api",
     "install_content",
+    "install_modpack",
     "install_mod",
     "uninstall_mod",
     "mc_wiki_url",
@@ -315,6 +316,20 @@ async fn run(cmd: &str, p: &Value) -> String {
             match install_content(id, provider, pid, vid, kind).await {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
+            }
+        }
+        "install_modpack" => {
+            let (Some(provider), Some(pid), Some(vid)) = (
+                sarg(p, &["provider"]),
+                sarg(p, &["projectId", "project_id"]),
+                sarg(p, &["versionId", "version_id"]),
+            ) else {
+                return err("缺少 provider / projectId / versionId");
+            };
+            let title = sarg(p, &["title"]);
+            match crate::modpack_install::install_modpack(&provider, &pid, &vid, title.as_deref()).await {
+                Ok(v) => ok(v),
+                Err(e) => err(e.to_string()),
             }
         }
         "report_translation_stale" => {

@@ -2153,6 +2153,10 @@ pub async fn install_content(
     version_id: &str,
     kind: &str,
 ) -> Result<Value> {
+    if kind == "modpack" {
+        let res = crate::modpack_install::install_modpack(provider, project_id, version_id, None).await?;
+        return Ok(json!({ "ok": true, "mode": "modpack", "result": res }));
+    }
     // ⚠️ 2026-11-04（审计 BE-03）：`instance_dir` 的注释明确「ID 合法性由调用方负责」，
     // 同文件的 list_content / uninstall_content 都校验了，唯独这个**写**路径漏了。
     // `../../..` 或绝对路径会让下载落到实例根之外。
@@ -2180,6 +2184,7 @@ pub async fn install_content(
     if !crate::util::is_safe_filename(&file_name) {
         return Err(anyhow::anyhow!("非法的文件名: {file_name}"));
     }
+    crate::modpack_install::reject_modpack_file(&file_name)?;
 
     // 上报到「下载中心」：内容下载同样是长任务，用户需要看到进度
     let instance_name = crate::instances::get_instance(instance_id)
@@ -2218,6 +2223,10 @@ pub async fn install_content(
         }
     }
     download_result?;
+    if kind == "mod" && crate::modpack_install::is_modpack_archive(&dest, &file_name) {
+        let _ = std::fs::remove_file(&dest);
+        return Err(anyhow::anyhow!("检测到这是整合包文件，不能当作模组安装到现有实例，请在「整合包」分类安装"));
+    }
 
     // 登记内容记录
     let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
@@ -2375,6 +2384,7 @@ pub async fn import_local_file(
     let dest_owned = dest.clone();
     let kind_owned = kind.to_string();
     let record = tokio::task::spawn_blocking(move || -> Result<crate::models::InstalledContent, String> {
+        crate::modpack_install::reject_modpack_archive(&source_owned, &filename)?;
         std::fs::create_dir_all(dest_owned.parent().unwrap()).map_err(|e| e.to_string())?;
         std::fs::copy(&source_owned, &dest_owned).map_err(|e| format!("复制文件失败: {e}"))?;
         let size = std::fs::metadata(&dest_owned).map(|m| m.len()).unwrap_or(0);
@@ -2973,6 +2983,7 @@ pub async fn install_content_to_server(
     if !crate::util::is_safe_filename(&file_name) {
         return Err(anyhow::anyhow!("非法的文件名: {file_name}"));
     }
+    crate::modpack_install::reject_modpack_file(&file_name)?;
 
     // 任务中心里要能区分「装到哪个服务器」
     let server_name = crate::servers::list_servers()

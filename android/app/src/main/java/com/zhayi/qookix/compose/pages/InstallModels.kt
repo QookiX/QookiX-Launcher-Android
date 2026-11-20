@@ -1,8 +1,12 @@
 package com.zhayi.qookix.compose.pages
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.zhayi.qookix.R
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * 「装这个内容」的展示状态。
@@ -16,6 +20,7 @@ data class InstallUiState(
     val project: ProjectUi,
     val kind: String,
     val isPlugin: Boolean,
+    val isModpack: Boolean = false,
     val versions: List<ContentVersionUi>,
     val loadingVersions: Boolean,
     val selectedVersion: String?,
@@ -45,10 +50,10 @@ data class InstallUiState(
     val serverTargets: Boolean get() = isPlugin || kind == "mod"
 
     val canInstall: Boolean
-        get() = if (isPlugin) {
-            !selectedServerId.isNullOrBlank()
-        } else {
-            !selectedVersion.isNullOrBlank() &&
+        get() = when {
+            isPlugin -> !selectedServerId.isNullOrBlank()
+            isModpack -> !selectedVersion.isNullOrBlank()
+            else -> !selectedVersion.isNullOrBlank() &&
                 (!selectedServerId.isNullOrBlank() || !selectedInstanceId.isNullOrBlank()) &&
                 // 2026-11-02：目标不兼容时不给装（原因显示在面板里）
                 compatWarning == null
@@ -119,3 +124,61 @@ data class DependencyUi(
     val typeLabel: String,
     val provider: String,
 )
+
+/** 解析 `project_versions` 的返回（从 ContentInstallHost 拆出以保持宿主体量）。 */
+internal fun parseContentVersions(
+    context: Context,
+    json: JSONObject,
+): List<ContentVersionUi> {
+    val arr = json.optJSONArray("versions") ?: return emptyList()
+    return (0 until arr.length()).mapNotNull { i ->
+        val o = arr.optJSONObject(i) ?: return@mapNotNull null
+        val id = o.optString("id")
+        if (id.isBlank()) return@mapNotNull null
+        val type = o.optString("version_type")
+            .ifBlank { o.optString("release_type") }
+        val gvAll = o.optJSONArray("game_versions")?.let { gv ->
+            (0 until gv.length()).mapNotNull { gv.optString(it)?.takeIf { s -> s.isNotBlank() } }
+        }.orEmpty()
+        val ldAll = o.optJSONArray("loaders")?.let { la ->
+            (0 until la.length()).mapNotNull { la.optString(it)?.takeIf { s -> s.isNotBlank() } }
+        }.orEmpty()
+        ContentVersionUi(
+            id = id,
+            versionNumber = o.optString("version_number").ifBlank { o.optString("name") },
+            type = type,
+            typeLabel = when (type) {
+                "beta" -> context.getString(R.string.version_type_beta)
+                "alpha" -> context.getString(R.string.version_type_alpha)
+                else -> context.getString(R.string.version_type_release)
+            },
+            gameVersions = gvAll.takeLast(2).joinToString(", "),
+            datePublished = o.optString("date_published"),
+            allGameVersions = gvAll,
+            loaders = ldAll,
+        )
+    }
+}
+
+/** 解析 `project_dependencies` 的返回。 */
+internal fun parseDependencies(
+    json: JSONArray,
+    provider: String,
+    context: Context,
+): List<DependencyUi> = (0 until json.length()).mapNotNull { i ->
+    val o = json.optJSONObject(i) ?: return@mapNotNull null
+    val dt = o.optString("dependencyType").ifBlank { o.optString("dependency_type") }
+    DependencyUi(
+        projectId = o.optString("projectId").ifBlank { o.optString("project_id") },
+        title = o.optString("title").ifBlank { o.optString("name") },
+        type = dt,
+        typeLabel = when (dt) {
+            "required" -> context.getString(R.string.dep_required)
+            "optional" -> context.getString(R.string.dep_optional)
+            "incompatible" -> context.getString(R.string.dep_incompatible)
+            "embedded" -> context.getString(R.string.dep_embedded)
+            else -> dt
+        },
+        provider = o.optString("provider").ifBlank { provider },
+    )
+}

@@ -13,6 +13,7 @@ import com.zhayi.qookix.compose.bridge.QookixApi
 import com.zhayi.qookix.compose.bridge.friendlyError
 import com.zhayi.qookix.compose.bridge.optText
 import com.zhayi.qookix.compose.bridge.installContent
+import com.zhayi.qookix.compose.bridge.installModpack
 import com.zhayi.qookix.compose.bridge.installServerContent
 import com.zhayi.qookix.compose.bridge.installServerPlugin
 import com.zhayi.qookix.compose.bridge.projectDependencies
@@ -59,10 +60,12 @@ fun ContentInstallHost(
 ) {
     val start = project ?: return
     val context = androidx.compose.ui.platform.LocalContext.current
-    val isPlugin = kind == "plugin"
 
     // 当前要装的项目：点「依赖」时换成那个依赖项目继续装（与原对话框一致）
     var target by remember(start.id) { mutableStateOf(start) }
+    val effectiveKind = if (target.projectType == "modpack") "modpack" else kind
+    val isPlugin = effectiveKind == "plugin"
+    val isModpack = effectiveKind == "modpack"
 
     // 状态全部以入口项目 id 为 key：关掉再打开时整块重置
     var versions by remember(start.id) { mutableStateOf<List<ContentVersionUi>>(emptyList()) }
@@ -102,7 +105,7 @@ fun ContentInstallHost(
         // 用户可能选中一个与当前实例不兼容的版本（mc/loader 已按新目标算过）
         versions = emptyList()
         error = null
-        val inst = instances.firstOrNull { it.id == instanceId }
+        val inst = if (isModpack) null else instances.firstOrNull { it.id == instanceId }
         val mc = inst?.mcVersion ?: ""
         val loader = inst?.loader?.takeUnless { it == "vanilla" } ?: ""
         api.projectVersions(target.provider, target.id, mc, loader) { r ->
@@ -128,9 +131,11 @@ fun ContentInstallHost(
                     version = pickVersion(list)
                     loadingVersions = false
                     // 拉依赖
-                    version?.let { vid ->
-                        api.projectDependencies(target.provider, target.id, vid) { dr ->
-                            dr.onSuccess { arr -> deps = parseDependencies(arr, target.provider, context) }
+                    if (!isModpack) {
+                        version?.let { vid ->
+                            api.projectDependencies(target.provider, target.id, vid) { dr ->
+                                dr.onSuccess { arr -> deps = parseDependencies(arr, target.provider, context) }
+                            }
                         }
                     }
                 },
@@ -143,9 +148,9 @@ fun ContentInstallHost(
     }
 
     // 打开时：拉目标候选 + 简介译文（与原对话框一致）
-    LaunchedEffect(target.id, kind) {
+    LaunchedEffect(target.id, effectiveKind) {
         error = null
-        if (isPlugin || kind == "mod") {
+        if (isPlugin || effectiveKind == "mod") {
             api.listHostedServers { r ->
                 r.onSuccess { arr ->
                     // 复用 MultiplayerRepo 的解析（不要另抄一份）
@@ -157,7 +162,9 @@ fun ContentInstallHost(
                 }
             }
         }
-        if (!isPlugin) {
+        if (isModpack) {
+            loadVersions()
+        } else if (!isPlugin) {
             api.listInstances { r ->
                 r.onSuccess { arr ->
                     instances = (0 until arr.length()).mapNotNull { i ->
@@ -193,13 +200,38 @@ fun ContentInstallHost(
         }
     }
 
-    /** 装：服务器（插件 / 模组）优先，其次实例。 */
+    /** 装：整合包独立新建实例；其余走服务器或现有实例。 */
     fun startInstall() {
         if (installing) return
         val vid = version
+        if (isModpack) {
+            if (vid == null) {
+                error = context.getString(R.string.install_select_version)
+                return
+            }
+            installing = true
+            error = null
+            api.installModpack(target.provider, target.id, vid, target.title) { r ->
+                installing = false
+                r.fold(
+                    onSuccess = { o ->
+                        val inst = o.optJSONObject("instance")
+                        val name = inst?.optString("name").orEmpty().ifBlank { target.title }
+                        val bad = o.optInt("failed", 0) + o.optInt("skippedNoUrl", 0)
+                        QkFeedback.show(
+                            if (bad > 0) context.getString(R.string.import_partial, bad)
+                            else context.getString(R.string.import_done, name),
+                        )
+                        onDismiss()
+                    },
+                    onFailure = { e -> error = context.getString(R.string.install_failed, friendlyError(context, e)) },
+                )
+            }
+            return
+        }
         val iid = instanceId
         val sid = serverId
-        val wantsServer = sid != null && (isPlugin || kind == "mod")
+        val wantsServer = sid != null && (isPlugin || effectiveKind == "mod")
         if (wantsServer) {
             if (isPlugin) {
                 installing = true
@@ -223,7 +255,7 @@ fun ContentInstallHost(
             }
             installing = true
             error = null
-            api.installServerContent(sid!!, target.provider, target.id, vid, kind) { r ->
+            api.installServerContent(sid!!, target.provider, target.id, vid, effectiveKind) { r ->
                 installing = false
                 r.fold(
                     onSuccess = {
@@ -241,7 +273,7 @@ fun ContentInstallHost(
         }
         installing = true
         error = null
-        api.installContent(iid, target.provider, target.id, vid, kind) { r ->
+        api.installContent(iid, target.provider, target.id, vid, effectiveKind) { r ->
             installing = false
             r.fold(
                 onSuccess = {
@@ -270,20 +302,25 @@ fun ContentInstallHost(
     // 2026-11-02（用户复现：Fabric API 的 26.3 版本被装进 NeoForge 1.21.1 实例）：
     // 面板一直只按「版本数据自己的类型 / 游戏版本」筛选，**从不看目标实例的
     // 加载器和 MC 版本** —— 装进去的 jar 永远不会被加载，用户以为装好了。
-    val compatWarning = compatWarningFor(
-        kind = kind,
+    val compatWarning = if (isModpack) null else compatWarningFor(
+        kind = effectiveKind,
         // 装到服务器时不查：服务端加载器由服务端自己决定
         target = if (!serverId.isNullOrBlank()) null else instances.firstOrNull { it.id == instanceId },
         version = versions.firstOrNull { it.id == version },
         context = context,
     )
     val gameOptions = remember(versions) { gameVersionOptions(versions) }
-    val visibleServers = if (kind == "plugin") servers else servers.filter { it.supportsMods() }
+    val visibleServers = when {
+        isPlugin -> servers
+        effectiveKind == "mod" -> servers.filter { it.supportsMods() }
+        else -> emptyList()
+    }
 
     val state = InstallUiState(
         project = target,
-        kind = kind,
+        kind = effectiveKind,
         isPlugin = isPlugin,
+        isModpack = isModpack,
         versions = visibleVersions,
         loadingVersions = loadingVersions,
         selectedVersion = version,
@@ -305,8 +342,10 @@ fun ContentInstallHost(
     val onSelectVersion: (String) -> Unit = { v ->
         version = v
         // 换版本重拉依赖
-        api.projectDependencies(target.provider, target.id, v) { dr ->
-            dr.onSuccess { arr -> deps = parseDependencies(arr, target.provider, context) }
+        if (!isModpack) {
+            api.projectDependencies(target.provider, target.id, v) { dr ->
+                dr.onSuccess { arr -> deps = parseDependencies(arr, target.provider, context) }
+            }
         }
     }
     // 目标二选一：不清掉另一侧的话，两个 id 同时非空 → 模组会被装进服务器目录
@@ -517,64 +556,3 @@ internal fun DependencyUi.asProjectUi(): ProjectUi = ProjectUi(
     iconUrl = "",
     downloads = 0,
 )
-
-/** 解析 `project_versions` 的返回（原来内联在 BrowseRoute 里，两处都要用）。 */
-internal fun parseContentVersions(
-    context: android.content.Context,
-    json: org.json.JSONObject,
-): List<ContentVersionUi> {
-    val arr = json.optJSONArray("versions") ?: return emptyList()
-    return (0 until arr.length()).mapNotNull { i ->
-        val o = arr.optJSONObject(i) ?: return@mapNotNull null
-        val id = o.optString("id")
-        if (id.isBlank()) return@mapNotNull null
-        val type = o.optString("version_type")
-            .ifBlank { o.optString("release_type") }
-        val gvAll = o.optJSONArray("game_versions")?.let { gv ->
-            (0 until gv.length()).mapNotNull { gv.optString(it)?.takeIf { s -> s.isNotBlank() } }
-        }.orEmpty()
-        // 2026-11-01（用户复现「Fabric API 装进 NeoForge 实例」）：后端
-        // `ProjectVersionResult` 一直带着 `loaders`，前端从来没读过 ——
-        // 没有它就没法按目标实例的加载器筛版本。
-        val ldAll = o.optJSONArray("loaders")?.let { la ->
-            (0 until la.length()).mapNotNull { la.optString(it)?.takeIf { s -> s.isNotBlank() } }
-        }.orEmpty()
-        ContentVersionUi(
-            id = id,
-            versionNumber = o.optString("version_number").ifBlank { o.optString("name") },
-            type = type,
-            typeLabel = when (type) {
-                "beta" -> context.getString(R.string.version_type_beta)
-                "alpha" -> context.getString(R.string.version_type_alpha)
-                else -> context.getString(R.string.version_type_release)
-            },
-            gameVersions = gvAll.takeLast(2).joinToString(", "),
-            datePublished = o.optString("date_published"),
-            allGameVersions = gvAll,
-            loaders = ldAll,
-        )
-    }
-}
-
-/** 解析 `project_dependencies` 的返回。 */
-internal fun parseDependencies(
-    json: org.json.JSONArray,
-    provider: String,
-    context: android.content.Context,
-): List<DependencyUi> = (0 until json.length()).mapNotNull { i ->
-    val o = json.optJSONObject(i) ?: return@mapNotNull null
-    val dt = o.optString("dependencyType").ifBlank { o.optString("dependency_type") }
-    DependencyUi(
-        projectId = o.optString("projectId").ifBlank { o.optString("project_id") },
-        title = o.optString("title").ifBlank { o.optString("name") },
-        type = dt,
-        typeLabel = when (dt) {
-            "required" -> context.getString(R.string.dep_required)
-            "optional" -> context.getString(R.string.dep_optional)
-            "incompatible" -> context.getString(R.string.dep_incompatible)
-            "embedded" -> context.getString(R.string.dep_embedded)
-            else -> dt
-        },
-        provider = o.optString("provider").ifBlank { provider },
-    )
-}

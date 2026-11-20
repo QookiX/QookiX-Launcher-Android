@@ -360,6 +360,7 @@ data class ProjectUi(
     val author: String,
     val iconUrl: String,
     val downloads: Long,
+    val projectType: String = "",
 )
 
 data class BrowseUiState(

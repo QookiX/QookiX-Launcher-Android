@@ -29,6 +29,7 @@ mod accounts;
 mod offline_uuid;
 mod native_cleanup;
 mod modpack;
+mod modpack_install;
 /// ZIP 解压预算（zip bomb 防护，审计 B13）。
 mod zip_guard;
 mod hangar;

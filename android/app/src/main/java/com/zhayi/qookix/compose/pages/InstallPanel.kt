@@ -149,6 +149,15 @@ internal fun InstallTargets(
     onCreateTargetInstance: (() -> Unit)?,
 ) {
     Column {
+        if (state.isModpack) {
+            Text(
+                stringResource(R.string.install_target_modpack),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(QkSpacing.sm))
+            return@Column
+        }
         val noInstance = !state.isPlugin &&
             state.instances.none { it.loader != "vanilla" } &&
             state.servers.isEmpty()
@@ -329,7 +338,7 @@ internal fun InstallVersionList(state: InstallUiState, onSelectVersion: (String)
 @Composable
 internal fun InstallExtras(state: InstallUiState, onOpenDependency: (DependencyUi) -> Unit) {
     Column {
-        if (!state.isPlugin && state.deps.isNotEmpty()) {
+        if (!state.isPlugin && !state.isModpack && state.deps.isNotEmpty()) {
             Spacer(Modifier.height(QkSpacing.sm))
             InstallSectionLabel(stringResource(R.string.install_dependencies))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {

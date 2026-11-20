@@ -204,6 +204,23 @@ fun QookixApi.installContent(
     onResult,
 )
 
+/** 从内容中心下载并导入整合包为新实例（不放进 mods 目录）。 */
+fun QookixApi.installModpack(
+    provider: String,
+    projectId: String,
+    versionId: String,
+    title: String = "",
+    onResult: (Result<JSONObject>) -> Unit,
+) = callObj(
+    "install_modpack",
+    JSONObject()
+        .put("provider", provider)
+        .put("projectId", projectId)
+        .put("versionId", versionId)
+        .put("title", title),
+    onResult,
+)
+
 /**
  * 把内容装到**托管服务器**（模组 -> `mods/`，插件 -> `plugins/`）。
  *
