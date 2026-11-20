@@ -11,6 +11,7 @@
 #include "../perf_counters.h"
 
 #include <dlfcn.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -29,7 +30,10 @@ static jlong ndlopen_bugfix(__attribute__((unused)) JNIEnv *env,
                      __attribute__((unused)) jclass class,
                      jlong filename_ptr,
                      jint jmode) {
-    const char* filename = (const char*) filename_ptr;
+    const char* filename = (const char*) (intptr_t) filename_ptr;
+    if (filename == NULL) {
+        return (jlong) (intptr_t) dlopen(NULL, (int)jmode);
+    }
 
     // Oveeride vulkan loading to let us load vulkan ourselves
     if(strstr(filename, "libvulkan.so") == filename) {
@@ -144,7 +148,7 @@ void installGlGetStringHook(JNIEnv *env) {
  * 注意：代理内部要拿到**真实的** SDL 函数，用 libc 的 `dlsym`（我们的 hook 在 JVM
  * native 方法这一层，不影响 libc 的 dlsym），优先用 `POJAVEXEC_SDL3` 给的绝对路径。
  */
-typedef void *(*sdl_create_window_fn)(const char *, int, int, unsigned);
+typedef void *(*sdl_create_window_fn)(const char *, int, int, uint64_t);
 typedef void *(*sdl_create_window_props_fn)(unsigned);
 typedef void (*sdl_destroy_window_fn)(void *);
 
@@ -171,7 +175,7 @@ static void *resolve_sdl_symbol(const char *name) {
     return sym;
 }
 
-static void *qookix_SDL_CreateWindow(const char *title, int w, int h, unsigned flags) {
+static void *qookix_SDL_CreateWindow(const char *title, int w, int h, uint64_t flags) {
     if (s_reused_sdl_window != NULL) {
         LOGI("SDL 窗口复用：跳过建第二个窗口（\"%s\"），返回已有窗口 %p",
              title != NULL ? title : "?", s_reused_sdl_window);
@@ -229,9 +233,9 @@ static void qookix_SDL_DestroyWindow(void *window) {
  * 它是 SDL 的换帧函数，每帧必经，位置正好等于 gl_bridge 里的 EGL swap。
  * 其余符号照旧透传，不影响窗口复用那套。
  */
-typedef int (*sdl_gl_swap_window_fn)(void *);
+typedef bool (*sdl_gl_swap_window_fn)(void *);
 
-static int qookix_SDL_GL_SwapWindow(void *window) {
+static bool qookix_SDL_GL_SwapWindow(void *window) {
     static sdl_gl_swap_window_fn real = NULL;
     static int logged = 0;
     if (real == NULL) {
@@ -239,14 +243,14 @@ static int qookix_SDL_GL_SwapWindow(void *window) {
         if (real == NULL) {
             /* 拿不到真函数就别拦：宁可没有帧率，也不能让游戏画不出来 */
             LOGE("SDL 代理：找不到真正的 SDL_GL_SwapWindow，帧率计数点未生效");
-            return 0;
+            return false;
         }
     }
     if (!logged) {
         logged = 1;
         LOGI("SDL 代理：SDL_GL_SwapWindow 已接管（26.3 帧率计数点生效）");
     }
-    int ret = real(window);
+    bool ret = real(window);
     perf_frame(); /* 性能面板的帧计数（26.3 / SDL 路径） */
     return ret;
 }

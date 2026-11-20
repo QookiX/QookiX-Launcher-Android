@@ -28,12 +28,12 @@ fn raw_bool(map: &HashMap<String, Value>, keys: &[&str], default: bool) -> bool 
         .unwrap_or(default)
 }
 
-/// 同步版数据目录解析：供无法 `await` 的调用点（如只能同步构造 HTTP 客户端的地方）使用。
-/// 与 [`get_data_dir`] 保持同一套包名解析规则。
+/// 同步版数据目录解析：供无法 `await` 的调用点使用，与 [`get_data_dir`] 保持同一套包名解析规则。
 pub fn data_dir_sync() -> Option<String> {
     #[cfg(target_os = "android")]
     {
-        android_package_name().map(|pkg| format!("/data/data/{pkg}/files"))
+        let pkg = android_package_name().unwrap_or_else(|| "com.zhayi.qookix".to_string());
+        Some(format!("/data/data/{pkg}/files"))
     }
     #[cfg(not(target_os = "android"))]
     {

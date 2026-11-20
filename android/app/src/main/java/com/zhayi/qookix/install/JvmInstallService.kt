@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -88,10 +89,16 @@ class JvmInstallService : Service() {
                 putExtra(EXTRA_WORK_DIR, workDir)
                 putExtra(EXTRA_PORT, port)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "startForegroundService failed, falling back to startService", t)
+                runCatching { context.startService(intent) }
+                    .onFailure { Log.e(TAG, "startService fallback failed", it) }
             }
             return true
         }
@@ -111,7 +118,21 @@ class JvmInstallService : Service() {
         started.set(1)
         // 先清掉上次的结果，避免 Rust 读到旧值就立刻判定"完成"
         runCatching { java.io.File(filesDir, "logs/jvm-install-result.txt").delete() }
-        startForeground(NOTI_ID, buildNotification("正在准备运行环境…"))
+        try {
+            val notification = buildNotification("正在准备运行环境…")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTI_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTI_ID, notification)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "startForeground restricted; continuing or stopping cleanly", t)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                t is android.app.ForegroundServiceStartNotAllowedException
+            ) {
+                Log.e(TAG, "ForegroundServiceStartNotAllowedException in JvmInstallService", t)
+            }
+        }
 
         val jre = intent.getStringExtra(EXTRA_JRE) ?: ""
         val cp = intent.getStringExtra(EXTRA_CLASSPATH) ?: ""

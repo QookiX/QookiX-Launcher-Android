@@ -97,9 +97,15 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             &format!("正在检查 Java {required_java} 运行时…"),
             20.0,
         );
-        // 缺运行时时先用随 APK 内置的 Java 21（arm64）：包里明明有却直接联网，
-        // 弱网下会白等十几分钟。`try_install` 不适用时原样回落到下面的下载分支。
-        let mut runtime = MultiRTManager::get_compatible_runtime(required_java).await?;
+        let raw_settings = crate::settings::load_raw_settings_sync();
+        let mut runtime = match crate::launch_compat::resolve_custom_java_runtime(
+            Some(&instance.java_dir),
+            raw_text(&raw_settings, &["java_path", "javaPath"]).as_deref(),
+            required_java,
+        ) {
+            Some(rt) => Some(rt),
+            None => MultiRTManager::get_compatible_runtime(required_java).await?,
+        };
         if runtime.is_none() && crate::jre_bundled::try_install(required_java).await.is_some() {
             runtime = MultiRTManager::get_compatible_runtime(required_java).await?;
         }
@@ -250,10 +256,11 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             let versions_dir = Path::new(&data_dir).join("versions");
             let loader_str = loader_name(&instance.loader);
             if loader_str != "vanilla" {
-                if let Some(profile) = crate::loader_install::find_loader_profile(
+                if let Some(profile) = crate::loader_install::find_loader_profile_exact(
                     &versions_dir,
                     &loader_str,
                     &instance.mc_version,
+                    instance.loader_version.as_deref(),
                 ) {
                     // ⚠️ 2026-10-25 时序修复：strip 必须在 classpath 合并**之前**。
                     // 原来只在下面构造 jvm/game 参数前才 strip —— 但这段代码上面
@@ -340,16 +347,18 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             ),
             _ => None,
         };
-        let game_args = build_game_args(&instance, account, &data_dir, ms_token.as_deref())?;
+        let game_dir = instance_dir.to_string_lossy().to_string();
+        let mut game_args = build_game_args(
+            &instance,
+            account,
+            &data_dir,
+            &game_dir,
+            ms_token.as_deref(),
+        )?;
 
-        let game_dir = instance.game_dir.clone();
-
-        // 整合包自带的 options.txt 里可能有 `fullscreen:off` 这种非法布尔值，
-        // 游戏会报 "Not a boolean: off" 并丢掉该设置 —— 启动前顺手改正。
         normalize_options_txt(Path::new(&game_dir));
+        crate::instance_files::sanitize_mods_dir_public(&instance_dir.join("mods"));
 
-        // Minecraft 的 Log4j 不会自己创建 logs/ 目录，缺了会直接
-        // `FileNotFoundException: logs/latest.log`（游戏仍会继续，但日志丢失）。
         for sub in [
             "logs",
             "crash-reports",
@@ -362,92 +371,14 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             let _ = fs::create_dir_all(Path::new(&game_dir).join(sub)).await;
         }
 
-        #[cfg(target_os = "android")]
-        jvm_args.extend(build_android_jvm_args(
-            &instance,
-            &runtime,
-            &data_dir,
-            &game_dir,
-            &natives_dir.to_string_lossy(),
-            &apk_native_dir,
-            vendor.lwjgl_natives.as_deref(),
-            &vendor.extra_library_dirs,
-        ));
-
-        // ── 加载器 profile 声明的参数（`arguments.jvm` / `arguments.game`）──
-        //
-        // ⚠️ 2026-10-19 补：之前只并了 classpath 和 mainClass，参数一条都没带。
-        // 对 Forge 1.17+ / NeoForge 是致命的 —— 它们的主类是
-        // `cpw.mods.bootstraplauncher.BootstrapLauncher`，必须靠 profile 里的
-        //   `-p <模块路径>`（bootstraplauncher / securejarhandler / JarJarFileSystems）
-        //   `--add-modules ALL-MODULE-PATH`
-        //   `--add-opens java.base/...=cpw.mods.securejarhandler`
-        // 才能把游戏拉起来。缺了这些，JVM 要么报 `Unrecognized option`，
-        // 要么找不到主类，表现就是「加载器装了但游戏起不来」。
-        //
-        // 注意顺序：加载器的 JVM 参数放在 Android 那批**之后**；
-        // 游戏参数**追加在原版之后**（与桌面端 forge_patch 一致 ——
-        // vanilla 的 `--username` / `--gameDir` 在前，加载器的
-        // `--launchTarget` / `--fml.*` 在后；FML 的参数解析会扫描全部参数）。
-        let mut game_args = game_args;
-        {
-            let loader_str = loader_name(&instance.loader);
-            if loader_str != "vanilla" {
-                let versions_dir = Path::new(&data_dir).join("versions");
-                if let Some(profile) = crate::loader_install::find_loader_profile(
-                    &versions_dir,
-                    &loader_str,
-                    &instance.mc_version,
-                ) {
-                    // ⚠️ 2026-10-23 崩溃修复（第二次尝试，第一次方向错了）：
-                    // earlydisplay 不在 `-p` 上，而是 profile `libraries` 里的一条，
-                    // 由 BootstrapLauncher 按 `-DlibraryDirectory` 自己加载 →
-                    // 必须先就地把 json 里的这条删掉，后面的参数解析才不会再带上它。
-                    // 幂等：已经清过就什么都不做（只读一次 json）。
-                    crate::loader_install::strip_earlydisplay_library(&profile);
-
-                    let libs_dir = Path::new(&data_dir).join("libraries");
-                    let ldr_args = crate::loader_install::profile_arguments(
-                        &profile,
-                        &libs_dir,
-                        &instance.mc_version,
-                        ":",
-                    );
-                    // 注意：这条 println 在 redirect_output **之前**，只会进 logcat。
-                    // 真正要落盘的那几条在 redirect_output 之后（见下方「加载器摘要」）。
-                    if !ldr_args.is_empty() {
-                        crate::util::log_line(&format!(
-                            "[launcher] 加载器参数：jvm {} 条 / game {} 条 / legacy {} 条",
-                            ldr_args.jvm.len(),
-                            ldr_args.game.len(),
-                            ldr_args.legacy.len()
-                        ));
-                    }
-                    jvm_args.extend(ldr_args.jvm);
-                    // 追加在 vanilla 之后（顺序与桌面端一致）
-                    game_args.extend(ldr_args.game);
-                    // 旧式 profile（1.12.2 等）只有 minecraftArguments：
-                    // 原版那边同样有，重复项由 Minecraft 自己忽略。
-                    game_args.extend(ldr_args.legacy);
-                }
-            }
-        }
-
-        let mut env_map = HashMap::new();
-        env_map.insert("JAVA_HOME".to_string(), runtime.path.clone());
-        env_map.insert("HOME".to_string(), game_dir.clone());
-        // 每实例渲染器：实例设置 → （auto 时）按 MC 版本 → （global 时）全局设置。
-        // 选中的渲染器会写进启动日志，启动浮层里能直接看到「用的是哪个、为什么」。
         let mut renderer_source = String::new();
+        #[allow(unused_mut)]
         let mut renderer = resolve_renderer(Some(&instance), &mut renderer_source);
         crate::util::log_line(&format!(
             "渲染器：{}（{}）",
             renderer_display_name(&renderer),
             renderer_source
         ));
-        // 渲染器/驱动已改为插件分发，APK 里只随包 GL4ES 兜底。
-        // 选中的渲染器在插件目录和随包目录都找不到时，必须回退 GL4ES ——
-        // 否则 C 层会去 dlopen 一个不存在的库（空桥接表直接 SIGSEGV）。
         #[cfg(target_os = "android")]
         if !renderer_available(&data_dir, &apk_native_dir, &renderer) {
             let chosen = renderer.clone();
@@ -459,261 +390,75 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             );
             tracing::warn!("[launcher] {msg}");
             crate::util::log_line(&msg);
-            // 只写日志用户看不到「这次被降级成了 GL4ES」，会以为选的渲染器生效了。
             crate::progress::emit_launch_progress(&msg, 20.0);
         }
 
-        // 注意：**不要**设置 LD_LIBRARY_PATH。
-        // 实测（1.8.9 与 1.18.2 都试过）覆盖它会让 libjvm.so 加载失败，
-        // 于是 JLI 退化成 `exec bin/java`，而 Android 禁止执行应用私有目录 →
-        // 报 `Permission denied / Error: trying to exec .../bin/java`，比不设更糟。
-        // JDK 8 自带的原生库找不到依赖（libnio.so → libnet.so）改用
-        // `preload_jre_libs` 在 JVM 启动前逐个 System.load 解决，见那里。
-
-        // POJAV_NATIVEDIR 在 C 层被当作**库搜索路径**用（`egl_bridge.c` 的
-        // `linker_ns_load` → 拼进 android_create_namespace 的 default_library_path，
-        // 也就是 zink/Turnip 那条链路）。驱动/渲染器插件的目录必须排在最前，
-        // 否则命名空间里只会命中 APK 里随包那份，插件等于没装。
-        // 该变量只有这一处消费者，放冒号分隔的列表是它本来就支持的用法。
-        let mut native_search_dirs: Vec<String> = Vec::new();
-        // LWJGL 3.4.1 组件带来的 natives **必须排最前**。
-        // Android 加载 .so 是按「linker 命名空间里的 soname」找的，`java.library.path`
-        // 基本不参与（见 build_android_jvm_args 里的注释）——而 APK 的 jniLibs 与
-        // `files/natives` 里还躺着老的 3.3.x `liblwjgl*.so`。不塞进这里的话会命中旧的：
-        // 现象就是 LWJGL 直接报
-        // `[LWJGL] [ERROR] Incompatible Java and native library versions detected.`
-        // 随后启动中断（26.3 在全新安装的机器上实测）。
-        if let Some(dir) = &vendor.lwjgl_natives {
-            native_search_dirs.push(dir.to_string_lossy().to_string());
-        }
-        native_search_dirs.extend(
-            vendor
-                .extra_library_dirs
-                .iter()
-                .map(|p| p.to_string_lossy().to_string()),
-        );
-        native_search_dirs.push(natives_dir.to_string_lossy().to_string());
-        env_map.insert(
-            "POJAV_NATIVEDIR".to_string(),
-            native_search_dirs.join(":"),
-        );
-        // Pojav 的 Java 层会设这些变量，libpojavexec 的 pojavInitOpenGL 直接读它们：
-        // 读不到就是 NULL，`strcmp(NULL,...)` 会段错误（不是可选优化，是必须项）。
-        // 2026-10-24 改名 POJAV_RENDERER → QOOKIX_RENDERER：Sodium 0.8.13 的
-        // PostLaunchChecks.isUsingPojavLauncher() 只要发现 POJAV_RENDERER 这个
-        // 环境变量就直接中止（PreLaunchChecks 的 LWJGL 版本串检查早已通过），
-        // 所以 C 侧源码（egl_bridge.c 等 3 处）同步改读新名字。
-        env_map.insert(
-            "QOOKIX_RENDERER".to_string(),
-            renderer_c_name(&renderer).to_string(),
-        );
-        // 26.3：把「游戏会加载的那份 libSDL3」的绝对路径告诉 C 层。
-        // 它要在 `SDL_Init` 之前对**同一个映射**调 `SDL_SetMainReady` —— SDL 的全局状态
-        // 按映射隔离，给错文件等于没调（实测表现就是
-        // `Unable to initialize SDL: Application didn't initialize properly`）。
-        if use_lwjgl341 {
-            // 注意要在**所有**插件 libs 目录里找（列表第一个未必是组件插件那个，
-            // 渲染器/驱动插件也有 libs 目录，顺序不保证）。
-            let sdl3 = vendor
-                .extra_library_dirs
-                .iter()
-                .map(|d| d.join("libSDL3.so"))
-                .find(|p| p.exists());
-            if let Some(path) = sdl3 {
-                env_map.insert(
-                    "POJAVEXEC_SDL3".to_string(),
-                    path.to_string_lossy().to_string(),
-                );
-            }
-        }
-        env_map.insert("FORCE_VSYNC".to_string(), "true".to_string());
-        env_map.insert("POJAV_EMUI_ITERATOR_MITIGATE".to_string(), "false".to_string());
-        env_map.insert("POJAV_VSYNC_IN_ZINK".to_string(), "false".to_string());
-        env_map.insert("TMPDIR".to_string(), format!("{}/cache", data_dir.trim_end_matches('/')));
-
-        // SDL 窗口层（MC 26.3+）**自己**用 `SDL_GL_LoadLibrary` 加载 GL 实现，
-        // 而 MC 随后会比对「SDL 拿到的 glGetError 指针」与 LWJGL 用的库是否一致 ——
-        // 不一致就 `BackendCreationException: glGetError mismatch`（26.3 实测）。
-        // 所以必须把 `SDL_OPENGL_LIBRARY` 指到与 `-Dorg.lwjgl.opengl.libname` 同一个文件。
-        // 给绝对路径，避免 linker 命名空间找不到（files/natives 不在默认搜索路径里）。
-        // 渲染器库的来源：插件目录优先，其次是随包解压出来的 `<data>/natives`。
-        // 注意**不是** `natives_dir` —— 那是 Minecraft 运行库的解压缓存目录，
-        // 里面没有渲染器库（用错就是 SDL 的 `Could not load EGL library`）。
-        let gl_file = renderer_gl_lib(&renderer).to_string();
-        // v2：如果「当前选中的渲染器」由某个已启用的渲染器插件提供，就优先用它
-        // （用户可以单独更新/替换渲染器，不必等启动器发版）；否则退回随包内置。
-        let renderer_plugin_libs = crate::plugin::renderer_libs_dir(
+        #[cfg(target_os = "android")]
+        jvm_args.extend(build_android_jvm_args(
+            &instance,
+            &runtime,
             &data_dir,
-            renderer_plugin_key(&renderer),
-        );
-        let plugin_libs = renderer_plugin_libs
-            .as_ref()
-            .map(|p| p.to_string_lossy().to_string())
-            .or_else(|| {
-                vendor
-                    .extra_library_dirs
-                    .first()
-                    .map(|p| p.to_string_lossy().to_string())
-            });
-        let native_dir_str = match plugin_libs {
-            Some(dir) if Path::new(&dir).join(&gl_file).exists() => dir,
-            // 桌面端没有「APK 内的原生库目录」这个概念，留空即可
-            #[cfg(target_os = "android")]
-            _ => apk_native_dir.trim_end_matches('/').to_string(),
-            #[cfg(not(target_os = "android"))]
-            _ => String::new(),
-        };
-        env_map.insert(
-            "SDL_OPENGL_LIBRARY".to_string(),
-            format!("{}/{}", native_dir_str, renderer_gl_lib(&renderer)),
-        );
-        // MobileGlues 自带 EGL（GL 4.6 → GLES 3.x），SDL 也得用同一份 EGL，
-        // 否则 SDL 会去建系统 EGL 上下文、与 MG 的上下文打架。
-        if renderer == "libmobileglues.so" {
-            // MG 默认去 `/sdcard/MG` 读 config.json、写 glsl_cache.tmp ——
-            // 安卓 11+ 的分区存储下我们**没权限访问那里**：配置读不到就用默认值
-            // （`maxGlslCacheSize = 0`，等于关掉着色器翻译缓存），缓存也写不进去，
-            // 于是世界里的着色器每帧重翻译一次（实测 1.18.2 只有 2 FPS / 500ms 一帧）。
-            // 指到应用私有目录后配置生效、缓存可落盘（下次启动直接命中）。
-            if let Some(mg_dir) = ensure_mobileglues_dir(&data_dir) {
-                env_map.insert("MG_DIR_PATH".to_string(), mg_dir);
-            }
-            // MG 的「启动器检测」（源码 `MobileGlues-cpp/config/settings.cpp`）：
-            //   if (isInPluginApp == 0 && fclVersion == 0 && zlVersion == 0
-            //       && pgwVersion == 0 && !is_custom_mg_dir)
-            //       → 打印 "Unsupported launcher detected, force using default config."
-            //       → **强制**覆盖 9 项设置（其中 `noErrorConfig = Auto` → 最终
-            //         `ignore_error = None`，也就是我们最需要的「忽略 shader 错误」被关掉）
-            // 所以这四个变量**任给一个非 0** 就会被当成受支持的启动器，配置才会被尊重。
-            env_map.insert("MG_PLUGIN_STATUS".to_string(), "1".to_string());
-            env_map.insert("FCL_VERSION_CODE".to_string(), "1335".to_string());
-            env_map.insert("ZALITH_VERSION_CODE".to_string(), "2000".to_string());
-            env_map.insert("PGW_VERSION_CODE".to_string(), "1".to_string());
-            let egl_path = format!("{native_dir_str}/libmobileglues.so");
-            env_map.insert("SDL_EGL_LIBRARY".to_string(), egl_path.clone());
-            // 插件给的就是**真实文件路径**，C 层的 `loader_dlopen` 直接用绝对路径最稳；
-            // 内置那份在 APK 的 zip 路径里，还是用库名让 linker 在命名空间里找。
-            env_map.insert(
-                "POJAVEXEC_EGL".to_string(),
-                if renderer_plugin_libs.is_some() {
-                    egl_path
-                } else {
-                    "libmobileglues.so".to_string()
-                },
-            );
-        }
-
-        if renderer == "vulkan_zink" {
-            // Zink = Mesa 的「OpenGL on Vulkan」。C 层自己也会 setenv GALLIUM_DRIVER=zink，
-            // 这里显式再设一遍更稳；MESA_GLSL_CACHE_DIR 让着色器缓存落到应用私有目录，
-            // 否则每次进游戏都要重编译一遍（很慢）。
-            env_map.insert("GALLIUM_DRIVER".to_string(), "zink".to_string());
-            env_map.insert("MESA_LOADER_DRIVER_OVERRIDE".to_string(), "zink".to_string());
-            let cache_dir = format!("{}/cache", data_dir.trim_end_matches('/'));
-            env_map.insert("MESA_GLSL_CACHE_DIR".to_string(), cache_dir.clone());
-            // 下面这几项是 Pojav 原版在 zink 路径上一定会设的，移植时漏了：
-            // 前三个放宽 GLSL 版本/扩展限制（Minecraft 的着色器常用高版本语法），
-            // VTEST_SOCKET_NAME 是 virgl/zink 用来放测试 socket 的位置。
-            env_map.insert("force_glsl_extensions_warn".to_string(), "true".to_string());
-            env_map.insert("allow_higher_compat_version".to_string(), "true".to_string());
-            env_map.insert(
-                "allow_glsl_extension_directive_midshader".to_string(),
-                "true".to_string(),
-            );
-            env_map.insert("VTEST_SOCKET_NAME".to_string(), format!("{cache_dir}/.virgl_test"));
-            // 注意 egl_bridge.c 里是**存在性**判断（`getenv(...) == NULL` 才跳过），
-            // 所以给 GL4ES 时绝不能设这个变量，否则一样会去加载 Turnip。
-            env_map.insert("POJAV_LOAD_TURNIP".to_string(), "1".to_string());
-            env_map.insert("LIBGL_ES".to_string(), "3".to_string());
-            // OSMesa 是被 **C 层**按库名 dlopen 的（`osmesa_loader.c`），
-            // 走 linker 命名空间只会命中 APK 里那份 —— 渲染器插件要想生效，
-            // 得把绝对路径显式告诉它（C 层读 POJAVEXEC_OSMESA）。
-            if let Some(dir) = &renderer_plugin_libs {
-                let osmesa = dir.join("libOSMesa.so");
-                if osmesa.exists() {
-                    env_map.insert(
-                        "POJAVEXEC_OSMESA".to_string(),
-                        osmesa.to_string_lossy().to_string(),
-                    );
-                }
-            }
-        } else {
-            // GL4ES 专有：mipmap 与「忽略 GL 错误」（后者能躲掉整合包里的无效调用）
-            env_map.insert("LIBGL_MIPMAP".to_string(), "3".to_string());
-            env_map.insert("LIBGL_NOERROR".to_string(), "1".to_string());
-            // 1.17+ 需要 OpenGL 3.2 才能渲染主界面全景/帧缓冲，
-            // ES2 下这些会静默失败（表现就是主界面背景一片灰）。
-            env_map.insert("LIBGL_ES".to_string(), "3".to_string());
-        }
-
-        for (key, value) in &env_map {
-            std::env::set_var(key, value);
-        }
-
-        // ⚠️ 2026-10-19 加：优先用加载器 profile 的 mainClass。
-        // 原版的 `net.minecraft.client.main.Main` 会直接跑原版 MC，
-        // Forge 要用 BootstrapLauncher、Fabric 要用 KnotClient ——
-        // 这是「加载器真正生效」的关键一步。
-        // 启动前清一遍 mods 里的残废文件：`.part` 半成品 + 尾部截断的 jar。
-        // 真机事故：NeoForge 在 setup 阶段扫到打不开的 zip 就中止整个 mod 加载
-        // （日志只有一句 `zip END header not found`，表现是「一个模组都不加载」）。
-        if let Ok(inst_dir) = crate::settings::instance_dir(&instance_id).await {
-            crate::instance_files::sanitize_mods_dir_public(&inst_dir.join("mods"));
-        }
+            &game_dir,
+            &natives_dir.to_string_lossy(),
+            &apk_native_dir,
+            vendor.lwjgl_natives.as_deref(),
+            &vendor.extra_library_dirs,
+            &renderer,
+        ));
 
         let loader_str2 = loader_name(&instance.loader);
-
-        // ── NeoForge / Forge 的补丁产物前置校验（2026-10-23）──────────────
-        //
-        // 崩溃链（真机日志闭环，已确认）：
-        //   processors 没跑 → libraries 里没有打补丁的 client / client-extra.jar
-        //   → FML 的 ModList 里 `minecraft`/`neoforge` 不存在
-        //   → `ModSorter: Missing or unsupported mandatory dependencies`
-        //   → `Optional.orElseThrow → NoSuchElementException` → 进程闪退
-        //
-        // 而「跑 installer」在安卓上有硬限制：**不允许 exec 应用私有目录里的 java**
-        // （子进程方式直接 `启动 installer 失败`），只能用同进程 JVM ——
-        // 但 JNI_CreateJavaVM 一个进程只能调一次，装完必须重启 App 才能进游戏。
-        // 这套流程还没实现（见 CHANGELOG / 待办），所以这里**先明确拒绝启动**，
-        // 而不是让用户对着"闪退"猜。
-        if matches!(loader_str2.as_str(), "forge" | "neoforge") {
-            let loader_ver = instance.loader_version.clone().unwrap_or_default();
-            let patch_marker = Path::new(&data_dir)
-                .join("libraries")
-                .join(format!(
-                    ".qookix-processors-{loader_str2}-{loader_ver}.done"
-                ));
-            if !patch_marker.exists() {
-                let msg = format!(
-                    "{loader_str2} 需要先跑官方的补丁（processors）才能加载模组，\
-                     这一步在当前版本里还没打通（安卓不允许直接执行 java）。\
-                     现在启动会闪退，所以先不启动。\
-                     临时方案：改用 Fabric 版整合包，或在电脑上用官方启动器玩这个包。"
-                );
-                crate::util::log_line(&format!(
-                    "[launcher] {msg}（缺少标记 {}）",
-                    patch_marker.display()
-                ));
-                return Err(anyhow::anyhow!(msg));
-            }
-        }
-
         let main_class = if loader_str2 != "vanilla" {
             let versions_dir = Path::new(&data_dir).join("versions");
-            match crate::loader_install::find_loader_profile(
+            let profile = crate::loader_install::find_loader_profile_exact(
                 &versions_dir,
                 &loader_str2,
                 &instance.mc_version,
-            )
-            .and_then(|p| crate::loader_install::profile_main_class(&p))
-            {
+                instance.loader_version.as_deref(),
+            );
+            if let Some(ref profile_path) = profile {
+                crate::loader_install::strip_earlydisplay_library(profile_path);
+                let libs_dir = Path::new(&data_dir).join("libraries");
+                let ldr_args = crate::loader_install::profile_arguments(
+                    profile_path,
+                    &libs_dir,
+                    &instance.mc_version,
+                    ":",
+                );
+                if !ldr_args.is_empty() {
+                    crate::util::log_line(&format!(
+                        "[launcher] 加载器参数：jvm {} 条 / game {} 条 / legacy {} 条",
+                        ldr_args.jvm.len(),
+                        ldr_args.game.len(),
+                        ldr_args.legacy.len()
+                    ));
+                }
+                jvm_args.extend(ldr_args.jvm);
+                game_args.extend(ldr_args.game);
+                crate::launch_compat::merge_legacy_game_args(&mut game_args, &ldr_args.legacy);
+
+                if matches!(loader_str2.as_str(), "forge" | "neoforge")
+                    && !crate::loader_install::profile_is_legacy(profile_path)
+                {
+                    let loader_ver = instance.loader_version.clone().unwrap_or_default();
+                    let patch_marker = Path::new(&data_dir)
+                        .join("libraries")
+                        .join(format!(".qookix-processors-{loader_str2}-{loader_ver}.done"));
+                    if !patch_marker.exists() {
+                        let msg = format!(
+                            "{loader_str2} 需要先跑官方的补丁（processors）才能加载模组，\
+                             请到实例设置里重新安装/修复 {loader_str2} 加载器。"
+                        );
+                        crate::util::log_line(&format!(
+                            "[launcher] {msg}（缺少标记 {}）",
+                            patch_marker.display()
+                        ));
+                        return Err(anyhow::anyhow!(msg));
+                    }
+                }
+            }
+            match profile.and_then(|p| crate::loader_install::profile_main_class(&p)) {
                 Some(m) => m,
                 None => {
-                    // ⚠️ 真机踩过（1.21.1 NeoForge 实例，日志里只有 `profile=<未找到>`）：
-                    // 这里原来**静默退回原版主类** → 游戏照常进得去、但一个模组都不加载，
-                    // 用户完全看不出原因（还以为是模组装错了）。
-                    // 宁可当场拒绝：用原版跑一个"NeoForge 实例"不但模组全失效，
-                    // 还可能让原版去动 NeoForge 的存档。
                     let msg = format!(
                         "{loader_str2} 加载器没装成功：versions/ 下找不到它的 profile。\
                          直接启动会变成原版（所有模组失效），所以先不启动。\
@@ -732,6 +477,99 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
                 .clone()
                 .unwrap_or_else(|| "net.minecraft.client.main.Main".to_string())
         };
+
+        let mut env_map = HashMap::new();
+        env_map.insert("JAVA_HOME".to_string(), runtime.path.clone());
+        env_map.insert("HOME".to_string(), game_dir.clone());
+
+        let mut native_search_dirs: Vec<String> = Vec::new();
+        if let Some(dir) = &vendor.lwjgl_natives {
+            crate::launch_compat::push_unique_dir(
+                &mut native_search_dirs,
+                &dir.to_string_lossy(),
+            );
+        }
+        for p in &vendor.extra_library_dirs {
+            crate::launch_compat::push_unique_dir(&mut native_search_dirs, &p.to_string_lossy());
+        }
+        crate::launch_compat::push_unique_dir(
+            &mut native_search_dirs,
+            &natives_dir.to_string_lossy(),
+        );
+        #[cfg(target_os = "android")]
+        {
+            crate::launch_compat::push_unique_dir(&mut native_search_dirs, &apk_native_dir);
+            if let Some(sys_dir) = crate::android_env::native_lib_dir() {
+                crate::launch_compat::push_unique_dir(&mut native_search_dirs, &sys_dir);
+            }
+        }
+        env_map.insert(
+            "POJAV_NATIVEDIR".to_string(),
+            native_search_dirs.join(":"),
+        );
+        env_map.insert(
+            "QOOKIX_RENDERER".to_string(),
+            renderer_c_name(&renderer).to_string(),
+        );
+        if use_lwjgl341 {
+            let sdl3 = vendor
+                .extra_library_dirs
+                .iter()
+                .map(|d| d.join("libSDL3.so"))
+                .find(|p| p.exists());
+            if let Some(path) = sdl3 {
+                env_map.insert(
+                    "POJAVEXEC_SDL3".to_string(),
+                    path.to_string_lossy().to_string(),
+                );
+            }
+        }
+        env_map.insert("FORCE_VSYNC".to_string(), "true".to_string());
+        env_map.insert("TMPDIR".to_string(), format!("{}/cache", data_dir.trim_end_matches('/')));
+
+        let gl_file = renderer_gl_lib(&renderer).to_string();
+        let renderer_plugin_libs = crate::plugin::renderer_libs_dir(
+            &data_dir,
+            renderer_plugin_key(&renderer),
+        );
+        let plugin_libs = renderer_plugin_libs
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .or_else(|| {
+                vendor
+                    .extra_library_dirs
+                    .first()
+                    .map(|p| p.to_string_lossy().to_string())
+            });
+        let native_dir_str = match plugin_libs {
+            Some(dir) if Path::new(&dir).join(&gl_file).exists() => dir,
+            #[cfg(target_os = "android")]
+            _ => apk_native_dir.trim_end_matches('/').to_string(),
+            #[cfg(not(target_os = "android"))]
+            _ => String::new(),
+        };
+        env_map.insert(
+            "SDL_OPENGL_LIBRARY".to_string(),
+            format!("{}/{}", native_dir_str, renderer_gl_lib(&renderer)),
+        );
+        let mg_dir = if matches!(renderer.as_str(), "libmobileglues.so" | "mobileglues") {
+            ensure_mobileglues_dir(&data_dir)
+        } else {
+            None
+        };
+        crate::launch_compat::apply_renderer_env(
+            &renderer,
+            &data_dir,
+            &native_dir_str,
+            renderer_plugin_libs.as_ref(),
+            mg_dir,
+            &mut env_map,
+        );
+
+        crate::launch_compat::clear_stale_launch_env();
+        for (key, value) in &env_map {
+            std::env::set_var(key, value);
+        }
 
         let jre_home = Path::new(&runtime.path);
 
@@ -852,10 +690,11 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             println!(
                 "[launcher] 加载器={} profile={} mainClass={}",
                 loader_name(&instance.loader),
-                crate::loader_install::find_loader_profile(
+                crate::loader_install::find_loader_profile_exact(
                     &std::path::Path::new(&data_dir).join("versions"),
                     &loader_name(&instance.loader),
                     &instance.mc_version,
+                    instance.loader_version.as_deref(),
                 )
                 .map(|p| p.file_name().unwrap_or_default().to_string_lossy().to_string())
                 .unwrap_or_else(|| "<未找到>".to_string()),
@@ -928,7 +767,9 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         // 传 game_dir 是为了让它等 MC 日志里的「原生库已装好」标记再动手 ——
         // 抢在库加载窗口里注册 native 会把 GLFW / MemoryUtil 的初始化撞坏（26.3 实测崩）。
         #[cfg(target_os = "android")]
-        crate::gl_brand::spawn_installer(&game_dir);
+        if renderer == "opengles2" {
+            crate::gl_brand::spawn_installer(&game_dir);
+        }
 
         // ⚠️ 2026-10-19 真机诊断：这两行是判断「JLI_Launch 到底有没有跑起来」
         // 的唯一可靠依据。之前 Fabric 实例的日志里既没有 JVM 自己的输出、
@@ -942,31 +783,6 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             jvm_args.len() + game_args.len() + 3
         );
 
-        // ⚠️ 2026-10-23：把 JVM 的 stdout/stderr 落一份到 `<data>/logs/game-stderr.log`。
-        //
-        // 为什么必须这么做：启动是**同进程 JNI**（`JLI_Launch`），JVM 的 stderr
-        // **不进** logcat 的 RustStdoutStderr。真机现象是
-        //   「Launching target 'forgeclient'」之后进程直接没了 ——
-        //   无 crash-report、无 Java 异常、连退出码都没有 ✗，完全查不到死因。
-        // dup2 到文件后，至少能拿到 JVM 自己写的死因（hs_err / 信号 / 异常栈）。
-        // ⚠️ 2026-10-23 真机修（启动遮罩停在「正在初始化渲染器…126 秒」不收起）：
-        //
-        // 上面 `spawn_log_tail` 盯的是 `logs/launch-<实例>.log`，前端收到任何
-        // `launch://log` 就认为「启动成功」并收起遮罩。
-        // 我先前把 JVM 输出重定向到了 `logs/game-stderr.log` ✗ → tail 盯的文件永远没内容
-        // → 前端收不到任何 log → 遮罩不收起（游戏其实已经在主菜单了）。
-        // 所以这里必须写回 **tail 正在盯的那个文件**（内容一样，能拿到 stderr）。
-        let stderr_guard = redirect_output_to_file(
-            &std::path::Path::new(&data_dir)
-                .join("logs")
-                .join(format!("launch-{}.log", instance.id)),
-            &instance.id,
-        );
-
-        // 游玩时长：落**会话标记**而不是挂在 JLI_Launch 返回之后 —— 游戏
-        // System.exit 会带走整个启动器进程（同进程 JNI），正常退出路径上
-        // JLI_Launch 根本不返回。对账在启动器下次拉起时做
-        // （playtime::reconcile_pending_session，见 jni_bridge::nativeAttach）。
         crate::playtime::mark_session_start(&instance.id).await;
 
         let launch_outcome = JvmLauncher::launch(
@@ -977,10 +793,6 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             &game_args,
             &game_dir,
         );
-
-        if let Some(restore) = stderr_guard {
-            restore();
-        }
 
         match &launch_outcome {
             Ok(code) => println!("[launcher] JLI_Launch 返回，退出码 {code}"),
@@ -1257,6 +1069,11 @@ async fn build_classpath(
                 crate::util::log_line("[launcher] classpath 里跳过 earlydisplay（真正的过滤在 -p 上）");
                 continue;
             }
+            if let Some(rules) = &lib.rules {
+                if !crate::launch_compat::rule_allows_android(rules) {
+                    continue;
+                }
+            }
             if let Some(downloads) = &lib.downloads {
                 if let Some(artifact) = &downloads.artifact {
                     let lib_path = Path::new(data_dir)
@@ -1305,21 +1122,9 @@ fn needs_lwjgl341(version_info: &MinecraftVersion) -> bool {
         return false;
     };
     libs.iter()
-        .find_map(|lib| {
-            let rest = lib.name.strip_prefix("org.lwjgl:lwjgl:")?;
-            // 只要没有 classifier 的主条目（"3.4.3"，而不是 "3.4.3:natives-linux"）
-            if rest.contains(':') {
-                return None;
-            }
-            let digits: String = rest
-                .trim_start_matches(|c: char| !c.is_ascii_digit())
-                .chars()
-                .take_while(|c| c.is_ascii_digit() || *c == '.')
-                .filter(|c| *c != '.')
-                .collect();
-            digits.parse::<u32>().ok()
-        })
-        .is_some_and(|v| v >= 341)
+        .filter_map(|lib| lib.name.strip_prefix("org.lwjgl:lwjgl:"))
+        .filter(|rest| !rest.contains(':'))
+        .any(|ver| crate::launch_compat::semver_ge(ver, (3, 4, 1)))
 }
 
 async fn load_vendor_jars(
@@ -1759,22 +1564,12 @@ fn resolve_memory_limits(
     instance: &MinecraftProfile,
     raw: &std::collections::HashMap<String, serde_json::Value>,
 ) -> (i32, i32) {
-    // 手机上的实际上限；再高只会换来 OOM 和系统杀进程
-    const HARD_MAX_MB: i32 = 8192;
-    const HARD_MIN_MB: i32 = 256;
-
-    let max_mb = instance
-        .max_memory_mb
-        .or_else(|| raw_i64(raw, &["max_memory_mb", "maxMemoryMb"]).map(|v| v as i32))
-        .unwrap_or(2048)
-        .clamp(512, HARD_MAX_MB);
-
-    let min_mb = raw_i64(raw, &["min_memory_mb", "minMemoryMb"])
-        .map(|v| v as i32)
-        .unwrap_or(512)
-        .clamp(HARD_MIN_MB, max_mb);
-
-    (max_mb, min_mb)
+    crate::launch_compat::clamp_memory_limits(
+        instance.max_memory_mb,
+        raw_i64(raw, &["max_memory_mb", "maxMemoryMb"]).map(|v| v as i32),
+        raw_i64(raw, &["min_memory_mb", "minMemoryMb"]).map(|v| v as i32),
+        crate::launch_compat::read_device_ram_mb(),
+    )
 }
 fn build_jvm_args(instance: &MinecraftProfile, runtime: &Runtime, vendor: &VendorJars) -> Vec<String> {
     let mut args = Vec::new();
@@ -1786,27 +1581,26 @@ fn build_jvm_args(instance: &MinecraftProfile, runtime: &Runtime, vendor: &Vendo
     args.push(format!("-Xmx{}M", max_mem));
     args.push(format!("-Xms{}M", min_mem));
 
-    // 设置界面里的「JVM 参数」以前从来没被读过 —— 改了没有任何效果。
     if let Some(global_jvm_args) = raw_text(&raw, &["jvm_args", "jvmArgs"]) {
         if !global_jvm_args.trim().is_empty() {
-            args.extend(global_jvm_args.split_whitespace().map(|s| s.to_string()));
+            args.extend(crate::launch_compat::split_shell_args(&global_jvm_args));
         }
     }
 
-    // Caciocavallo（安卓上的 AWT 实现）。
-    //
-    // 现状：**关闭**。Pojav 版 JRE 的 lib 目录里只有 libawt_headless.so，
-    // 没有 libawt_xawt.so；而 `-Djava.awt.headless=false` 会让 java.awt.Toolkit
-    // 的静态初始化去加载 libawt_xawt.so 并直接 UnsatisfiedLinkError。
-    // 原版 Minecraft 不需要 AWT 界面（LWJGL 自带窗口），保持 headless 即可；
-    // 将来若换用带 xawt 的 JRE，把这里改成 true 就能启用（参数表已照抄 Pojav）。
     const ENABLE_CACIOCAVALLO: bool = false;
 
     let (width, height) = instance.resolution.unwrap_or((854, 480));
     if !ENABLE_CACIOCAVALLO {
         args.push("-Djava.awt.headless=true".to_string());
+        if runtime.java_version <= 8 {
+            if let Some(hack) = vendor.cacio.iter().find(|p| {
+                p.file_name().and_then(|n| n.to_str()) == Some("ResConfHack.jar")
+            }) {
+                args.push(format!("-Xbootclasspath/p:{}", hack.display()));
+            }
+        }
         if let Some(custom_args) = &instance.java_args {
-            args.extend(custom_args.split_whitespace().map(|s| s.to_string()));
+            args.extend(crate::launch_compat::split_shell_args(custom_args));
         }
         return args;
     }
@@ -1889,28 +1683,22 @@ fn build_android_jvm_args(
     native_lib_dir: &str,
     lwjgl_natives: Option<&std::path::Path>,
     extra_library_dirs: &[std::path::PathBuf],
+    renderer: &str,
 ) -> Vec<String> {
     let mut args = Vec::new();
+    let sys_native_dir = crate::android_env::native_lib_dir();
 
-    // 顺序即优先级：
-    // 1. LWJGL 3.4.1 的原生库目录（有的话）**必须最前** —— `System.loadLibrary("lwjgl"
-    //    / "openal" / …)` 找的是 `java.library.path`，而 APK 与 `files/natives` 里
-    //    还躺着老的 3.3.x 版本。被旧库抢先的后果是 LWJGL 直接报
-    //    `Incompatible Java and native library versions detected`，随后 LibFFI/freetype
-    //    一连串 `UnsatisfiedLinkError`（26.3 实测）。
-    // 2. 插件目录：同名库（SDL3 / 渲染器）要优先于内置那份。
     let mut library_parts: Vec<String> = Vec::new();
     if let Some(dir) = lwjgl_natives {
-        library_parts.push(dir.to_string_lossy().to_string());
+        crate::launch_compat::push_unique_dir(&mut library_parts, &dir.to_string_lossy());
     }
-    library_parts.extend(
-        extra_library_dirs
-            .iter()
-            .map(|p| p.to_string_lossy().to_string()),
-    );
-    library_parts.push(natives_dir.to_string());
-    if !native_lib_dir.is_empty() {
-        library_parts.push(native_lib_dir.to_string());
+    for p in extra_library_dirs {
+        crate::launch_compat::push_unique_dir(&mut library_parts, &p.to_string_lossy());
+    }
+    crate::launch_compat::push_unique_dir(&mut library_parts, natives_dir);
+    crate::launch_compat::push_unique_dir(&mut library_parts, native_lib_dir);
+    if let Some(sys_dir) = sys_native_dir.as_deref() {
+        crate::launch_compat::push_unique_dir(&mut library_parts, sys_dir);
     }
     args.push(format!("-Djava.library.path={}", library_parts.join(":")));
 
@@ -1967,9 +1755,7 @@ fn build_android_jvm_args(
     //
     // 必须和主流程用**同一套解析**：这里若直接读全局设置，实例级选择就形同虚设
     // —— 实测表现是「实例设了 GL4ES，游戏还是加载 libmobileglues.so」。
-    let mut _renderer_why = String::new();
-    let renderer = resolve_renderer(Some(instance), &mut _renderer_why);
-    let gl_libname = renderer_gl_lib(&renderer);
+    let gl_libname = renderer_gl_lib(renderer);
     args.push(format!("-Dorg.lwjgl.opengl.libname={gl_libname}"));
     args.push("-Dorg.lwjgl.vulkan.libname=libvulkan.so".to_string());
     // freetype 必须跟**这一套 LWJGL 的 Java 类**配套：`native_lib_dir`（APK 里抽出来的
@@ -2009,11 +1795,12 @@ fn build_android_jvm_args(
     args.push(format!("-Dglfwstub.windowHeight={height}"));
     args.push("-Dglfwstub.initEgl=false".to_string());
 
-    // 线程栈抓取 agent（诊断用，见 jni/thread_dump_agent.c）：natives 里有就加载。
-    // 它只在 127.0.0.1:12857 起服务，连上才 dump，平时零开销。
-    let agent_path = format!("{natives_dir}/libthreaddump.so");
-    if std::path::Path::new(&agent_path).exists() {
-        args.push(format!("-agentpath:{agent_path}"));
+    // 线程栈抓取 agent（诊断用，见 jni/thread_dump_agent.c）：优先查找随包 jniLibs / natives。
+    if let Some(agent_path) = crate::launch_compat::find_agent_path(
+        &[sys_native_dir.as_deref().unwrap_or(""), native_lib_dir, natives_dir],
+        "libthreaddump.so",
+    ) {
+        args.push(format!("-agentpath:{}", agent_path.display()));
     }
 
     args.push("-Dlog4j2.formatMsgNoLookups=true".to_string());
@@ -2088,28 +1875,33 @@ fn build_game_args(
     instance: &MinecraftProfile,
     account: Option<&Account>,
     data_dir: &str,
+    game_dir: &str,
     ms_access_token: Option<&str>,
 ) -> Result<Vec<String>> {
     let mut args = Vec::new();
 
-    let (username, uuid, access_token) = match account {
+    let (username, uuid, access_token, user_type) = match account {
         Some(acc) => {
-            let token = match acc.account_type {
-                // 正版：必须是**换来的** Minecraft access token。
-                // 以前这里是 `acc.msa_refresh_token`，等于把刷新令牌当访问令牌用 ——
-                // 游戏能起来，但一连正版服务器就 401/掉线，用户完全看不出原因。
-                crate::models::AccountType::Microsoft => ms_access_token
-                    .filter(|t| !t.is_empty())
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("正版会话已过期，请重新登录微软账号后再启动")
-                    })?
-                    .to_string(),
-                // 离线账号没有正版会话，通行做法就是填 `0`
-                _ => "0".to_string(),
+            let (token, kind) = match acc.account_type {
+                crate::models::AccountType::Microsoft => (
+                    ms_access_token
+                        .filter(|t| !t.is_empty())
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("正版会话已过期，请重新登录微软账号后再启动")
+                        })?
+                        .to_string(),
+                    "msa",
+                ),
+                _ => ("0".to_string(), "legacy"),
             };
-            (acc.username.clone(), acc.uuid.clone(), token)
+            (acc.username.clone(), acc.uuid.clone(), token, kind)
         }
-        None => ("Steve".to_string(), "00000000-0000-0000-0000-000000000000".to_string(), "0".to_string()),
+        None => (
+            "Steve".to_string(),
+            "00000000-0000-0000-0000-000000000000".to_string(),
+            "0".to_string(),
+            "legacy",
+        ),
     };
 
     args.push("--username".to_string());
@@ -2118,14 +1910,14 @@ fn build_game_args(
     args.push(uuid);
     args.push("--accessToken".to_string());
     args.push(access_token);
+    args.push("--userType".to_string());
+    args.push(user_type.to_string());
+    args.push("--userProperties".to_string());
+    args.push("{}".to_string());
     args.push("--version".to_string());
     args.push(instance.mc_version.clone());
     args.push("--gameDir".to_string());
-    args.push(instance.game_dir.clone());
-    // --assetsDir 必须是**绝对路径**。以前传的是相对路径 "assets"，
-    // 而游戏进程的工作目录并不是数据目录（安卓应用的工作目录是 "/"），
-    // 于是游戏永远找不到资源 —— 日志里那几条
-    // `Can't find the resource index file: assets/indexes/1.18.2.json` 就是这个原因。
+    args.push(game_dir.to_string());
     let assets_dir = Path::new(data_dir).join("assets");
     args.push("--assetsDir".to_string());
     args.push(assets_dir.to_string_lossy().to_string());
@@ -2140,14 +1932,13 @@ fn build_game_args(
     }
 
     if let Some(custom_args) = &instance.game_args {
-        args.extend(custom_args.split_whitespace().map(|s| s.to_string()));
+        args.extend(crate::launch_compat::split_shell_args(custom_args));
     }
 
-    // 全局「游戏参数」同样从前端设置里有，但以前没人读。
     let raw = crate::settings::load_raw_settings_sync();
     if let Some(global_game_args) = raw_text(&raw, &["game_args", "gameArgs"]) {
         if !global_game_args.trim().is_empty() {
-            args.extend(global_game_args.split_whitespace().map(|s| s.to_string()));
+            args.extend(crate::launch_compat::split_shell_args(&global_game_args));
         }
     }
 

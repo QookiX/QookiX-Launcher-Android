@@ -214,10 +214,16 @@ class GameService : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, GameService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("GameService", "startForegroundService blocked, trying startService", t)
+                runCatching { context.startService(intent) }
+                    .onFailure { android.util.Log.w("GameService", "startService fallback skipped", it) }
             }
         }
 

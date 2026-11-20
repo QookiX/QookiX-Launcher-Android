@@ -4,6 +4,7 @@
 
 #include "jvm_hooks.h"
 #include <stdlib.h>
+#include <string.h>
 
 #define TAG __FILE_NAME__
 #include <log.h>
@@ -27,7 +28,8 @@ jint getLibraryPath_fix(__attribute__((unused)) JNIEnv *env,
  * Install the linker hang mitigation that is meant to prevent linker hangs on old EMUI firmware.
  */
 void installEMUIIteratorMititgation(JNIEnv *env) {
-    if(getenv("POJAV_EMUI_ITERATOR_MITIGATE") == NULL) return;
+    const char *flag = getenv("POJAV_EMUI_ITERATOR_MITIGATE");
+    if (flag == NULL || (strcmp(flag, "1") != 0 && strcasecmp(flag, "true") != 0)) return;
     LOGI("Installing...");
     jclass sharedLibraryUtil = (*env)->FindClass(env, "org/lwjgl/system/SharedLibraryUtil");
     if(sharedLibraryUtil == NULL) {

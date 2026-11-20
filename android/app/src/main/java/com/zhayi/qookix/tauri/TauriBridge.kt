@@ -67,45 +67,28 @@ object TauriBridge {
     @Synchronized
     private fun ensurePojavLoaded(): Boolean {
         if (pojavLoaded) return true
-        val dir = PojavShim.nativeLibDir()
-        val extracted = if (dir != null) java.io.File(dir, "libpojavexec.so") else null
-
-        // 抽取可能正在进行（尤其装包后的第一次启动）：等文件出现且大小稳定再加载。
-        // 已经是"老文件"（两秒前就在）时直接跳过等待。
-        if (extracted != null) {
-            val deadline = System.currentTimeMillis() + 15_000
-            var lastSize = -1L
-            var stable = 0
-            while (System.currentTimeMillis() < deadline) {
-                if (!extracted.isFile) {
-                    stable = 0
-                } else {
-                    if (System.currentTimeMillis() - extracted.lastModified() > 2_000) break
-                    val size = extracted.length()
-                    if (size > 0 && size == lastSize) {
-                        if (++stable >= 3) break // 连续 3 次（间隔 250ms）大小一致 → 抽取已完成
-                    } else {
-                        stable = 0
-                    }
-                    lastSize = size
-                }
-                Thread.sleep(250)
-            }
+        // First try system/APK linker namespace (single canonical copy when libpojavexec.so is in jniLibs).
+        try {
+            System.loadLibrary("pojavexec")
+            pojavLoaded = true
+            Log.i(TAG, "libpojavexec loaded via System.loadLibrary")
+            return true
+        } catch (t: Throwable) {
+            Log.d(TAG, "System.loadLibrary(pojavexec) unavailable, checking extracted dir: ${t.message}")
         }
 
+        val dir = PojavShim.nativeLibDir()
+        val extracted = if (dir != null) java.io.File(dir, "libpojavexec.so") else null
         return try {
-            if (extracted != null && extracted.isFile) {
+            if (extracted != null && extracted.isFile && extracted.length() > 0L) {
                 System.load(extracted.absolutePath)
                 Log.i(TAG, "libpojavexec loaded from ${extracted.absolutePath}")
+                pojavLoaded = true
+                true
             } else {
-                // 这里**不能**回退 `System.loadLibrary("pojavexec")`（APK 里的另一份副本）：
-                // 两份各自的 pojav_environ 不共享，ART 设置好的 pojavWindow 在 JVM 侧
-                // 仍是 NULL，GL 初始化直接 SIGSEGV(fault addr 0x0)。宁可明确报缺库。
-                Log.e(TAG, "libpojavexec 缺失：natives 未抽取成功，游戏无法启动")
-                return false
+                Log.e(TAG, "libpojavexec 缺失：系统库与 natives 目录均未找到，游戏无法启动")
+                false
             }
-            pojavLoaded = true
-            true
         } catch (e: Throwable) {
             pojavLoaded = false
             Log.w(TAG, "libpojavexec not available", e)

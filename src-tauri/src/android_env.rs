@@ -94,7 +94,13 @@ pub fn native_lib_dir() -> Option<String> {
         }
         for abi in ["/lib/arm64/", "/lib/arm/", "/lib/x86_64/", "/lib/x86/"] {
             if let Some(idx) = path.find(abi) {
+                if path[..idx].ends_with('!') || path[..idx].ends_with(".apk") {
+                    continue;
+                }
                 let dir = path[..idx + abi.len() - 1].to_string();
+                if !Path::new(&dir).is_dir() {
+                    continue;
+                }
                 // 应用自己的库在 /data/app/...（或老设备的 /data/data/...）
                 if path.starts_with("/data/app/") || path.starts_with("/data/data/") {
                     return Some(dir);
@@ -148,7 +154,9 @@ pub fn apk_paths() -> Vec<String> {
             continue;
         }
         match &pkg {
-            Some(p) if path.contains(p.as_str()) => ours.push(path.to_string()),
+            Some(p) if path.contains(&format!("/{p}-")) || path.contains(&format!("/{p}/")) => {
+                ours.push(path.to_string())
+            }
             Some(_) => others.push(path.to_string()),
             None => ours.push(path.to_string()),
         }
@@ -215,9 +223,11 @@ pub async fn extract_native_libs_from_apk(
                 failed.push(so_name.to_string());
                 continue;
             }
-            match std::fs::write(&out_path, &data) {
+            let tmp_path = out_path.with_extension("so.part");
+            match std::fs::write(&tmp_path, &data).and_then(|()| std::fs::rename(&tmp_path, &out_path)) {
                 Ok(()) => extracted += 1,
                 Err(e) => {
+                    let _ = std::fs::remove_file(&tmp_path);
                     failed.push(format!("{so_name}({e})"));
                 }
             }
@@ -228,21 +238,16 @@ pub async fn extract_native_libs_from_apk(
     .map_err(|e| std::io::Error::other(e.to_string()))?
 }
 
-/// 这些库由系统直接从 APK 加载，不需要（也不该）复制到应用数据目录。
 fn is_system_loaded_lib(name: &str) -> bool {
+    if name == "libpojavexec.so" {
+        return native_lib_dir()
+            .is_some_and(|d| Path::new(&d).join("libpojavexec.so").is_file());
+    }
     matches!(
         name,
-        // 我们自己的 Rust 核心：进程启动时已加载
         "libqookix_lib.so"
-            // WebView 的 Chromium：由 WebView provider 管理
             | "libwebviewchromium.so"
             | "libwebviewchromium_loader.so"
-            // **绝不能在 data 目录留副本**：SDL3 的 `JNI_OnLoad` 里缓存 JavaVM，
-            // 而它只会在「Java 类加载器加载这个库」时被调用一次。
-            // 进程里出现两份 libSDL3.so 时，LWJGL 从 data 目录 dlopen 的那份
-            // （JNI_OnLoad 没跑过）被游戏调用，SDL 内部拿 JavaVM 得到 NULL →
-            // `Failed, there is no JavaVM` → 空指针 SIGSEGV（26.3 实测 tombstone）。
-            // 只留 APK 里那一份，两条路径的 realpath 相同，linker 会去重。
             | "libSDL3.so"
     ) || name.starts_with("libcrashpad")
         || name.starts_with("libmonochrome")
@@ -267,22 +272,13 @@ fn apk_stamp(apks: &[String]) -> String {
 }
 
 /// 找出「能让 JVM `System.loadLibrary` 成功」的原生库目录。
-///
-/// **始终以 `<data>/natives/` 为准**：Kotlin 侧 `System.load` 与 JVM 的
-/// `java.library.path` 必须指向同一份文件。
-///
-/// 曾经这里优先返回系统给 APK 解压的库目录，结果进程里存在两份
-/// `libpojavexec.so`（系统目录是新的、`<data>/natives` 是旧的），而安卓 linker
-/// 按 soname 去重只认先加载的那份 —— 表现为「改了 native 代码却完全不生效」。
-/// 因此改成每次都从 APK 增量抽取（按文件大小判断），统一用同一份。
 pub async fn resolve_native_lib_dir(data_dir: &str) -> std::io::Result<String> {
-    let required = ["liblwjgl.so", "libgl4es_114.so", "libpojavexec.so"];
+    static RESOLVE_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = RESOLVE_LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
+    let required = ["liblwjgl.so", "libgl4es_114.so"];
     let dest = Path::new(data_dir).join("natives");
     let apks = apk_paths();
 
-    // APK 变了就全量重抽。只比单文件大小会漏掉「大小恰好没变」的构建，
-    // 而 linker 一旦加载过旧 .so 就会按 soname 复用 —— 表现为改了 native
-    // 代码却不生效（排查这种问题极其费时，所以这里用指纹兜住）。
     let stamp_path = dest.join(".apk-stamp");
     let stamp = apk_stamp(&apks);
     let force = std::fs::read_to_string(&stamp_path)
@@ -292,10 +288,6 @@ pub async fn resolve_native_lib_dir(data_dir: &str) -> std::io::Result<String> {
     let mut report: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
 
-    // ⚠️ APK 变了就**先清空**目录再抽：抽取只会覆盖「APK 里存在的同名文件」，
-    // 旧版本启动器留下、而新 APK 里已经没有的那些 .so 会一直留在 natives 目录里
-    // 参与 System.loadLibrary（它们带着旧 NDK 的 emutls 依赖，Android 16 上
-    // dlopen 直接失败）—— 详见 native_cleanup::clear_stale_native_libs。
     if force {
         let removed = crate::native_cleanup::clear_stale_native_libs(&dest);
         if removed > 0 {
@@ -321,15 +313,10 @@ pub async fn resolve_native_lib_dir(data_dir: &str) -> std::io::Result<String> {
         }
     }
 
-    // 老版本曾把 libSDL3.so 抽到这里，留下的那份必须删掉：
-    // 进程里一旦存在两份 libSDL3.so，游戏调用的那份没跑过 JNI_OnLoad →
-    // SDL 拿不到 JavaVM → `Failed, there is no JavaVM` → SIGSEGV。
-    // 现在只认 APK 里那一份（见 is_system_loaded_lib 的说明）。
-    let stale_sdl = dest.join("libSDL3.so");
-    if stale_sdl.exists() {
-        match std::fs::remove_file(&stale_sdl) {
-            Ok(()) => crate::util::log_line("已清理 data 目录里多余的 libSDL3.so（避免进程里出现两份）"),
-            Err(e) => crate::util::log_line(&format!("清理多余 libSDL3.so 失败：{e}")),
+    for dup in ["libSDL3.so", "libpojavexec.so"] {
+        let stale = dest.join(dup);
+        if stale.exists() {
+            let _ = std::fs::remove_file(&stale);
         }
     }
 
@@ -428,28 +415,9 @@ pub fn preload_jre_libraries(jre_home: &Path) -> usize {
     const SKIP: [&str; 1] = ["libjsig.so"];
 
     let mut pending: Vec<std::path::PathBuf> = Vec::new();
-    // ⚠️⚠️ 顺序有讲究：**必须先 `lib/server`，再 `lib`**（2026-10-16 修）。
-    //
-    // 踩过的坑（真机实测，表现是「游戏启动直接闪退、只留一行 LinkageError」）：
-    //
-    //   `lib/` 里有 `libjawt.so` / `libawt_headless.so` / `libawt.so`，
-    //   它们 `DT_NEEDED` 了 **`libjvm.so`** —— 而 `libjvm.so` 只在 `lib/server/`。
-    //
-    //   原来的顺序是 `["lib", "lib/server", ...]`，于是第一轮先尝试
-    //   `lib/libjawt.so` → 它的依赖 `libjvm.so` 还没进全局表 → 失败，
-    //   报的却是外层那个已经存在的库：
-    //       dlopen failed: library "libawt_headless.so" not found
-    //          (needed by .../lib/libjawt.so in namespace clns-9)
-    //   **报错信息把真正缺的东西指向了错误的方向**，非常容易误判成"缺文件"。
-    //
-    //   后果：AWT 相关库全部加载不上 → MC 客户端 `Main` 静态初始化碰 AWT →
-    //   `ExceptionInInitializerError: null` → JVM 在异常路径上再初始化模块系统
-    //   也失败（`SystemModuleFinders$SystemImage`）→ 进程退出。
-    //
-    //   服务端（Paper）**不碰 AWT**，所以同一个 JRE 下服务端一直正常 ——
-    //   这个对比是定位问题的关键线索。
-    for sub in ["lib/server", "lib", "lib/client"] {
-        collect_so_files(&jre_home.join(sub), &mut pending);
+    // 按依赖顺序扫描所有存在架构子目录（兼容 JDK 8 的 lib/<arch>/ 与 JDK 9+ 扁平布局）
+    for sub_dir in crate::launch_compat::jre_lib_subdirs(jre_home) {
+        collect_so_files(&sub_dir, &mut pending);
     }
     pending.retain(|path| {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
@@ -781,7 +749,11 @@ pub(crate) async fn extract_asset_files(
             if entry.read_to_end(&mut data).is_err() {
                 continue;
             }
-            std::fs::write(&out, &data)?;
+            let tmp = out.with_extension("part");
+            if std::fs::write(&tmp, &data).is_err() || std::fs::rename(&tmp, &out).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+                continue;
+            }
             extracted += 1;
         }
 

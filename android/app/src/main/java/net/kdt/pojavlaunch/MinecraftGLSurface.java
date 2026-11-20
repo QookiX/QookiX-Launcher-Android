@@ -132,20 +132,20 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
      * 传入的 `layout` 是父容器 —— SDLActivity 需要一个 ViewGroup 来挂 SDLSurface。
      */
     private static void setupSDL(Context ctx, Surface nativeSurface, ViewGroup layout) {
-        // 先把 SDL3 载进 **当前（dalvik）VM**：SDL 的 JNI_OnLoad 在这里跑过才会
-        // 缓存 JavaVM，之后游戏 JVM 里 LWJGL 再 dlopen 同一份时不会重复初始化。
-        // 顺序很重要 —— 若让游戏侧先加载，SDL 后面会因为拿不到 JavaVM 空指针崩。
+        String sdl3 = System.getenv("POJAVEXEC_SDL3");
         try {
-            System.loadLibrary("SDL3");
+            if (sdl3 != null && new File(sdl3).isFile()) System.load(sdl3); else System.loadLibrary("SDL3");
         } catch (Throwable t) {
             Log.w("MGLSurface", "提前加载 libSDL3.so 失败（稍后游戏侧还会再试）", t);
         }
+        int w = Math.max(1, layout != null && layout.getWidth() > 0 ? layout.getWidth() : Tools.currentDisplayMetrics.widthPixels);
+        int h = Math.max(1, layout != null && layout.getHeight() > 0 ? layout.getHeight() : Tools.currentDisplayMetrics.heightPixels);
         SDLSurface surface = new SDLSurface(ctx);
         motionListener = SDLActivity.getMotionListener();
         org.libsdl.app.SDL.initialize();
         SDL.setContext((Activity) ctx);
         SDLActivity.externalInitialize(surface, layout, nativeSurface);
-        Log.i("MGLSurface", "SDL 胶水已初始化（surface=" + nativeSurface + "）");
+        Log.i("MGLSurface", "SDL 胶水已初始化（surface=" + nativeSurface + " size=" + w + "x" + h + "）");
     }
 
     /**

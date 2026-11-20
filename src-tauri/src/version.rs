@@ -16,7 +16,7 @@ pub struct MinecraftVersion {
     pub sha1: Option<String>,
     #[serde(alias = "releaseTime")]
     pub released_time: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "inheritsFrom")]
     pub inherits_from: Option<String>,
     #[serde(alias = "assetIndex")]
     pub asset_index: Option<AssetIndex>,
@@ -100,7 +100,8 @@ pub struct Rule {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct OsRule {
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
     pub version: Option<String>,
     pub arch: Option<String>,
 }
@@ -170,11 +171,7 @@ pub async fn fetch_manifest() -> Result<VersionList> {
     let url = crate::mirror::manifest_url(&mirror_base);
 
     let client = crate::util::http_client().await;
-    // ⚠️ 2026-10-20 真机：单请求会卡在 TLS 建立上（首启卡满 90s 后报加载失败），
-    // 改成「候选并行 + 各 30s 硬超时、谁先回用谁」。
-    // ⚠️ 2026-10-27：候选必须**尊重设置** —— 无条件并行会让选官方的用户拿回
-    // bmclapi 的清单，之后所有下载链接都变镜像。错误串要带 URL + source 链，
-    // 只留一句 context 时分辨不出 DNS / TLS / 超时。
+    // Parallel candidates with per-request timeouts; respect configured source order so official/mirror URLs never mix.
     let base = crate::mirror::current_base();
     let mut candidates: Vec<String> = Vec::new();
     if !base.is_empty() {
@@ -523,6 +520,11 @@ pub async fn install_version_tracked(
         .as_ref()
         .map(|libs| {
             libs.iter()
+                .filter(|lib| {
+                    lib.rules
+                        .as_deref()
+                        .map_or(true, crate::launch_compat::rule_allows_android)
+                })
                 .filter_map(|lib| lib.downloads.as_ref()?.artifact.as_ref())
                 .collect()
         })
@@ -589,6 +591,11 @@ pub async fn install_version_tracked(
         let lib_dir = Path::new(&data_dir).join("libraries");
         let jobs: Vec<(String, String, Option<String>)> = libraries
             .iter()
+            .filter(|lib| {
+                lib.rules
+                    .as_deref()
+                    .map_or(true, crate::launch_compat::rule_allows_android)
+            })
             .filter_map(|lib| {
                 let a = lib.downloads.as_ref()?.artifact.as_ref()?;
                 Some((
@@ -718,8 +725,7 @@ async fn download_asset_objects(
         base_bytes,
         300,
     );
-    // 连续失败（例如代理没配对、DNS 解析不了）时及时中止并如实报错，
-    // 否则会把上千个失败当成「进度」推上去，进度条走到一半不动、用户只能干等。
+    // 连续失败（例如代理没配对、DNS 解析不了）时及时中止并如实报错
     let failed = AtomicUsize::new(0);
     let attempts = AtomicUsize::new(0);
     let abort = AtomicBool::new(false);
@@ -736,9 +742,7 @@ async fn download_asset_objects(
                 return;
             }
             let name = url.rsplit('/').next().unwrap_or("").to_string();
-            // 已存在且**大小对得上**才跳过。原来只判「非空」：进程被杀（用户手动杀后台、
-            // 系统回收）留下的半截文件会被当成完整文件，之后永远不再补，
-            // 直到游戏启动时缺资源崩掉 —— 库文件早就踩过一模一样的坑。
+            // 已存在且大小对得上才跳过
             let exists_ok = dest
                 .metadata()
                 .map(|m| if size > 0 { m.len() == size } else { m.len() > 0 })
@@ -750,10 +754,7 @@ async fn download_asset_objects(
             let mapped = crate::mirror::map(&mirror_base, &url);
             let base_candidates =
                 if mapped == url { vec![url.clone()] } else { vec![mapped, url.clone()] };
-            // ⚠️ 2026-10-25（真机）：每个候选**再试一轮**。
-            // 实测 3911 个资源里有 87 个是一次性抖动失败（`error sending request`），
-            // 而这里的判据是「一个都不能少」→ 只试一次就整体中止 ✗，
-            // 用户看到「87/3911 个失败，已中止」，其实重试一次基本都能成 ✓。
+            // 每个候选试两轮
             let mut candidates = Vec::with_capacity(base_candidates.len() * 2);
             for _round in 0..2 {
                 candidates.extend(base_candidates.iter().cloned());
@@ -769,9 +770,7 @@ async fn download_asset_objects(
                         }
                         match resp.bytes().await {
                             Ok(bytes) => {
-                                // 长度必须和索引里的 size 一致才认。镜像/代理配错时常见
-                                // 「HTTP 200 + 一段 HTML 错误页」：不校验的话它会被当成下载成功
-                                // 落盘，下次启动又因大小不符重下 —— 用户永远补不齐。
+                                // 长度必须和索引里的 size 一致（过滤错误 HTML 页）
                                 if size > 0 && bytes.len() as u64 != size {
                                     reasons.push(format!(
                                         "{candidate} → 长度不符（期望 {size}，实际 {}）",

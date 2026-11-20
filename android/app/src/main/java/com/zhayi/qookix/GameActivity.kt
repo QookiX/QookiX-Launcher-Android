@@ -246,8 +246,6 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
 
     private var isInEditor = false
     private var gameStarted = false
-    /** -6（游戏 JVM SIGABRT）后的自动重启只补一次，避免无限循环。 */
-    private var retriedAfterAbort = false
 
     // ------------------------------------------------------------------ 生命周期
 
@@ -589,33 +587,16 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
             return
         }
 
-        // Rust 侧启动 JVM 时用这个尺寸当 glfwstub 的游戏窗口尺寸，
-        // 与 refreshSize() 写进 CallbackBridge 的值必须一致，否则触摸坐标整体错位。
-        TauriBridge.setSurfaceSize(CallbackBridge.windowWidth, CallbackBridge.windowHeight)
+        // Ensure non-zero dimensions reach glfwstub even if surface callback hasn't fired yet.
+        val dm = resources.displayMetrics
+        val surfW = if (CallbackBridge.windowWidth > 0) CallbackBridge.windowWidth else (minecraftGLView.width.takeIf { it > 0 } ?: dm.widthPixels.coerceAtLeast(1))
+        val surfH = if (CallbackBridge.windowHeight > 0) CallbackBridge.windowHeight else (minecraftGLView.height.takeIf { it > 0 } ?: dm.heightPixels.coerceAtLeast(1))
+        TauriBridge.setSurfaceSize(surfW, surfH)
 
         lifecycleScope.launch {
             val exitCode = withContext(Dispatchers.IO) {
                 TauriBridge.launchGame(instanceId, accountUuid)
             }
-            // ⚠️ -6 = 游戏 JVM SIGABRT。已知场景：LWJGL 双类加载器竞态
-            // （两份 org.lwjgl.system.Library 抢同一个 liblwjgl.so，见
-            // docs/handoff-lwjgl-port.md）。实测紧跟着的重试几乎总能成功 ——
-            // 自动重启一次，用户无感；再失败才弹崩溃对话框。
-            // gameStarted/重试标志要复位，否则重试会被 startGameOnce 拦掉。
-            if (exitCode == -6 && !retriedAfterAbort) {
-                retriedAfterAbort = true
-                gameStarted = false
-                android.widget.Toast.makeText(
-                    this@GameActivity,
-                    getString(R.string.app_game_auto_restart),
-                    android.widget.Toast.LENGTH_LONG,
-                ).show()
-                kotlinx.coroutines.delay(1500) // 给已死的 JVM 留出清理时间
-                startGameOnce()
-                return@launch
-            }
-            // 游戏正常结束 → **连任务一起收掉**。只 finish() 的话那张卡片还留在多任务里，
-            // 用户点一下就又开一局（实测 bug：退出后点旧卡片，游戏自己重开）。
             if (exitCode != 0) showCrashDialog(exitCode) else finishAndRemoveTask()
         }
     }
@@ -1207,40 +1188,8 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
      * 具体实现在 [dumpGameDiagnostics]（这个类已经太长，体量闸门会拦）。
      */
     private fun dumpDiagnostics(): String? = dumpGameDiagnostics(this, instanceId)
-}
 
-    // ══════════════════════════════════════════════════════════════════════
-    // SDL 消息框桥接（Rust 的 nativeLaunchGame 会调它）
-    // ══════════════════════════════════════════════════════════════════════
-    //
-    // ⚠️ 这个方法**必须存在**，否则游戏启动直接 abort（2026-10-13 实测）：
-    //
-    //   NoSuchMethodError: no non-static method
-    //     "Lcom/zhayi/qookix/GameActivity;.messageboxShowMessageBox(
-    //        ILjava/lang/String;Ljava/lang/String;[I[I[Ljava/lang/String;[I)I"
-    //   at TauriBridge.nativeLaunchGame(Native method)
-    //
-    // ── 为什么缺 ──────────────────────────────────────────────────────────
-    // 它是 **SDL 的约定**：`SDLActivity`（Pojav 的 SDL 基类）里有实现，
-    // SDL 的 native 代码按这个名字回调它。但本项目的 `GameActivity`
-    // 继承的是 `AppCompatActivity`（不是 `SDLActivity`），
-    // 所以这个名字在 GameActivity 上不存在。
-    //
-    // Rust 侧的 nativeLaunchGame 会走这条路（SDL3 集成），于是
-    // JNI 抛 NoSuchMethodError → 未处理异常传播回 JNI → ART 直接 abort。
-    //
-    // ── 实现取舍 ──────────────────────────────────────────────────────────
-    // 这里**不弹真正的对话框**：启动阶段的「消息框」通常是 SDL 的错误提示，
-    // 而此刻游戏还没起来，弹窗会阻塞在 UI 线程上（SDL 原实现是
-    // `messageboxSelection.wait()` 阻塞等待）。
-    //
-    // 我们只把内容记进日志并返回默认按钮 id —— 保证：
-    //   1. 方法存在 → 不再 NoSuchMethodError
-    //   2. 不阻塞 → 启动流程继续
-    //   3. 信息不丢 → 日志里能查到
-    //
-    // 如果将来需要真实弹窗（比如 SDL 报"显卡不支持"），
-    // 可以在这里改成 AlertDialog + CountDownLatch。
+    /** SDL 消息框桥接（必须在 GameActivity 类作用域内，供 SDL JNI 查实例方法）。 */
     fun messageboxShowMessageBox(
         flags: Int,
         title: String?,
@@ -1255,9 +1204,9 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
             "SDL messagebox: title=$title message=$message " +
                 "buttons=${buttonTexts?.joinToString("/")}",
         )
-        // 返回第一个按钮的 id（没给就返回 -1，与 SDL 的默认语义一致）
         return buttonIds?.firstOrNull() ?: -1
     }
+}
 
 
 

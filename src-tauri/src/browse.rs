@@ -1151,46 +1151,35 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
     crate::util::log_line(&format!(
         "[loader] install_loader 开始: loader={loader} mc={mc_version} ver={loader_version}"
     ));
-    let libs_dir = instance_path.parent().unwrap().parent().unwrap().join("libraries");
+    let data_dir = settings::get_data_dir().await?;
+    let libs_dir = std::path::Path::new(&data_dir).join("libraries");
     tokio::fs::create_dir_all(&libs_dir).await.ok();
 
     let dest = loader_jar_path(&libs_dir, loader, mc_version, loader_version);
 
-    // ⚠️ 2026-10-19 起：jar 存在**不再**直接返回。
-    // 以前只下载 jar 就当装好了，结果启动时加载器根本没生效
-    //（classpath 里没有它，profile 也没生成）—— 见 loader_install.rs 的说明。
-    // 现在改为：先看 profile 是否已生成，已生成才算真的装好。
-    let data_dir = settings::get_data_dir().await?;
     let versions_dir = std::path::Path::new(&data_dir).join("versions");
-    // ⚠️ 2026-10-19 修：原来这里是 `return Ok(())` —— 但那样 profile 已存在时
-    // 依赖库永远不会被下载（新实例直接复用旧 profile），启动必然缺类。
-    // 现在只跳过「生成 profile」，依赖校验无论如何都要走。
-    //
-    // ⚠️ 2026-10-20 再修（更严重的一条）：**「文件存在」不等于「内容可用」**。
-    //
-    // 真机实测：设备上留着早期版本生成的 profile（libraries 里没有 `sha1` 字段），
-    // 于是每轮都走「已存在 → 跳过生成」→ 旧文件永远不被修好 →
-    // `profile_libraries` 里 7 条全部 `missing field sha1` → 依赖解析 0 个 →
-    // `download_libraries` 无事可做 → 启动「加载器依赖缺失 7 个」→ 闪退。
-    // 这是典型的「坏缓存自锁」：问题数据本身成了「不必修复」的证据。
-    //
-    // 现在对 Fabric / Quilt 追加一道内容校验：能解析出至少一个库才算可用，
-    // 否则当作不存在、重新生成。
     let mut profile_exists =
-        crate::loader_install::find_loader_profile(&versions_dir, loader, mc_version).is_some();
+        crate::loader_install::find_loader_profile_exact(&versions_dir, loader, mc_version, Some(loader_version))
+            .is_some();
     if profile_exists && matches!(loader, "fabric" | "quilt") {
-        let usable = crate::loader_install::find_loader_profile(&versions_dir, loader, mc_version)
-            .map(|p| !crate::loader_install::profile_libraries(&p).is_empty())
-            .unwrap_or(false);
+        let usable = crate::loader_install::find_loader_profile_exact(
+            &versions_dir,
+            loader,
+            mc_version,
+            Some(loader_version),
+        )
+        .map(|p| !crate::loader_install::profile_libraries(&p).is_empty())
+        .unwrap_or(false);
         if !usable {
             crate::util::log_line(
                 "[loader] 已有 profile 的 libraries 解析为空（多半是旧版本留下的缺字段文件），重新生成",
             );
             println!("[install] profile 不可用，删除后重新生成");
-            if let Some(p) = crate::loader_install::find_loader_profile(
+            if let Some(p) = crate::loader_install::find_loader_profile_exact(
                 &versions_dir,
                 loader,
                 mc_version,
+                Some(loader_version),
             ) {
                 let _ = std::fs::remove_dir_all(&p);
             }
@@ -1229,7 +1218,10 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
         let url = match loader {
             "fabric" => format!("https://maven.fabricmc.net/net/fabricmc/fabric-loader/{loader_version}/fabric-loader-{loader_version}.jar"),
             "quilt" => format!("https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-loader/{loader_version}/quilt-loader-{loader_version}.jar"),
-            "forge" => format!("https://files.minecraftforge.net/maven/net/minecraftforge/forge/{mc_version}-{loader_version}/forge-{mc_version}-{loader_version}-installer.jar"),
+            "forge" => {
+                let fv = forge_full_ver("forge", mc_version, loader_version);
+                format!("https://files.minecraftforge.net/maven/net/minecraftforge/forge/{fv}/forge-{fv}-installer.jar")
+            }
             // 之前这里查的是 Modrinth 上的 Fabric API，装 NeoForge 会下一个完全无关的 jar
             "neoforge" => format!("https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"),
             other => return Err(anyhow::anyhow!("不支持的加载器：{other}")),
@@ -1276,14 +1268,17 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
     //（之前"只解包"那版生成的），但 processors 从没跑过 —— 放在里面会被整段跳过 ✗
     //（2026-10-23 就因为这个白跑了一轮）。用标记文件记录"本机成功跑过 processors"。
     if matches!(loader, "forge" | "neoforge") {
+        let needs_processors = crate::loader_install::find_loader_profile_exact(
+            &versions_dir,
+            loader,
+            mc_version,
+            Some(loader_version),
+        )
+        .is_some_and(|p| !crate::loader_install::profile_is_legacy(&p));
         let patch_marker = std::path::Path::new(&data_dir)
             .join("libraries")
             .join(format!(".qookix-processors-{loader}-{loader_version}.done"));
-        if !patch_marker.exists() {
-            // ⚠️ 2026-10-25：installer 要靠 java 子进程跑 processors，但
-            // `runtimes/` 只在**启动**链路里才被补齐 —— 全新实例走安装链路时
-            // 这里拿到的是空目录，installer 永远「没有可用的 Java 运行时」。
-            // 在这里就地补齐：没有 JRE 就先下一个（与启动共用同一套逻辑）。
+        if needs_processors && !patch_marker.exists() {
             if find_jre(std::path::Path::new(&data_dir)).is_none() {
                 crate::util::log_line("[loader] 没有可用的 Java 运行时，先下载");
                 let instance_id =
@@ -1295,30 +1290,31 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                     )),
                 }
             }
-            match run_official_installer(std::path::Path::new(&data_dir), &dest).await {
-                Ok(()) => {
-                    let _ = std::fs::write(&patch_marker, b"1");
-                    crate::util::log_line(
-                        "[loader] 官方 installer 执行完成（processors 产物已就绪）",
-                    );
-                }
-                Err(e) => crate::util::log_line(&format!(
-                    "[loader] 官方 installer 失败（{e}）—— 模组本体仍会缺失，先不写标记以便下次重试"
-                )),
-            }
-        } else {
+            run_official_installer(
+                std::path::Path::new(&data_dir),
+                &dest,
+                mc_version,
+                loader,
+                loader_version,
+            )
+            .await?;
+            let _ = std::fs::write(&patch_marker, b"1");
+            crate::util::log_line(
+                "[loader] 官方 installer 执行完成（processors 产物已就绪）",
+            );
+        } else if needs_processors {
             crate::util::log_line("[loader] processors 产物标记已存在，跳过 installer");
+        } else {
+            crate::util::log_line("[loader] 旧版 Forge 无需运行 processors installer");
         }
     }
 
-    // ── 下载加载器 profile 里声明的依赖库 ────────────────────────────
-    //
-    // ⚠️ 光有 profile 不够：它声明的 asm / sponge-mixin / intermediary 等
-    // 库如果没下载，启动时 classpath 里缺类，必然 NoClassDefFoundError。
-    // 这里复用原版那套 download_libraries（含并发与镜像回退）。
-    if let Some(profile) =
-        crate::loader_install::find_loader_profile(&versions_dir, loader, mc_version)
-    {
+    if let Some(profile) = crate::loader_install::find_loader_profile_exact(
+        &versions_dir,
+        loader,
+        mc_version,
+        Some(loader_version),
+    ) {
         crate::util::log_line("[loader] profile 就绪，开始解析依赖");
         let libs = crate::loader_install::profile_libraries(&profile);
         println!("[install] profile={} 依赖 {} 个", profile.display(), libs.len());
@@ -1456,9 +1452,10 @@ fn find_jre(data_dir: &std::path::Path) -> Option<(std::path::PathBuf, std::path
         .map(|e| e.path())
         .filter(|p| p.is_dir())
         .collect();
-    // 优先较高的 JRE 名（JRE-21 > JRE-17 > JRE-8），NeoForge 需要 21
-    homes.sort();
-    homes.reverse();
+    homes.sort_by(|a, b| {
+        crate::launch_compat::parse_jre_version_rank(b)
+            .cmp(&crate::launch_compat::parse_jre_version_rank(a))
+    });
     for home in homes {
         let bin = home.join("bin").join("java");
         if bin.is_file() {
@@ -1478,6 +1475,9 @@ fn find_jre(data_dir: &std::path::Path) -> Option<(std::path::PathBuf, std::path
 async fn run_official_installer(
     data_dir: &std::path::Path,
     installer_jar: &std::path::Path,
+    mc_version: &str,
+    loader: &str,
+    loader_version: &str,
 ) -> Result<()> {
     let (java, _jre_lib) =
         find_jre(data_dir).ok_or_else(|| anyhow::anyhow!("没有可用的 Java 运行时（runtimes/）"))?;
@@ -1486,8 +1486,6 @@ async fn run_official_installer(
         .and_then(|p| p.parent())
         .ok_or_else(|| anyhow::anyhow!("JRE 路径异常：{}", java.display()))?;
 
-    // Forge/NeoForge installer 要求目标目录里有 launcher_profiles.json，
-    // 否则直接报 "There is no launcher_profiles.json in the target directory"。
     let lp = data_dir.join("launcher_profiles.json");
     if !lp.exists() {
         let _ = std::fs::write(&lp, r#"{"profiles":{},"settings":{},"version":3}"#);
@@ -1498,24 +1496,21 @@ async fn run_official_installer(
     let result_file = data_dir.join("logs").join("jvm-install-result.txt");
     let _ = std::fs::remove_file(&result_file);
 
-    // ⚠️ 预下载 installer 自己要用的库（2026-10-23 真机事故）：
-    // installer 会**直连** maven.neoforged.net 下载 installertools / jarsplitter 等，
-    // 真机上直接 `SocketTimeoutException: Connect timed out`（那条线路不通 ✗），
-    // 然后报 `There was an error during installation`。
-    // 我们的下载器有镜像回退 ✓，所以先用它把这些库填好 —— installer 发现有就跳过 ✓
-    //（它日志里会打 "… exists. Checksum valid."）。
+    #[cfg(target_os = "android")]
+    let _ = crate::android_env::ensure_resolv_conf(&data_dir.to_string_lossy());
+
     if let Err(e) = prefill_installer_libs(data_dir, installer_jar).await {
         crate::util::log_line(&format!("[loader] 预下载 installer 依赖失败（继续尝试）：{e}"));
     }
 
-    let payload = serde_json::json!({
+    let _payload = serde_json::json!({
         "jre": jre_home.to_string_lossy(),
         "classpath": installer_jar.to_string_lossy(),
         "mainClass": main_class,
-        // AWT headless 必须显式给：installer 那个主类会去初始化 Swing，
-        // 安卓上没有 X11/headless 会让 JVM 直接崩掉（ZL2 跑 processors 时也带了这个思路）。
         "jvmArgs": [
+            "-Xmx512M",
             "-Djava.awt.headless=true",
+            format!("-Dext.net.resolvPath={}/resolv.conf", data_dir.display()),
             format!("-Duser.home={}", data_dir.display()),
             format!("-Djava.io.tmpdir={}", data_dir.join("cache").display()),
         ],
@@ -1527,45 +1522,51 @@ async fn run_official_installer(
         "[loader] 交 :jvm 独立进程跑 installer：mainClass={main_class} jar={}",
         installer_jar.display()
     ));
-    #[cfg(target_os = "android")]
-    crate::android_bridge::start_jvm_install_service(&payload.to_string())
-        .ok_or_else(|| anyhow::anyhow!("无法调用 JVM 安装服务（原生桥未就绪）"))?;
-    // 这条安装路径整体依赖安卓的 `:jvm` 独立进程；桌面端（与宿主单测）走不到这里
     #[cfg(not(target_os = "android"))]
-    anyhow::bail!("桌面端不支持用 :jvm 服务跑官方安装器");
-
-    // ⚠️ 不能等「退出码」：`JLI_Launch` 结束时是**直接 exit()**（不是 return），
-    // 所以 :jvm 服务里"跑完写结果文件"那段**永远不会执行** ✗（真机就这么静默消失的）。
-    // 改成按**产物**判断：installer 的 processors 会生成 client-extra.jar。
-    let libs_dir = data_dir.join("libraries");
-    let mut jvm_gone_rounds = 0u32;
-    for _ in 0..600u32 {
-        // 结果文件（如果哪天能写出来就用它，双保险）
-        if let Ok(s) = std::fs::read_to_string(&result_file) {
-            if let Ok(code) = s.trim().parse::<i32>() {
-                return if code == 0 {
-                    Ok(())
-                } else {
-                    Err(anyhow::anyhow!("installer 退出码 {code}"))
-                };
-            }
-        }
-        if has_client_extra(&libs_dir) {
-            crate::util::log_line("[loader] installer 已产出 client-extra（processors 完成）");
-            return Ok(());
-        }
-        // :jvm 进程已经没了、产物又没有 → 判定失败（别让 UI 干等 10 分钟）
-        if !jvm_process_alive() {
-            jvm_gone_rounds += 1;
-            if jvm_gone_rounds >= 5 {
-                return Err(anyhow::anyhow!(
-                    "installer 进程已退出，但没有产出 client-extra（依赖补丁失败）"
-                ));
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    {
+        let _ = (mc_version, loader, loader_version, &_payload);
+        anyhow::bail!("桌面端不支持用 :jvm 服务跑官方安装器");
     }
-    Err(anyhow::anyhow!("installer 超过 10 分钟仍未结束"))
+    #[cfg(target_os = "android")]
+    {
+        crate::android_bridge::start_jvm_install_service(&_payload.to_string())
+            .ok_or_else(|| anyhow::anyhow!("无法调用 JVM 安装服务（原生桥未就绪）"))?;
+
+        let libs_dir = data_dir.join("libraries");
+        let mut jvm_gone_rounds = 0u32;
+        for _ in 0..600u32 {
+            if let Ok(s) = std::fs::read_to_string(&result_file) {
+                if let Ok(code) = s.trim().parse::<i32>() {
+                    return if code == 0 {
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!("installer 退出码 {code}"))
+                    };
+                }
+            }
+            if !jvm_process_alive() {
+                jvm_gone_rounds += 1;
+                if jvm_gone_rounds >= 5 {
+                    if crate::launch_compat::target_patched_artifact_exists(
+                        &libs_dir,
+                        mc_version,
+                        loader,
+                        loader_version,
+                    ) {
+                        crate::util::log_line("[loader] :jvm 退出且目标版本补丁产物已就绪");
+                        return Ok(());
+                    }
+                    return Err(anyhow::anyhow!(
+                        "installer 进程已退出，但未找到 {mc_version} 的补丁产物"
+                    ));
+                }
+            } else {
+                jvm_gone_rounds = 0;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        Err(anyhow::anyhow!("installer 超过 10 分钟仍未结束"))
+    }
 }
 
 /// 把 installer `install_profile.json` 里声明的库，用**我们自己的下载器**（带镜像回退）
@@ -1610,33 +1611,7 @@ async fn prefill_installer_libs(
     Ok(())
 }
 
-/// `libraries/` 下有没有 `client-extra*.jar`（NeoForm processors 的产物之一）。
-fn has_client_extra(libs: &std::path::Path) -> bool {
-    fn walk(dir: &std::path::Path, depth: u32) -> bool {
-        if depth == 0 {
-            return false;
-        }
-        let Ok(rd) = std::fs::read_dir(dir) else {
-            return false;
-        };
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                if walk(&p, depth - 1) {
-                    return true;
-                }
-            } else if let Some(n) = p.file_name().and_then(|n| n.to_str()) {
-                if n.contains("client-extra") && n.ends_with(".jar") {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-    walk(libs, 7)
-}
-
-/// `:jvm` 进程是否还活着（读 /proc，避免引入 libc 之外的依赖）。
+#[cfg(target_os = "android")]
 fn jvm_process_alive() -> bool {
     let Ok(rd) = std::fs::read_dir("/proc") else {
         return true; // 读不到就当作还活着，交给超时兜底
@@ -1748,17 +1723,9 @@ async fn install_forge_like(
         "inheritsFrom": mc_version,
         "mainClass": version_info.get("mainClass"),
         "arguments": version_info.get("arguments"),
+        "minecraftArguments": version_info.get("minecraftArguments"),
         "libraries": version_info.get("libraries"),
     });
-    // ⚠️ 2026-10-23：生成 profile 时就把 `earlydisplay` 摘掉。
-    //
-    // 它是 NeoForge 开局那个 Swing/GL 加载窗口。安卓上它会在
-    // `DisplayWindow.updateModuleReads` 里 `Class.forName` 去找游戏层的
-    // `net.minecraft.client.gui.screens.LoadingOverlay` → 类加载器看不到 →
-    // NoClassDefFoundError → main 线程终止 → 闪退
-    //（真机 `files/logs/game-stderr.log` 抓到）。
-    // 它由 BootstrapLauncher 按 libraries 加载，所以只能从 profile 的 libraries 删；
-    // `-Dfml.earlyprogresswindow=false` 传了也没用（NeoForge 21.1 不认）。
     if let Some(libs) = patched
         .get_mut("libraries")
         .and_then(|l| l.as_array_mut())
@@ -1768,6 +1735,9 @@ async fn install_forge_like(
             let n = l.get("name").and_then(|n| n.as_str()).unwrap_or("");
             !n.contains("fancymodloader:earlydisplay") && !n.contains(":earlydisplay:")
         });
+        for lib in libs.iter_mut() {
+            crate::launch_compat::patch_maven_library_downloads(lib);
+        }
         if libs.len() != before {
             crate::util::log_line(&format!(
                 "[loader] profile 生成时移除 {} 条 earlydisplay（安卓会导致启动崩溃）",

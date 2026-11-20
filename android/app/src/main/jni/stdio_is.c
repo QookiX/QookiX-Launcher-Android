@@ -76,10 +76,8 @@ Java_net_kdt_pojavlaunch_Logger_begin(JNIEnv *env, __attribute((unused)) jclass 
 
     /* open latestlog.txt for writing */
     const char* logFilePath = (*env)->GetStringUTFChars(env, logPath, NULL);
-    latestlog_fd = open(logFilePath, O_WRONLY | O_TRUNC);
+    latestlog_fd = open(logFilePath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if(latestlog_fd == -1) {
-        latestlog_fd = 0;
-        /* 原来这里直接 return，把 GetStringUTFChars 的结果漏掉了（局部引用泄漏） */
         (*env)->ReleaseStringUTFChars(env, logPath, logFilePath);
         (*env)->ThrowNew(env, ioeClass, strerror(errno));
         return;

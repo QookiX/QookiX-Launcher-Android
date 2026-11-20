@@ -84,21 +84,20 @@ EXTERNAL_API void pojavTerminate() {
 }
 
 JNIEXPORT void JNICALL Java_com_zhayi_qookix_tauri_TauriBridge_nativeSetupBridgeWindow(JNIEnv* env, ABI_COMPAT jclass clazz, jobject surface) {
-    pojav_environ->pojavWindow = ANativeWindow_fromSurface(env, surface);
-    // 把新窗口标记给渲染线程去切换 EGLSurface（下一次 gl_swap_buffers() 生效）。
-    //
-    // 正常路径是 br_setup_window()（= gl_setup_window），但它只在
-    // pojavInitOpenGL() -> set_gl_bridge_tbl() 跑过之后才非空。实测在 QookiX 的
-    // 启动链路上这个函数指针始终为 NULL（JVM 侧是直接按符号名调用
-    // gl_make_current / gl_swap_buffers 的，不经过 br_* 函数表），
-    // 于是「切后台再回来」时新 Surface 永远不会被采用：渲染线程在旧窗口死掉后
-    // 降级到 1x1 pbuffer（日志 "awaiting window change"），画面就一直黑着。
-    // 这里补一条直连兜底，语义与 br_setup_window() 完全一致。
+    if (pojav_environ->pojavWindow != NULL) {
+        ANativeWindow_release(pojav_environ->pojavWindow);
+        pojav_environ->pojavWindow = NULL;
+    }
+    if (surface != NULL) {
+        pojav_environ->pojavWindow = ANativeWindow_fromSurface(env, surface);
+    }
     __android_log_print(ANDROID_LOG_INFO, "QKPJ",
         "setupBridgeWindow: surface=%p pojavWindow=%p bundle=%p br_setup_window=%p",
         surface, pojav_environ->pojavWindow, pojav_environ->mainWindowBundle, br_setup_window);
     if (br_setup_window != NULL) {
         br_setup_window();
+    } else if (pojav_environ->config_renderer == RENDERER_VK_ZINK) {
+        osm_setup_window();
     } else {
         gl_setup_window();
     }
@@ -107,7 +106,10 @@ JNIEXPORT void JNICALL Java_com_zhayi_qookix_tauri_TauriBridge_nativeSetupBridge
 
 JNIEXPORT void JNICALL
 Java_net_kdt_pojavlaunch_utils_JREUtils_releaseBridgeWindow(ABI_COMPAT JNIEnv *env, ABI_COMPAT jclass clazz) {
-    ANativeWindow_release(pojav_environ->pojavWindow);
+    if (pojav_environ->pojavWindow != NULL) {
+        ANativeWindow_release(pojav_environ->pojavWindow);
+        pojav_environ->pojavWindow = NULL;
+    }
 }
 
 EXTERNAL_API void* pojavGetCurrentContext() {
@@ -198,7 +200,11 @@ int pojavInitOpenGL() {
     if (pojav_environ->pojavWindow == NULL) {
         printf("pojavInitOpenGL: no surface set yet, skip br_setup_window\n");
     }
-    if(br_init()) {
+    if (!br_init()) {
+        printf("pojavInitOpenGL: br_init() failed for renderer %s\n", renderer);
+        return 1;
+    }
+    if (pojav_environ->pojavWindow != NULL) {
         br_setup_window();
     }
     return 0;
@@ -212,13 +218,16 @@ EXTERNAL_API int pojavInit() {
         printf("Failed to attach Java-side JNIEnv to GLFW thread\n");
         return 0;
     }
-    ANativeWindow_acquire(pojav_environ->pojavWindow);
-    pojav_environ->savedWidth = ANativeWindow_getWidth(pojav_environ->pojavWindow);
-    pojav_environ->savedHeight = ANativeWindow_getHeight(pojav_environ->pojavWindow);
-    ANativeWindow_setBuffersGeometry(pojav_environ->pojavWindow,pojav_environ->savedWidth,pojav_environ->savedHeight,AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM);
-    updateMonitorSize(pojav_environ->savedWidth, pojav_environ->savedHeight);
-    pojavInitOpenGL();
-    return 1;
+    if (pojav_environ->pojavWindow != NULL) {
+        ANativeWindow_acquire(pojav_environ->pojavWindow);
+        pojav_environ->savedWidth = ANativeWindow_getWidth(pojav_environ->pojavWindow);
+        pojav_environ->savedHeight = ANativeWindow_getHeight(pojav_environ->pojavWindow);
+        ANativeWindow_setBuffersGeometry(pojav_environ->pojavWindow,pojav_environ->savedWidth,pojav_environ->savedHeight,AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM);
+        updateMonitorSize(pojav_environ->savedWidth, pojav_environ->savedHeight);
+    } else {
+        printf("pojavInit: pojavWindow is NULL, deferring window geometry until surface arrives\n");
+    }
+    return pojavInitOpenGL() == 0 ? 1 : 0;
 }
 
 EXTERNAL_API void pojavSetWindowHint(int hint, int value) {

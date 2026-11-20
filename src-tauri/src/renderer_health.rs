@@ -26,6 +26,8 @@ fn failure_patterns(renderer_key: &str) -> &'static [&'static str] {
         // MobileGlues：GLSL 翻译失败 → 编译/链接报错，开着「忽略错误」时它还会
         // 「假装成功」给游戏一个空壳程序（世界虚空、贴图全黑就是这么来的）。
         "mobileglues" => &[
+            "has invalid ELF alignment",
+            "dlopen failed",
             "compilation failed",       // "Shader 4 compilation failed:"
             "linking failed",           // "Program 5 linking failed:"
             "Invalid #version",         // 1.8.9 的 post 着色器实测
@@ -35,6 +37,8 @@ fn failure_patterns(renderer_key: &str) -> &'static [&'static str] {
         ],
         // GL4ES：老版本上表现最好；但 26.x 的新着色器体系它在第一步就过不去。
         "opengles2" => &[
+            "has invalid ELF alignment",
+            "dlopen failed",
             "Failed to load required shader programs",
             "BackendCreationException",
             "GL_INVALID_VALUE",
@@ -42,6 +46,8 @@ fn failure_patterns(renderer_key: &str) -> &'static [&'static str] {
         ],
         // Zink + Turnip：需要 Adreno + Vulkan，缺一样就是黑屏。
         "vulkan_zink" => &[
+            "has invalid ELF alignment",
+            "dlopen failed",
             "VK_ERROR",
             "Failed to create Vulkan",
             "vkCreateInstance",
@@ -52,6 +58,12 @@ fn failure_patterns(renderer_key: &str) -> &'static [&'static str] {
 
 /// 失败特征 → 给用户看的解释。
 fn failure_reason(renderer_key: &str, pattern: &str) -> String {
+    if pattern == "has invalid ELF alignment" {
+        return "设备的 16KB 内存页与当前原生渲染器或依赖库（ELF 4KB 对齐）不兼容，请更新支持 16KB 页的渲染器插件".to_string();
+    }
+    if pattern == "dlopen failed" {
+        return "原生渲染器或依赖库加载失败（dlopen failed），请检查 ABI / 16KB 页对齐或重新解压依赖库".to_string();
+    }
     match (renderer_key, pattern) {
         ("mobileglues", "Invalid #version") => {
             "MobileGlues 翻译不了这个版本的着色器（日志里是 `Invalid #version`），游戏会因此画面异常甚至崩溃".to_string()
@@ -139,6 +151,17 @@ fn collect_evidence(log: &str, renderer_key: &str) -> Vec<String> {
     hits
 }
 
+/// Detect 16KB page-size ELF alignment or dynamic library loading failures in launch logs.
+pub(crate) fn detect_native_load_issue(log: &str) -> Option<&'static str> {
+    if log.contains("has invalid ELF alignment") {
+        Some("ELF 16KB page alignment mismatch")
+    } else if log.contains("dlopen failed") {
+        Some("native library dlopen failure")
+    } else {
+        None
+    }
+}
+
 /// 检查一个实例本次启动的渲染器是否需要建议切换。
 ///
 /// 返回 `Ok(None)` 的情况：实例不存在、日志找不到、没有失败证据、
@@ -175,6 +198,12 @@ pub async fn check(instance_id: &str) -> Result<Option<RendererIssue>, String> {
     }
 
     let used_key = detect_used_renderer(&log, &instance);
+    if let Some(native_issue) = detect_native_load_issue(&log) {
+        crate::util::log_line(&format!(
+            "[launcher] 原生库加载诊断：实例={} 问题={}（若为 16KB 设备需更换 16KB 对齐的 prebuilt .so/渲染器插件）",
+            instance_id, native_issue
+        ));
+    }
     let evidence = collect_evidence(&log, &used_key);
     let recommended = crate::launch::auto_renderer_for(&instance.mc_version).to_string();
     crate::util::log_line(&format!(

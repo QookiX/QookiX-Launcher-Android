@@ -478,11 +478,7 @@ use jni::{JavaVM, JNIEnv};
         clear_pending_exception(&mut env, name);
     }
 
-    /// **单个 boolean 参数**的版本。
-    ///
-    /// `call_activity` 只认字符串参数（`Option<&str>`），`call_activity_sbs` 又是
-    /// 「字符串+布尔+字符串」三参的特例，都套不上这种「就一个开关」的调用
-    /// （如 `setLogZoomCapture(Z)V`），所以单独加一个。
+    /// Single-boolean overload for Activity calls like `setLogZoomCapture(Z)V`.
     pub fn call_activity_bool(name: &str, sig: &str, flag: bool) {
         let Some(vm) = java_vm() else { return };
         let Ok(mut env) = vm.attach_current_thread_as_daemon() else {
@@ -520,7 +516,8 @@ use jni::{JavaVM, JNIEnv};
                         .ok()
                         .map(|s| s.to_string_lossy().into_owned())
                 }
-                // void / 基本类型返回：调用成功即可，用空串表示「成功但没有返回值」
+                jni::objects::JValueOwned::Int(n) => Some(n.to_string()),
+                // void / 其它基本类型返回：调用成功即可
                 _ => Some(String::new()),
             }
         });

@@ -1470,25 +1470,7 @@ pub fn hosted_server_core_installed(id: String) -> bool {
 /// MC 版本 → 需要的 Java 大版本。`pub(crate)`：实例补全也要用它
 /// （见 `instance_files::ensure_instance_java`），别在那边再抄一份映射。
 pub(crate) fn required_java_for_mc(mc_version: &str) -> i32 {
-    let mut it = mc_version.split('.').filter_map(|p| p.parse::<i32>().ok());
-    let major = it.next().unwrap_or(1);
-    let minor = it.next().unwrap_or(0);
-    let patch = it.next().unwrap_or(0);
-    if major != 1 {
-        // 2.x / 26.x 之类的新方案：统一按 Java 25（首个采用新号段的版本就是 26.x）
-        return 25;
-    }
-    if minor >= 21 {
-        return 21;
-    }
-    if minor >= 20 {
-        // 1.20.5 是分界点：之前 17，之后 21
-        return if patch >= 5 { 21 } else { 17 };
-    }
-    if minor >= 17 {
-        return 17;
-    }
-    8
+    crate::launch_compat::required_java_for_mc_str(mc_version)
 }
 
 /// 找一个可用的 JRE；一个都没有就按这台服务器需要的版本**自动下载**。

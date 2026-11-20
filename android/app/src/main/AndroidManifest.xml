@@ -244,7 +244,11 @@
         android:name=".install.JvmInstallService"
         android:process=":jvm"
         android:exported="false"
-        android:foregroundServiceType="specialUse" />
+        android:foregroundServiceType="specialUse">
+        <property
+            android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+            android:value="Minecraft mod loader installation" />
+    </service>
 
     <!-- Game Service (Foreground) -->
         <!--

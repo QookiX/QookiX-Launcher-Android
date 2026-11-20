@@ -154,52 +154,86 @@ pub fn expected_main_class(loader: &str) -> Option<&'static str> {
 ///   `[launcher] 加载器=neoforge profile=<未找到> mainClass=net.minecraft.client.main.Main`
 /// 结果静默退回原版主类，用户以为是模组装错了。
 ///
-/// 现在改成：目录名含 loader 是必要条件；「是不是这个游戏的」优先看 profile 里的
-/// `inheritsFrom`（权威依据），目录名带 mc_version 只作为兜底 —— 官方 installer 的
-/// 命名本来就不可控，不能拿它当唯一判据。
-pub fn find_loader_profile(
+/// 按 loader、mc_version 与可选的 loader_version 精确查找加载器 profile 目录。
+pub fn find_loader_profile_exact(
     versions_dir: &Path,
     loader: &str,
     mc_version: &str,
+    loader_version: Option<&str>,
 ) -> Option<PathBuf> {
     let entries = std::fs::read_dir(versions_dir).ok()?;
-    let needle = match loader {
-        "fabric" => "fabric-loader".to_string(),
-        "quilt" => "quilt-loader".to_string(),
-        _ => loader.to_string(),
-    };
-    let mut best: Option<PathBuf> = None;
+    let mut candidates: Vec<(bool, String, PathBuf)> = Vec::new();
+    let preferred = loader_version.map(str::trim).filter(|s| !s.is_empty());
+
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
-        let name = path.file_name()?.to_string_lossy().to_string();
-        if !name.contains(&needle) {
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        if !crate::launch_compat::dir_matches_loader(&name, loader) {
             continue;
         }
         let json = path.join(format!("{name}.json"));
         if !json.is_file() {
             continue;
         }
-        // 目录名命中就直接认（老行为）；否则读 profile 看 inheritsFrom。
-        let by_name = name.contains(mc_version);
-        let by_inherit = || -> bool {
-            std::fs::read_to_string(&json)
-                .ok()
-                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-                .and_then(|v| {
-                    v.get("inheritsFrom")
-                        .and_then(|i| i.as_str())
-                        .map(|s| s == mc_version)
-                })
-                .unwrap_or(false)
+        let parsed = std::fs::read_to_string(&json)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+        let inherits_from = parsed
+            .as_ref()
+            .and_then(|v| v.get("inheritsFrom"))
+            .and_then(|i| i.as_str());
+        let json_id = parsed
+            .as_ref()
+            .and_then(|v| v.get("id"))
+            .and_then(|i| i.as_str())
+            .unwrap_or("");
+        let version_ok = match inherits_from {
+            Some(inh) => inh == mc_version,
+            None => crate::launch_compat::name_matches_mc_exact(&name, mc_version),
         };
-        if by_name || by_inherit() {
-            best = Some(path);
+        if !version_ok {
+            continue;
         }
+        let ver_match = preferred.is_some_and(|lv| name.contains(lv) || json_id.contains(lv));
+        candidates.push((ver_match, name, path));
     }
-    best
+
+    candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    candidates.pop().map(|(_, _, p)| p)
+}
+
+pub fn find_loader_profile(
+    versions_dir: &Path,
+    loader: &str,
+    mc_version: &str,
+) -> Option<PathBuf> {
+    find_loader_profile_exact(versions_dir, loader, mc_version, None)
+}
+
+/// 判断加载器 profile 是否为旧式格式（使用 `minecraftArguments` 或没有 modern `arguments` 对象）。
+pub fn profile_is_legacy(profile_dir: &Path) -> bool {
+    let Some(name) = profile_dir.file_name().map(|n| n.to_string_lossy().to_string()) else {
+        return false;
+    };
+    let json = profile_dir.join(format!("{name}.json"));
+    let Ok(v) = std::fs::read_to_string(&json)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .ok_or(())
+    else {
+        return false;
+    };
+    let has_legacy = v
+        .get("minecraftArguments")
+        .and_then(|a| a.as_str())
+        .is_some_and(|s| !s.trim().is_empty());
+    let has_modern = v.get("arguments").is_some_and(|a| a.is_object());
+    has_legacy || !has_modern
 }
 
 /// 读取加载器 profile 的 mainClass。
@@ -454,8 +488,11 @@ pub fn profile_arguments(
         match node {
             serde_json::Value::String(s) => out.push(subst(s)),
             serde_json::Value::Object(o) => {
-                // 只处理 value 是字符串或字符串数组的情形；rules 在安卓上按
-                // 「非 Windows」求值，绝大多数加载器参数没有 rules，忽略即可。
+                if let Some(rules) = o.get("rules") {
+                    if !crate::launch_compat::json_rules_allow_android(rules) {
+                        return;
+                    }
+                }
                 if let Some(v) = o.get("value") {
                     match v {
                         serde_json::Value::String(s) => out.push(subst(s)),

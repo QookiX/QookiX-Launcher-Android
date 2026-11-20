@@ -45,12 +45,12 @@ mod egl_ffi {
     pub const EGL_NO_CONTEXT: EGLContext = std::ptr::null_mut();
     pub const EGL_NO_SURFACE: EGLSurface = std::ptr::null_mut();
 
-    pub const EGL_RED_SIZE: EGLint = 5;
-    pub const EGL_GREEN_SIZE: EGLint = 6;
-    pub const EGL_BLUE_SIZE: EGLint = 7;
-    pub const EGL_ALPHA_SIZE: EGLint = 8;
-    pub const EGL_DEPTH_SIZE: EGLint = 17;
-    pub const EGL_STENCIL_SIZE: EGLint = 18;
+    pub const EGL_RED_SIZE: EGLint = 0x3024;
+    pub const EGL_GREEN_SIZE: EGLint = 0x3023;
+    pub const EGL_BLUE_SIZE: EGLint = 0x3022;
+    pub const EGL_ALPHA_SIZE: EGLint = 0x3021;
+    pub const EGL_DEPTH_SIZE: EGLint = 0x3025;
+    pub const EGL_STENCIL_SIZE: EGLint = 0x3026;
     pub const EGL_SURFACE_TYPE: EGLint = 0x3033;
     pub const EGL_WINDOW_BIT: EGLint = 0x0004;
     pub const EGL_RENDERABLE_TYPE: EGLint = 0x3040;

@@ -935,20 +935,12 @@ class HostCapabilities(private val activity: Activity) {
     fun preloadJreLibs(dir: String): Int {
         return try {
             val libDir = File(dir, "lib")
-            if (!libDir.isDirectory) {
-                Log.w(TAG, "preloadJreLibs: 目录不存在 ${libDir.absolutePath}")
-                return 0
-            }
+            if (!libDir.isDirectory) return 0
+            val sos = libDir.walkTopDown().filter { it.isFile && it.name.endsWith(".so") && it.name != "libjsig.so" }.toList()
+            val (jvms, rest) = sos.partition { it.name == "libjvm.so" || it.name == "libjli.so" }
             var count = 0
-            libDir.listFiles()?.forEach { f ->
-                if (f.isFile && f.name.endsWith(".so")) {
-                    try {
-                        System.load(f.absolutePath)
-                        count++
-                    } catch (e: Throwable) {
-                        Log.d(TAG, "跳过 ${f.name}: ${e.message}")
-                    }
-                }
+            for (f in jvms + rest) {
+                try { System.load(f.absolutePath); count++ } catch (_: Throwable) {}
             }
             Log.i(TAG, "预载 JRE 库: $count 个（$dir）")
             count

@@ -136,15 +136,17 @@ static void qookix_register_game_vm_natives(JNIEnv *env) {
         LOGE("游戏 VM 注册：找不到 org/lwjgl/glfw/CallbackBridge");
         (*env)->ExceptionClear(env);
     } else {
-        jint rc = (*env)->RegisterNatives(env, bridge, (JNINativeMethod *) bridge_methods,
-                                          (jint) (sizeof(bridge_methods) / sizeof(bridge_methods[0])));
-        if (rc != 0) {
-            LOGE("游戏 VM 注册 CallbackBridge 的 native 失败");
-            (*env)->ExceptionClear(env);
-        } else {
-            LOGI("游戏 VM 已注册 CallbackBridge 的 %d 个 native",
-                 (int) (sizeof(bridge_methods) / sizeof(bridge_methods[0])));
+        int registered = 0;
+        int total = (int) (sizeof(bridge_methods) / sizeof(bridge_methods[0]));
+        for (int i = 0; i < total; ++i) {
+            if ((*env)->RegisterNatives(env, bridge, (JNINativeMethod *) &bridge_methods[i], 1) == 0) {
+                ++registered;
+            } else {
+                LOGW("游戏 VM 注册 CallbackBridge.%s 失败（可能版本差异，已跳过）", bridge_methods[i].name);
+                (*env)->ExceptionClear(env);
+            }
         }
+        LOGI("游戏 VM 已注册 CallbackBridge 的 %d/%d 个 native", registered, total);
     }
 
     /* GLFW 的桥函数：这一刻它可能还没被加载，那样就留给 init_glfw_bridge_env 补。 */
@@ -196,7 +198,8 @@ jint JNI_OnLoad(JavaVM* vm, __attribute__((unused)) void* reserved) {
         (*vm)->GetEnv(vm, (void**) &vmEnv, JNI_VERSION_1_4);
         /* 26.3：SDL_Init 之前必须先 SetMainReady，见 qookix_sdl_set_main_ready 的说明。
            这一刻（liblwjgl 正在加载）远早于游戏初始化渲染后端，是游戏 VM 里最早的时机。 */
-        qookix_sdl_call_jni_onload(vm);
+        JavaVM *art_vm = pojav_environ->dalvikJavaVMPtr != NULL ? pojav_environ->dalvikJavaVMPtr : vm;
+        qookix_sdl_call_jni_onload(art_vm);
         qookix_sdl_set_main_ready();
         /* 游戏 VM 的 native 必须显式注册一次，见 qookix_register_game_vm_natives 的说明。 */
         qookix_register_game_vm_natives(vmEnv);

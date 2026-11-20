@@ -58,28 +58,49 @@ static void gl4esi_get_display_dimensions(int* width, int* height) {
 
 gl_render_window_t* gl_init_context(gl_render_window_t *share) {
     gl_render_window_t* bundle = malloc(sizeof(gl_render_window_t));
+    if (bundle == NULL) return NULL;
     memset(bundle, 0, sizeof(gl_render_window_t));
-    EGLint egl_attributes[] = { EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_RED_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_DEPTH_SIZE, 24, EGL_SURFACE_TYPE, EGL_WINDOW_BIT|EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_NONE };
+
+    static const EGLint cfg_depth24[] = {
+        EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_RED_SIZE, 8, EGL_ALPHA_SIZE, 8,
+        EGL_DEPTH_SIZE, 24, EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_NONE
+    };
+    static const EGLint cfg_depth16[] = {
+        EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_RED_SIZE, 8, EGL_ALPHA_SIZE, 8,
+        EGL_DEPTH_SIZE, 16, EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_NONE
+    };
+    static const EGLint cfg_rgb565[] = {
+        EGL_BLUE_SIZE, 5, EGL_GREEN_SIZE, 6, EGL_RED_SIZE, 5,
+        EGL_DEPTH_SIZE, 16, EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_NONE
+    };
+    static const EGLint cfg_min[] = {
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_NONE
+    };
+    const EGLint *candidates[] = { cfg_depth24, cfg_depth16, cfg_rgb565, cfg_min };
     EGLint num_configs = 0;
-
-    if (eglChooseConfig_p(g_EglDisplay, egl_attributes, NULL, 0, &num_configs) != EGL_TRUE) {
-        LOGE("eglChooseConfig_p() failed: %04x", eglGetError_p());
+    const EGLint *chosen_attrs = NULL;
+    for (int i = 0; i < 4; ++i) {
+        EGLint count = 0;
+        if (eglChooseConfig_p(g_EglDisplay, candidates[i], NULL, 0, &count) == EGL_TRUE && count > 0) {
+            chosen_attrs = candidates[i];
+            num_configs = count;
+            break;
+        }
+    }
+    if (chosen_attrs == NULL || num_configs == 0) {
+        LOGE("eglChooseConfig_p() failed across all fallback profiles: %04x", eglGetError_p());
         free(bundle);
         return NULL;
     }
-    if (num_configs == 0) {
-        LOGE("%s", "eglChooseConfig_p() found no matching config");
-        free(bundle);
-        return NULL;
-    }
 
-    // Get the first matching config
-    eglChooseConfig_p(g_EglDisplay, egl_attributes, &bundle->config, 1, &num_configs);
+    eglChooseConfig_p(g_EglDisplay, chosen_attrs, &bundle->config, 1, &num_configs);
     eglGetConfigAttrib_p(g_EglDisplay, bundle->config, EGL_NATIVE_VISUAL_ID, &bundle->format);
 
     {
-        // 注意：getenv 未设置时返回 NULL，strncmp/strtol 直接 SIGSEGV（fault addr 0x0）。
-        // Pojav 那边由 Java 层保证这些变量存在，我们这里做兜底。
         const char *renderer = getenv("QOOKIX_RENDERER");
         EGLBoolean bindResult;
         if (renderer != NULL && strncmp(renderer, "opengles3_desktopgl", 19) == 0) {
@@ -89,14 +110,20 @@ gl_render_window_t* gl_init_context(gl_render_window_t *share) {
             printf("EGLBridge: Binding to OpenGL ES\n");
             bindResult = eglBindAPI_p(EGL_OPENGL_ES_API);
         }
-        if (!bindResult) printf("EGLBridge: bind failed: %p\n", eglGetError_p());
+        if (!bindResult) printf("EGLBridge: bind failed: %p\n", (void *)(uintptr_t)eglGetError_p());
     }
 
     const char *libgl_es_env = getenv("LIBGL_ES");
     int libgl_es = libgl_es_env != NULL ? (int) strtol(libgl_es_env, NULL, 0) : 2;
     if(libgl_es < 0 || libgl_es > INT16_MAX) libgl_es = 2;
+    EGLContext shared_ctx = share == NULL ? EGL_NO_CONTEXT : share->context;
     const EGLint egl_context_attributes[] = { EGL_CONTEXT_CLIENT_VERSION, libgl_es, EGL_NONE };
-    bundle->context = eglCreateContext_p(g_EglDisplay, bundle->config, share == NULL ? EGL_NO_CONTEXT : share->context, egl_context_attributes);
+    bundle->context = eglCreateContext_p(g_EglDisplay, bundle->config, shared_ctx, egl_context_attributes);
+    if (bundle->context == EGL_NO_CONTEXT && libgl_es >= 3) {
+        LOGW("eglCreateContext_p() failed for ES %d (%04x), retrying ES 2", libgl_es, eglGetError_p());
+        const EGLint es2_attrs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+        bundle->context = eglCreateContext_p(g_EglDisplay, bundle->config, shared_ctx, es2_attrs);
+    }
 
     if (bundle->context == EGL_NO_CONTEXT) {
         LOGE("eglCreateContext_p() finished with error: %04x", eglGetError_p());

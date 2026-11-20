@@ -286,34 +286,27 @@ impl MultiRTManager {
 
     pub async fn get_compatible_runtime(java_version: i32) -> Result<Option<Runtime>> {
         let arch = get_device_arch();
+        let target = crate::launch_compat::normalize_required_java(java_version);
         let runtimes = Self::get_runtimes().await?;
 
-        // 必须**同时**按架构过滤。只看版本号的话，换机恢复 / 手动导入 / 模拟器产物
-        // 在 `runtimes/*` 里留下的别的 ABI 会被选中，`dlopen` 报 `wrong ELF class`，
-        // 而错误会被归因成「JRE 缺失」—— 排查方向完全是错的。
         let mut compatible: Option<Runtime> = None;
         let mut mismatched: Vec<String> = Vec::new();
         for r in runtimes {
-            if r.java_version < java_version {
+            if r.java_version != target {
                 continue;
             }
             if r.arch == arch {
-                let better = compatible
-                    .as_ref()
-                    .map_or(true, |c| r.java_version < c.java_version);
-                if better {
-                    compatible = Some(r);
-                }
+                compatible = Some(r);
+                break;
             } else {
                 mismatched.push(format!("{}（{}）", r.name, r.arch));
             }
         }
 
         if compatible.is_none() && !mismatched.is_empty() {
-            // 有版本够但架构不对的，明确说出来，别只留一句「没找到 JRE」
             tracing::warn!(
-                "有版本满足 Java {} 但架构不符（本机是 {}）：{}",
-                java_version,
+                "有 Java {} 但架构不符（本机是 {}）：{}",
+                target,
                 arch,
                 mismatched.join("、")
             );
@@ -460,8 +453,7 @@ fn extract_tar_xz_sync(archive_path: &Path, dest_dir: &Path) -> Result<()> {
 }
 
 /// 判断目录本身是不是一个 JRE 根（libjli.so 的各种常见布局）。
-/// x86_64/x86 是给模拟器用的（桌面版安卓模拟器跑 x86_64 镜像）。
-fn has_libjli(dir: &Path) -> bool {
+pub(crate) fn has_libjli(dir: &Path) -> bool {
     ["arm64", "arm32", "aarch64", "arm", "x86_64", "x86", "amd64", ""]
         .iter()
         .any(|sub| {
@@ -584,11 +576,12 @@ impl JREValidator {
     }
 
     pub async fn get_required_version(version_info: &crate::version::MinecraftVersion) -> Result<i32> {
-        if let Some(java_version) = &version_info.java_version {
-            Ok(java_version.major_version.unwrap_or(8))
-        } else {
-            Ok(8)
-        }
+        let raw = version_info
+            .java_version
+            .as_ref()
+            .and_then(|j| j.major_version)
+            .unwrap_or(8);
+        Ok(crate::launch_compat::normalize_required_java(raw))
     }
 }
 

@@ -15,6 +15,7 @@ mod settings;
 mod instances;
 mod version;
 mod launch;
+mod launch_compat;
 mod launch_gen;
 /// GL_VENDOR 品牌串覆盖（F3 里那行 `Display: … (厂商串)`）。
 ///

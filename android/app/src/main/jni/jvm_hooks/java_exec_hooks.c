@@ -69,6 +69,9 @@ static jint hooked_ProcessImpl_forkAndExec(JNIEnv *env, jobject process, jint mo
             prog = stringToBytes(env, ffmpeg_path);
         }
     }
+    if (orig_ProcessImpl_forkAndExec == NULL) {
+        return -1;
+    }
     return orig_ProcessImpl_forkAndExec(env, process, mode, helperpath, prog, argBlock, argc, envBlock, envc, dir, std_fds, redirectErrorStream);
 }
 
@@ -82,9 +85,21 @@ void hookExec(JNIEnv *env) {
     } else {
         hookClass = (*env)->FindClass(env, "java/lang/UNIXProcess");
     }
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+    }
+    if (orig_ProcessImpl_forkAndExec == NULL || hookClass == NULL) {
+        printf("exec_hooks WARN: skipping forkAndExec hook (orig=%p, cls=%p)\n",
+               (void *)orig_ProcessImpl_forkAndExec, (void *)hookClass);
+        return;
+    }
     JNINativeMethod methods[] = {
             {"forkAndExec", "(I[B[B[BI[BI[B[IZ)I", (void *)&hooked_ProcessImpl_forkAndExec}
     };
-    (*env)->RegisterNatives(env, hookClass, methods, 1);
+    if ((*env)->RegisterNatives(env, hookClass, methods, 1) != 0) {
+        (*env)->ExceptionClear(env);
+        printf("exec_hooks WARN: RegisterNatives failed for forkAndExec\n");
+        return;
+    }
     printf("Registered forkAndExec\n");
 }

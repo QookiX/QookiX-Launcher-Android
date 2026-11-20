@@ -52,14 +52,16 @@ struct android_namespace_t* local_android_create_namespace(
     return android_create_namespace(name, ld_library_path, default_library_path, type, permitted_when_isolated_path, parent, caller);
 }
 
+static size_t runtime_page_size(void) {
+    long ps = sysconf(_SC_PAGESIZE);
+    return ps > 0 ? (size_t)ps : 4096u;
+}
+
 // Find the first "branch to label" function in the function provided in func_start
 static void* find_branch_label(void* func_start) {
-    // round down the pointer to get the start of the function's page
-    void* func_page_start = (void*)(((uintptr_t)func_start) & ~(PAGE_SIZE-1));
-    // remap to r-x to bypass "execute only" protections on MIUI
-    // ⚠️ 2026-10-29（审计 B38）：mprotect 可能失败（SELinux / 页不在映射里），
-    // 失败后接着读就是 SIGSEGV。失败就放弃这条路。
-    if (mprotect(func_page_start, PAGE_SIZE, PROT_READ | PROT_EXEC) != 0) {
+    size_t page_size = runtime_page_size();
+    void* func_page_start = (void*)(((uintptr_t)func_start) & ~(page_size - 1));
+    if (mprotect(func_page_start, page_size, PROT_READ | PROT_EXEC) != 0) {
         return NULL;
     }
     uint32_t* bl_addr = func_start;
@@ -97,7 +99,9 @@ bool linker_ns_load(const char* lib_search_path) {
         return false;
     }
     // reprotecting the functions removes protection from indirect jumps
-    if (mprotect(loader_dlopen, PAGE_SIZE, PROT_WRITE | PROT_READ | PROT_EXEC) != 0) {
+    size_t page_size = runtime_page_size();
+    void* dlopen_page = (void*)(((uintptr_t)loader_dlopen) & ~(page_size - 1));
+    if (mprotect(dlopen_page, page_size, PROT_WRITE | PROT_READ | PROT_EXEC) != 0) {
         return false;
     }
     void* ld_android_handle = loader_dlopen("ld-android.so", RTLD_LAZY, &dlopen);
@@ -162,8 +166,6 @@ bool patch_elf_soname(int patchfd, int realfd, uint16_t patchid) {
         munmap(target, realstat.st_size);
         return false;
     }
-    close(realfd);
-
 
     ELF_EHDR *ehdr = (ELF_EHDR*)target;
     ELF_SHDR *shdr = (ELF_SHDR*)(target + ehdr->e_shoff);

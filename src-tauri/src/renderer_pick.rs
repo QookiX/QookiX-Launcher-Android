@@ -49,7 +49,24 @@ pub(crate) fn auto_renderer_for(mc_version: &str) -> &'static str {
 /// 因为 1.21 起区块渲染用 `glMapBufferRange`，GL4ES 不支持。
 /// 自动模式早就按这个规则选 MobileGlues；这里把它抽出来，供「用户手选了
 /// GL4ES」时给一条明确提示，而不是让他崩一次才知道。
+/// Parse Mojang snapshot identifiers such as `24w18a` or `24w33a-rc1`.
+fn snapshot_year_week(mc_version: &str) -> Option<(u32, u32)> {
+    let head = mc_version.trim().split(['-', '_', ' ']).next()?;
+    let w_pos = head.find(['w', 'W'])?;
+    let yy: u32 = head[..w_pos].parse().ok()?;
+    let rest = &head[w_pos + 1..];
+    let digits_len = rest.bytes().take_while(|b| b.is_ascii_digit()).count();
+    if digits_len == 0 {
+        return None;
+    }
+    let ww: u32 = rest[..digits_len].parse().ok()?;
+    Some((yy, ww))
+}
+
 pub(crate) fn needs_mobileglues(mc_version: &str) -> bool {
+    if let Some((yy, ww)) = snapshot_year_week(mc_version) {
+        return yy > 24 || (yy == 24 && ww >= 18);
+    }
     let (major, minor) = version_parts(mc_version);
     major >= 26 || (major == 1 && minor >= 21)
 }
@@ -90,6 +107,15 @@ mod tests {
             assert!(!needs_mobileglues(v), "{v} 不该判定为需要 MobileGlues");
             assert_eq!(auto_renderer_for(v), "opengles2");
         }
+    }
+
+    #[test]
+    fn snapshots_match_mc_1_21_cutoff() {
+        assert!(!needs_mobileglues("24w14a"));
+        assert!(!needs_mobileglues("24w17a"));
+        assert!(needs_mobileglues("24w18a"));
+        assert!(needs_mobileglues("24w33a"));
+        assert!(needs_mobileglues("25w02a"));
     }
 
     #[test]

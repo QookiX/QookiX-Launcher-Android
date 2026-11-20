@@ -147,39 +147,33 @@ async fn check_instance_files_inner(instance_id: String) -> Result<InstanceFileR
 
     let mut missing: Vec<MissingItem> = Vec::new();
 
-    // 1) 版本 json
-    if !version_json_present(&dir, &mc_version) {
+    // 1) 版本 json 与核心 client jar
+    if !version_json_present(&dir, &mc_version)
+        || !crate::launch_compat::version_client_jar_present(&dir, &mc_version)
+    {
         missing.push(MissingItem {
             kind: "version".into(),
-            detail: format!("缺少 {mc_version} 的版本信息（version.json）"),
+            detail: format!("缺少 {mc_version} 的版本信息或核心 Jar"),
             fixable: true,
         });
     }
 
-    // 2) libraries
-    if count_files(&dir.join("libraries")) == 0 {
-        missing.push(MissingItem {
-            kind: "libraries".into(),
-            detail: "缺少游戏依赖库（libraries）".into(),
-            fixable: true,
-        });
-    }
-
-    // 3) assets（游戏本体资源，占绝大部分体积）
-    //    逐对象核对：只判"目录非空"会把"下了一部分"当成完整（用户启动时才崩）。
-    //    几千次 `metadata` 是阻塞活，丢到 blocking 线程池里做，别占住异步运行时。
-    let version_json = dir
-        .join("versions")
-        .join(&mc_version)
-        .join(format!("{mc_version}.json"));
-    let assets_probe = {
-        let dir = dir.clone();
-        let version_json = version_json.clone();
-        tokio::task::spawn_blocking(move || count_missing_assets(&dir, &version_json))
-            .await
-            .ok()
-            .flatten()
+    // 2) libraries + 3) assets
+    let version_json = dir.join("versions").join(&mc_version).join(format!("{mc_version}.json"));
+    let (libs_missing, assets_probe) = {
+        let (dir_c, vj_c) = (dir.clone(), version_json.clone());
+        tokio::task::spawn_blocking(move || (
+            crate::launch_compat::missing_version_libraries_from_json(&dir_c, &vj_c),
+            count_missing_assets(&dir_c, &vj_c),
+        )).await.unwrap_or((None, None))
     };
+    if let Some(n) = libs_missing {
+        if n > 0 {
+            missing.push(MissingItem { kind: "libraries".into(), detail: format!("缺少 {n} 个游戏依赖库（libraries）"), fixable: true });
+        }
+    } else if count_files(&dir.join("libraries")) == 0 {
+        missing.push(MissingItem { kind: "libraries".into(), detail: "缺少游戏依赖库（libraries）".into(), fixable: true });
+    }
     match assets_probe {
         Some((missing_n, total_n)) if missing_n > 0 => missing.push(MissingItem {
             kind: "assets".into(),
@@ -187,17 +181,10 @@ async fn check_instance_files_inner(instance_id: String) -> Result<InstanceFileR
             fixable: true,
         }),
         Some(_) => {}
-        None => {
-            // 拿不到版本 JSON / 资源索引（例如版本信息没下）：退回原来的浅判，
-            // 至少别漏报"完全没有"的情况
-            if count_files(&dir.join("assets")) <= 1 {
-                missing.push(MissingItem {
-                    kind: "assets".into(),
-                    detail: "缺少游戏素材（assets）".into(),
-                    fixable: true,
-                });
-            }
-        }
+        None if count_files(&dir.join("assets")) <= 1 => missing.push(MissingItem {
+            kind: "assets".into(), detail: "缺少游戏素材（assets）".into(), fixable: true,
+        }),
+        None => {}
     }
 
     // 4) 加载器本体
@@ -234,10 +221,11 @@ async fn check_instance_files_inner(instance_id: String) -> Result<InstanceFileR
                     detail: format!("缺少 {loader} {loader_version} 本体"),
                     fixable: true,
                 });
-            } else if let Some(profile) = crate::loader_install::find_loader_profile(
+            } else if let Some(profile) = crate::loader_install::find_loader_profile_exact(
                 &dir.join("versions"),
                 &loader,
                 &mc_version,
+                Some(&loader_version),
             ) {
                 // ⚠️ 2026-10-19 真机修（第二处不一致）：
                 // profile 存在 ≠ 依赖齐全。`launch.rs` 会把 profile 声明的
@@ -278,16 +266,10 @@ async fn check_instance_files_inner(instance_id: String) -> Result<InstanceFileR
         }
     }
 
-    // 5) Java 运行时
-    let has_jre = std::fs::read_dir(dir.join("runtimes"))
-        .map(|rd| rd.flatten().next().is_some())
-        .unwrap_or(false);
-    if !has_jre {
-        missing.push(MissingItem {
-            kind: "runtime".into(),
-            detail: "缺少 Java 运行环境".into(),
-            fixable: true,
-        });
+    // 5) Java 运行时（按版本精确检查对应主版本档位）
+    let required_java = crate::servers::required_java_for_mc(&mc_version);
+    if crate::java::MultiRTManager::get_compatible_runtime(required_java).await.ok().flatten().is_none() {
+        missing.push(MissingItem { kind: "runtime".into(), detail: format!("缺少 Java {required_java} 运行环境"), fixable: true });
     }
 
     let total = 5;

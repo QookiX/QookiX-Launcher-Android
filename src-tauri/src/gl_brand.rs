@@ -43,24 +43,21 @@ unsafe fn resolve_real_gl_get_string() -> *mut c_void {
     }
     let sym = b"glGetString\0".as_ptr() as *const c_char;
 
-    // 1) 全局作用域：渲染器库通常以 RTLD_GLOBAL 载入，这里一般就能命中。
-    let mut f = libc::dlsym(libc::RTLD_DEFAULT, sym);
-
-    // 2) 按 soname 认已在进程里的那份（RTLD_NOLOAD 不会重复加载）。
-    if f.is_null() {
-        for name in [
-            b"libgl4es_114.so\0".as_ptr() as *const c_char,
-            b"libOSMesa.so\0".as_ptr() as *const c_char,
-            b"libmobileglues.so\0".as_ptr() as *const c_char,
-        ] {
-            let handle = libc::dlopen(name, libc::RTLD_LAZY | libc::RTLD_NOLOAD);
-            if handle.is_null() {
-                continue;
-            }
-            f = libc::dlsym(handle, sym);
-            if !f.is_null() {
-                break;
-            }
+    // Never query RTLD_DEFAULT here: looking up glGetString before renderer libs finish registering
+    // can resolve our own symbol or a wrong stub; only query already-loaded renderer handles.
+    let mut f: *mut c_void = std::ptr::null_mut();
+    for name in [
+        b"libgl4es_114.so\0".as_ptr() as *const c_char,
+        b"libOSMesa.so\0".as_ptr() as *const c_char,
+        b"libmobileglues.so\0".as_ptr() as *const c_char,
+    ] {
+        let handle = libc::dlopen(name, libc::RTLD_LAZY | libc::RTLD_NOLOAD);
+        if handle.is_null() {
+            continue;
+        }
+        f = libc::dlsym(handle, sym);
+        if !f.is_null() {
+            break;
         }
     }
 
@@ -108,10 +105,11 @@ extern "system" fn qookix_ngl_get_string(
 /// **闸 2：原来的「第 2 个 JavaVM + GL11C 找得到就装」**（见 `try_install`）。
 pub fn spawn_installer(game_dir: &str) {
     let game_dir = game_dir.to_string();
+    let launch_time = std::time::SystemTime::now();
     std::thread::spawn(move || {
         let start = Instant::now();
         let gate_deadline = start + Duration::from_secs(120);
-        while Instant::now() < gate_deadline && !natives_ready(&game_dir) {
+        while Instant::now() < gate_deadline && !natives_ready(&game_dir, launch_time) {
             std::thread::sleep(Duration::from_millis(300));
         }
         let deadline = start + Duration::from_secs(180);
@@ -134,11 +132,17 @@ pub fn spawn_installer(game_dir: &str) {
 }
 
 /// MC 的日志里是否已出现「原生库装好」的标记（见 `spawn_installer` 的闸 1）。
-fn natives_ready(game_dir: &str) -> bool {
+fn natives_ready(game_dir: &str, launch_time: std::time::SystemTime) -> bool {
     const MARKERS: [&str; 2] = ["Setting user", "Backend library:"];
     let path = std::path::Path::new(game_dir)
         .join("logs")
         .join("latest.log");
+    let modified_after_launch = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .is_ok_and(|mtime| mtime >= launch_time);
+    if !modified_after_launch {
+        return false;
+    }
     let Ok(text) = std::fs::read_to_string(&path) else {
         return false;
     };
