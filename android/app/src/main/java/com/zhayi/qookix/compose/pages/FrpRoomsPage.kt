@@ -52,7 +52,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
+import com.zhayi.qookix.compose.ui.QkStateCrossfade
 import com.zhayi.qookix.compose.ui.SkeletonList
+
+private enum class FrpRoomsPaneState { Loading, Error, Empty, Content }
 
 /**
  * FRP 联机房间（旧界面 `FrpRoomsView.vue` / 344 行 / 9 个命令）。
@@ -161,10 +164,7 @@ fun FrpRoomsPage(
             }
         }
 
-        // ── 错误条 ────────────────────────────────────────────────────
-        //
-        // ⚠️ 必须放在列表**前面**（2026-10-26 审查 P1-15）：原来放在 Column 末尾，
-        // 而列表是 `fillMaxSize()`，错误条被整个挤出屏幕 —— 建房失败时什么都看不到。
+        // 错误条放在列表前面，避免被列表挤出屏幕
         state.error?.let { msg ->
             Text(
                 text = msg,
@@ -175,69 +175,74 @@ fun FrpRoomsPage(
         }
 
         // ── 列表 ──────────────────────────────────────────────────────
-        when {
-            state.busy && state.rooms.isEmpty() -> Column(modifier = Modifier.padding(QkSpacing.lg)) {
-                SkeletonList(rows = 2, rowHeight = 96.dp)
-            }
+        val paneState = when {
+            state.busy && state.rooms.isEmpty() -> FrpRoomsPaneState.Loading
+            state.rooms.isEmpty() && state.error != null -> FrpRoomsPaneState.Error
+            state.rooms.isEmpty() -> FrpRoomsPaneState.Empty
+            else -> FrpRoomsPaneState.Content
+        }
+        QkStateCrossfade(
+            targetState = paneState,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            label = "frpRoomsPane",
+        ) { mode ->
+            when (mode) {
+                FrpRoomsPaneState.Loading -> Column(modifier = Modifier.padding(QkSpacing.lg)) {
+                    SkeletonList(rows = 2, rowHeight = 96.dp)
+                }
 
-            // ⚠️ 读失败时不能同时显示「还没有房间」—— 没读到不等于没有。
-            // 失败态优先，并且区分「没登录」：那种情况重试只会再失败一次，
-            // 得给一条回 FRP 面板登录的路（横屏下两个按钮同一行）。
-            state.rooms.isEmpty() && state.error != null -> Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.frp_rooms_load_failed),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(QkSpacing.sm))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onRefresh) {
-                            Text(stringResource(R.string.common_retry))
-                        }
-                        if (onOpenFrpPanel != null && state.error.contains("登录")) {
-                            OutlinedButton(onClick = onOpenFrpPanel) {
-                                Text(stringResource(R.string.frp_rooms_go_login))
+                // 失败态优先于空态，没登录面板时提供直达登录按钮
+                FrpRoomsPaneState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = stringResource(R.string.frp_rooms_load_failed),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(QkSpacing.sm))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = onRefresh) { Text(stringResource(R.string.common_retry)) }
+                            if (onOpenFrpPanel != null && state.error.orEmpty().contains("登录")) {
+                                OutlinedButton(onClick = onOpenFrpPanel) {
+                                    Text(stringResource(R.string.frp_rooms_go_login))
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            state.rooms.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.frp_rooms_empty_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(QkSpacing.xs))
-                    Text(
-                        text = stringResource(R.string.frp_rooms_empty_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                FrpRoomsPaneState.Empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = stringResource(R.string.frp_rooms_empty_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(QkSpacing.xs))
+                        Text(
+                            text = stringResource(R.string.frp_rooms_empty_desc),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-            }
 
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-            ) {
-                items(state.rooms, key = { it.id }) { r ->
-                    FrpRoomCard(
-                        room = r,
-                        busy = state.busy,
-                        note = state.notes[r.id],
-                        onEnter = { onEnter(r) },
-                        onEnterWithPassword = { pwd -> onEnterWithPassword(r, pwd) },
-                        onExit = { onExit(r) },
-                        onReadClipboard = onReadClipboard,
-                    )
+                FrpRoomsPaneState.Content -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+                ) {
+                    items(state.rooms, key = { it.id }) { r ->
+                        FrpRoomCard(
+                            room = r,
+                            busy = state.busy,
+                            note = state.notes[r.id],
+                            onEnter = { onEnter(r) },
+                            onEnterWithPassword = { pwd -> onEnterWithPassword(r, pwd) },
+                            onExit = { onExit(r) },
+                            onReadClipboard = onReadClipboard,
+                        )
+                    }
                 }
             }
         }

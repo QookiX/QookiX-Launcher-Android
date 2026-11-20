@@ -14,6 +14,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
 import com.zhayi.qookix.compose.motion.QookiX
 
 /**
@@ -105,6 +106,9 @@ fun Modifier.qkPressable(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ): Modifier = composed {
+    if (!QkMotionPolicy.animationsEnabled) {
+        return@composed this.clickable(enabled = enabled, onClick = onClick)
+    }
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(

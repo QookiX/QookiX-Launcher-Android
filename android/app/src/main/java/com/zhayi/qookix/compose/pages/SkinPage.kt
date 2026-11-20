@@ -6,7 +6,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import com.zhayi.qookix.compose.motion.pressScale
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -33,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.mutableStateOf
@@ -73,31 +77,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.changedToUp
 
-/**
- * 皮肤页。
- *
- * 对应旧界面 `SkinView.vue`（291 行）。
- *
- * ── 关于 3D 预览的降级决定 ──────────────────────────────────────────────
- * 旧界面用 `skinview3d`（WebGL）做 3D 旋转预览。Compose 没有等价物，
- * 而为了它保留一个 WebView 或写一套 OpenGL ES 渲染都不划算（见 SkinRepo 注释）。
- *
- * 本实现改成 **2D 二视图预览**：把 64×64 的皮肤贴图裁出
- *   - 正面（头 + 身体）
- *   - 背面
- * 并排显示。看皮肤主要就是看这两面，信息量足够，成本极低。
- *
- * 布局：
- *   ┌──────────────────────────────────────────────────┐
- *   │  预览区                                          │
- *   │  ┌──────┐  ┌──────┐      名称：Steve             │
- *   │  │ 正面 │  │ 背面 │      [应用到账号]  [删除]     │
- *   │  └──────┘  └──────┘                              │
- *   ├──────────────────────────────────────────────────┤
- *   │  皮肤库（网格）                    [+ 导入]      │
- *   │  ┌────┐ ┌────┐ ┌────┐ ┌────┐                     │
- *   └──────────────────────────────────────────────────┘
- */
+/** 皮肤管理页：上方 3D/2D 预览与账号应用，下方皮肤库网格与导入。 */
 @Composable
 fun SkinPage(
     state: SkinUiState,
@@ -911,14 +891,22 @@ private fun SkinCard(
                     )
                 }
             } else {
-                com.zhayi.qookix.compose.ui.QkImageWithSkeleton(
-                    model = null,
-                    contentDescription = null,
+                // Static placeholder for unselected cards so they don't spin infinite shimmer loops.
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(90.dp),
-                    cornerRadius = 8.dp,
-                )
+                        .height(90.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
             }
 
             Spacer(Modifier.height(QkSpacing.xs))

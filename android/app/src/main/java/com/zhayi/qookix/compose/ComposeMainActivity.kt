@@ -6,6 +6,9 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -33,6 +36,10 @@ import com.zhayi.qookix.HostCapabilities
 import com.zhayi.qookix.PendingLaunch
 import com.zhayi.qookix.R
 import com.zhayi.qookix.ServerDocsProvider
+import com.zhayi.qookix.compose.motion.NavTransitionKind
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
+import com.zhayi.qookix.compose.motion.QookiX
+import com.zhayi.qookix.compose.motion.classifyNavTransition
 // ⚠️ 阶段 4（2026-10-25）：**不再继承 TauriActivity**。
 //
 // TauriActivity 的意义只有一个：创建一个隐藏 WebView 当 IPC 通道。
@@ -301,6 +308,11 @@ class ComposeMainActivity : ComponentActivity() {
         enableImmersiveMode()
         window?.decorView?.post { attachComposeOverlay(0) }
         Log.i(TAG, "onCreate 完成")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        QkMotionPolicy.refresh(this)
     }
 
     /**
@@ -1495,10 +1507,8 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
         }
             var bridgeReady by remember { mutableStateOf(false) }
             val backStack = remember { androidx.compose.runtime.mutableStateListOf<NavDestination>() }
+            var transitionKind by remember { mutableStateOf(NavTransitionKind.TopLevel) }
 
-            // 二级页的「上一层」。顶栏返回键与系统返回键**共用这张表** ——
-            // 原来是两套逻辑（顶栏回「更多」、系统返回却直接回首页），同一个页面
-            // 两种返回结果，用户会以为界面错乱。
             fun parentOf(dest: NavDestination): NavDestination? = when (dest) {
                 NavDestination.CreateInstance, NavDestination.InstanceDetail -> NavDestination.Instances
                 NavDestination.ServerDetail, NavDestination.ServerCreate,
@@ -1507,31 +1517,24 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 NavDestination.Playtime, NavDestination.Settings,
                 NavDestination.Downloads -> NavDestination.Account
                 NavDestination.Account -> NavDestination.Home
-                // 内容详情是内容中心的下钻层
                 NavDestination.ContentDetail -> NavDestination.Browse
-                // 局域网同步：从 deep link 或设置进入，返回回首页
-                // 局域网同步从「我的」进，返回也回「我的」
                 NavDestination.LanSync -> NavDestination.Account
                 else -> null
             }
 
             fun goUp(): Boolean {
                 val parent = parentOf(current) ?: return false
+                transitionKind = NavTransitionKind.Back
                 current = parent
                 backStack.clear()
                 return true
             }
 
-            // ⚠️ 系统返回键交给 OnBackPressedDispatcher（2026-10-26 审查 P1-7）：
-            // 原来 Activity.onBackPressed 先调自建的 backHandler 并 `return`，
-            // 于是挂在 dispatcher 上的 Compose BackHandler（文件编辑器、
-            // 未保存确认等）**全部饿死** —— 那些「修好了」的代码从没生效过。
-            // 现在这里只是最外层的一环：栈内下钻优先，其次回上一层，
-            // 都没有时不消费（enabled=false）让系统退出应用。
             androidx.activity.compose.BackHandler(
                 enabled = backStack.isNotEmpty() || parentOf(current) != null,
             ) {
                 if (backStack.isNotEmpty()) {
+                    transitionKind = NavTransitionKind.Back
                     current = backStack.removeAt(backStack.lastIndex)
                 } else {
                     goUp()
@@ -1541,6 +1544,7 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             LaunchedEffect(Unit) { bridge.start { bridgeReady = true } }
 
             fun navigate(dest: NavDestination) {
+                transitionKind = classifyNavTransition(dest, wentBack = false)
                 if (dest in NavDestination.bottomBar) { current = dest; backStack.clear() }
                 else { if (current !in NavDestination.bottomBar) backStack.add(current); current = dest }
             }
@@ -1561,42 +1565,18 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 }
             }
 
-            // 首启「准备运行环境」：检查 + 自动补齐 + 逐项进度 + 失败可见。
-            // 接线收在 FirstRunSetupHost 里（本文件已顶到体量预算）。
-            FirstRunSetupHost(bridge = bridge, bridgeReady = bridgeReady)
-
-            // 2026-11-07：上次启动「秒退」时给一次可见提示；顺手把内部启动日志
-            // 镜像到应用专属外部目录（release 包不可 run-as，只有那里 adb 能拿到）。
-            LaunchFailureNoticeHost()
-
             LauncherShell(
                 current = current,
                 onNavigate = { navigate(it) },
                 onOpenAccount = { navigate(NavDestination.Account) },
-                // 文件浏览等「栈外下钻层」用这个覆盖标题；没覆盖时不传，
-                // 让 LauncherShell 用它自己的 titleFor(current) 默认值。
                 title = titleOverride,
-                // 内容中心把搜索/筛选/排序工具栏注册到这里 —— 和标题同一行
                 titleContent = toolbarContent,
                 sidebarWidthDp = sidebarWidth,
-                //
-                // 以前只有一级页面（首页/实例/内容/多人/下载/更多）有顶栏，
-                // 二级页面各自在内容区自绘标题栏 —— 结果「新建实例」页
-                // 出现两个标题（用户截图指出）。现在统一由顶栏提供。
-                //
-                // 返回目标按页面决定：
-                //   新建实例 → 实例列表
-                //   实例详情 → 实例列表
-                //   服务器详情 → 多人
-                //   其余二级页 → 各自的上层
                 onBack = ({
-                    // 顶栏返回键与系统返回键走同一条路（审查 P1-7 通路②）：
-                    // 原来是「innerBack 不消费就 goUp()」，完全不看 backStack ——
-                    // 同一个页面，系统返回回上一层、顶栏返回回上一层表里的父页，
-                    // 两种结果（如服务器详情：一个回多人列表，一个回多人首页）。
                     when {
                         innerBack?.invoke() == true -> {}
                         backStack.isNotEmpty() -> {
+                            transitionKind = NavTransitionKind.Back
                             current = backStack.removeAt(backStack.lastIndex)
                         }
                         else -> {
@@ -1605,15 +1585,15 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                     }
                     Unit
                 }).takeIf {
-                    // 顶栏返回键只在「真的能返回」时出现：栈空且没有父页时别显示
-                    // 一个点了没反应的箭头
                     current !in NavDestination.bottomBar &&
                         (innerBack != null || backStack.isNotEmpty() || parentOf(current) != null)
                 },
-                // ⚠️ 2026-10-18 加：实例页的「新建实例」按钮从内容区移到顶栏，
-                // 和标题、账号图标同一行 —— 省掉原来占掉的一整行（约 56dp）。
                 actions = {
-                    if (current == NavDestination.Instances) {
+                    AnimatedVisibility(
+                        visible = current == NavDestination.Instances,
+                        enter = fadeIn(QookiX.fastEffectsSpec()),
+                        exit = fadeOut(QookiX.fastEffectsSpec()),
+                    ) {
                         FilledTonalButton(
                             onClick = { navigate(NavDestination.CreateInstance) },
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -1640,11 +1620,10 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                     bridge = bridge,
                     bridgeReady = bridgeReady,
                     onNavigate = { navigate(it) },
-                    // 文件浏览这类「非 NavDestination 的下钻层」用它上报真实标题
+                    transitionKind = transitionKind,
                     onTitleChange = { titleOverride = it },
                     onBackHandlerChanged = { innerBack = it },
                     onSidebarWidthChanged = { sidebarWidth = it },
-                    // 内容中心把搜索/筛选/排序工具栏注册到顶栏（2026-10-17）
                     onRegisterToolbar = { toolbarContent = it },
                     selectedServerId = selectedServerId,
                     onSelectedServerIdChange = { selectedServerId = it },
@@ -1653,11 +1632,7 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                     selectedContent = selectedContent,
                     onSelectedContentChange = { selectedContent = it },
                     activity = activity,
-                    // 3D 预览渲染方式（外观页可切）。不传的话 PageHost
-                    // 会一直用默认值 "compose"，「流畅」模式就永远不生效
-                    //（踩过：设置副标题变了但提层日志一条没有）。
                     previewRenderMode = previewRenderMode,
-                    // 设置页改了主题/主题色 → 立刻回传给根节点，无需重启
                     onAppearanceChanged = { mode, color, scale, preview ->
                         themeMode = mode
                         themeColor = color
@@ -1667,6 +1642,9 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 )
             }
 
+            // Keep overlay hosts AFTER LauncherShell so they always draw above navigation/content.
+            FirstRunSetupHost(bridge = bridge, bridgeReady = bridgeReady)
+            LaunchFailureNoticeHost()
         }
         }
     }

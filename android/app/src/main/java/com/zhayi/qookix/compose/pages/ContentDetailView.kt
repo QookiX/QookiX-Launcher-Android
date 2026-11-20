@@ -26,6 +26,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -38,6 +42,7 @@ import com.mikepenz.markdown.m3.Markdown
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.theme.QkSpacing
 import com.zhayi.qookix.compose.ui.QkImageWithSkeleton
+import com.zhayi.qookix.compose.ui.QkStateCrossfade
 
 /**
  * 详情页顶栏：图标 + 资源名 + 作者。
@@ -303,6 +308,8 @@ private fun BodyToolbar(
     }
 }
 
+private enum class BodyPaneState { Loading, Error, Empty, Content }
+
 /** 宽屏正文：自己滚，工具栏不跟着走。 */
 @Composable
 private fun BodyContent(
@@ -312,34 +319,48 @@ private fun BodyContent(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var lastError by remember { mutableStateOf("") }
+    if (error != null) lastError = error
+    val paneState = when {
+        loading -> BodyPaneState.Loading
+        error != null -> BodyPaneState.Error
+        body.isBlank() -> BodyPaneState.Empty
+        else -> BodyPaneState.Content
+    }
     Box(modifier = modifier) {
-        when {
-            loading -> LoadingRow(
-                text = stringResource(R.string.content_detail_body_loading),
-                modifier = Modifier.padding(top = QkSpacing.sm),
-            )
+        QkStateCrossfade(
+            targetState = paneState,
+            modifier = Modifier.fillMaxSize(),
+            label = "detailBodyContent",
+        ) { mode ->
+            when (mode) {
+                BodyPaneState.Loading -> LoadingRow(
+                    text = stringResource(R.string.content_detail_body_loading),
+                    modifier = Modifier.padding(top = QkSpacing.sm),
+                )
 
-            // 正文失败**只影响这一块**：安装面板照旧可用
-            error != null -> ErrorRow(text = error, onRetry = onRetry)
+                // 正文失败**只影响这一块**：安装面板照旧可用
+                BodyPaneState.Error -> ErrorRow(text = lastError, onRetry = onRetry)
 
-            body.isBlank() -> EmptyBody()
+                BodyPaneState.Empty -> EmptyBody()
 
-            else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item(key = "__md__") {
-                    Markdown(
-                        content = body,
-                        // 默认 transformer 是 NoOp（图片不显示），换成 Coil3 那份
-                        imageTransformer = Coil3ImageTransformerImpl,
-                        // ⚠️ 2026-10-28（竖屏审计）：正文开头的 H1 字号过大
-                        //（Modrinth 的 body 常以 `# 项目名` 开头，一屏占掉三行）。
-                        //
-                        // 试过 `typography = markdownTypography(h1 = …, h2 = …)`：
-                        // 编译通过、装包实测**字号没变化** —— 0.29.0 的 m3 `Markdown`
-                        // 在内部对标题做了二次处理，传进去的 typography 只覆盖了
-                        // 正文/列表，标题仍用库内置的 display 级字号。
-                        // 这条路走不通，先不动（见 docs/portrait-audit.md 待办）。
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                BodyPaneState.Content -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item(key = "__md__") {
+                        Markdown(
+                            content = body,
+                            // 默认 transformer 是 NoOp（图片不显示），换成 Coil3 那份
+                            imageTransformer = Coil3ImageTransformerImpl,
+                            // ⚠️ 2026-10-28（竖屏审计）：正文开头的 H1 字号过大
+                            //（Modrinth 的 body 常以 `# 项目名` 开头，一屏占掉三行）。
+                            //
+                            // 试过 `typography = markdownTypography(h1 = …, h2 = …)`：
+                            // 编译通过、装包实测**字号没变化** —— 0.29.0 的 m3 `Markdown`
+                            // 在内部对标题做了二次处理，传进去的 typography 只覆盖了
+                            // 正文/列表，标题仍用库内置的 display 级字号。
+                            // 这条路走不通，先不动（见 docs/portrait-audit.md 待办）。
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         }
@@ -354,15 +375,29 @@ private fun BodyInline(
     error: String?,
     onRetry: () -> Unit,
 ) {
-    when {
-        loading -> LoadingRow(text = stringResource(R.string.content_detail_body_loading))
-        error != null -> ErrorRow(text = error, onRetry = onRetry)
-        body.isBlank() -> EmptyBody()
-        else -> Markdown(
-            content = body,
-            imageTransformer = Coil3ImageTransformerImpl,
-            modifier = Modifier.fillMaxWidth(),
-        )
+    var lastError by remember { mutableStateOf("") }
+    if (error != null) lastError = error
+    val paneState = when {
+        loading -> BodyPaneState.Loading
+        error != null -> BodyPaneState.Error
+        body.isBlank() -> BodyPaneState.Empty
+        else -> BodyPaneState.Content
+    }
+    QkStateCrossfade(
+        targetState = paneState,
+        modifier = Modifier.fillMaxWidth(),
+        label = "detailBodyInline",
+    ) { mode ->
+        when (mode) {
+            BodyPaneState.Loading -> LoadingRow(text = stringResource(R.string.content_detail_body_loading))
+            BodyPaneState.Error -> ErrorRow(text = lastError, onRetry = onRetry)
+            BodyPaneState.Empty -> EmptyBody()
+            BodyPaneState.Content -> Markdown(
+                content = body,
+                imageTransformer = Coil3ImageTransformerImpl,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

@@ -74,7 +74,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.compose.ui.QkImageWithSkeleton
+import com.zhayi.qookix.compose.ui.QkStateCrossfade
 import com.zhayi.qookix.compose.ui.SkeletonList
+
+private enum class BrowsePaneState { Loading, Empty, Content }
 
 /**
  * 内容中心（Modrinth / CurseForge 浏览）。
@@ -144,115 +147,101 @@ fun BrowsePage(
         rememberLazyGridState(),
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // ⚠️ 这里原本还渲染过一份 BrowseFilterSheet —— 但 `filterOpen` 参数从来没被
-        // 调用方传过（恒为 false），那份面板永远不可见，它的 onDismiss 也是空实现。
-        // 真正生效的是 BrowseRoute 里那份（状态由 Route 持有）。死代码已删。
-        // 工具栏（搜索 + 筛选 + 排序）已移到**顶栏**（2026-10-17）。
-        //
-        // 原来它占页面内一整行（约 60dp），横屏 384dp 高度里很浪费。
-        // 现在放进 LauncherShell 的 TopAppBar.title 槽位 —— 和「内容」标题同一行，
-        // 完全省下那一行。顶栏里的布局见 BrowseToolbar。
-        when {
-            state.loading && state.items.isEmpty() -> {
-                SkeletonList(rows = 3, rowHeight = 160.dp)
-            }
+        // 工具栏（搜索 + 筛选 + 排序）放在顶栏 BrowseToolbar 中，省去页内占高。
+        val paneState = when {
+            state.loading && state.items.isEmpty() -> BrowsePaneState.Loading
+            state.items.isEmpty() -> BrowsePaneState.Empty
+            else -> BrowsePaneState.Content
+        }
+        QkStateCrossfade(
+            targetState = paneState,
+            modifier = Modifier.fillMaxSize(),
+            label = "browsePane",
+        ) { mode ->
+            when (mode) {
+                BrowsePaneState.Loading -> {
+                    SkeletonList(rows = 3, rowHeight = 160.dp)
+                }
 
-            state.items.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = if (state.query.isBlank()) stringResource(R.string.browse_search_hint)
-                            else stringResource(R.string.browse_no_results),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (state.error != null) {
-                            Spacer(Modifier.height(QkSpacing.xs))
+                BrowsePaneState.Empty -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = state.error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
+                                text = if (state.query.isBlank()) stringResource(R.string.browse_search_hint)
+                                else stringResource(R.string.browse_no_results),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            // 搜索失败后原本只能改筛选条件才能重发请求 —— 网络恢复后没有入口
-                            Spacer(Modifier.height(QkSpacing.sm))
-                            Button(onClick = onSearch) { Text(stringResource(R.string.common_retry)) }
-                        }
-                    }
-                }
-            }
-
-            else -> {
-                // ── 触底加载下一页 ──────────────────────────────────────
-                //
-                // ⚠️ 为什么用「在组合里读 state + snapshotFlow」而不是
-                // `LaunchedEffect(gridState)`：后者的 block **不带接收者**，
-                // 里面读 snapshot 状态不会被跟踪，effect 永远不会重跑，
-                // 滚动位置变化根本推不出来（这是个经典坑）。
-                // 在 Composable 作用域里读，才能建立快照订阅。
-                //
-                // 判定「接近底部」用可见项做比较（不是写死数字）：
-                // 最后可见项的 index 进到倒数第 3 项以内就算触底。
-                val paging by remember {
-                    derivedStateOf {
-                        val total = gridState.layoutInfo.totalItemsCount
-                        val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-                        if (total <= 0 || last < 0) false else last >= total - 3
-                    }
-                }
-                LaunchedEffect(gridState, hasMore, loadingMore) {
-                    snapshotFlow { paging }
-                        .distinctUntilChanged()
-                        .filter { it }
-                        .collect {
-                            // hasMore/loadingMore 在这里读的是**本次组合的值**；
-                            // 它们变化会重启 effect（键里有），所以不会用到旧值。
-                            if (hasMore && !loadingMore) onLoadMore()
-                        }
-                }
-
-                LazyVerticalGrid(
-                    // 紧凑模式：列宽收到 320dp（横屏 2400px ≈ 800dp 能放 2 列，
-                    // 每行卡片高度从 ~200dp 降到 ~72dp，一屏能看 5~6 个项目）。
-                    // 卡片模式：保持 220dp 自适应网格。
-                    columns = GridCells.Adaptive(minSize = if (state.compact) 320.dp else 220.dp),
-                    state = gridState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(if (state.compact) 8.dp else 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (state.compact) 6.dp else 12.dp),
-                ) {
-                    // 整页翻译按钮已挪到顶栏（2026-10-29，用户要求）——
-                    // 见 BrowseToolbar 的 translatingPage / onTranslatePage。
-                    items(state.items, key = { it.id }) { p ->
-                        if (state.compact) {
-                            ProjectRowCompact(p, onClick = { onOpenProject(p) }, onInstall = { onInstall(p) })
-                        } else {
-                            ProjectCard(p, onClick = { onOpenProject(p) }, onInstall = { onInstall(p) })
-                        }
-                    }
-                    // 底部状态：还有下一页就转圈，没有就明确说「到底了」——
-                    // 否则用户滑到底看到空白，不知道是加载中还是没了。
-                    item(key = "__browse_tail__") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = QkSpacing.md),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (loadingMore) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(22.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            } else if (!hasMore) {
+                            state.error?.let { err ->
+                                Spacer(Modifier.height(QkSpacing.xs))
                                 Text(
-                                    text = stringResource(R.string.browse_no_more),
+                                    text = err,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    color = MaterialTheme.colorScheme.error,
                                 )
+                                // 搜索失败后原本只能改筛选条件才能重发请求 —— 网络恢复后没有入口
+                                Spacer(Modifier.height(QkSpacing.sm))
+                                Button(onClick = onSearch) { Text(stringResource(R.string.common_retry)) }
+                            }
+                        }
+                    }
+                }
+
+                BrowsePaneState.Content -> {
+                    // ── 触底加载下一页 ──────────────────────────────────
+                    val paging by remember {
+                        derivedStateOf {
+                            val total = gridState.layoutInfo.totalItemsCount
+                            val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                            if (total <= 0 || last < 0) false else last >= total - 3
+                        }
+                    }
+                    LaunchedEffect(gridState, hasMore, loadingMore) {
+                        snapshotFlow { paging }
+                            .distinctUntilChanged()
+                            .filter { it }
+                            .collect {
+                                if (hasMore && !loadingMore) onLoadMore()
+                            }
+                    }
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = if (state.compact) 320.dp else 220.dp),
+                        state = gridState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (state.compact) 8.dp else 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (state.compact) 6.dp else 12.dp),
+                    ) {
+                        items(state.items, key = { it.id }) { p ->
+                            if (state.compact) {
+                                ProjectRowCompact(p, onClick = { onOpenProject(p) }, onInstall = { onInstall(p) })
+                            } else {
+                                ProjectCard(p, onClick = { onOpenProject(p) }, onInstall = { onInstall(p) })
+                            }
+                        }
+                        item(key = "__browse_tail__") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = QkSpacing.md),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (loadingMore) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(22.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else if (!hasMore) {
+                                    Text(
+                                        text = stringResource(R.string.browse_no_more),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                    )
+                                }
                             }
                         }
                     }

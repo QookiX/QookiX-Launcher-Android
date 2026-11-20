@@ -1,31 +1,36 @@
 package com.zhayi.qookix.compose.ui
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabPosition
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import com.zhayi.qookix.compose.motion.QookiX
 
 /**
  * 全 App 统一的 **tab 栏**。
@@ -81,10 +86,10 @@ fun QkTabRow(
         val container = MaterialTheme.colorScheme.surfaceContainerLow
 
         if (neededDp <= availableDp) {
-            // ── 放得下：等分填满，不留右侧空白 ──
             TabRow(
                 selectedTabIndex = selectedIndex,
                 containerColor = container,
+                indicator = { tabPositions -> QkTabIndicator(tabPositions, selectedIndex) },
             ) {
                 labels.forEachIndexed { i, label ->
                     QkTab(
@@ -95,22 +100,12 @@ fun QkTabRow(
                 }
             }
         } else {
-            // ── 放不下：横滚（不挤压文字）──
-            // ⚠️ ScrollableTabRow 没有 minTabWidth 参数（那是 TabRow 的）。
-            // 它的每个 tab 宽度由内容决定，这里用固定宽度的 Box 包一层，
-            // 保证每个 tab 至少 minTabWidth，避免长标签把短标签挤扁。
-            //
-            // ⚠️ 2026-10-28（竖屏审计）：8 个 tab 在 411dp 下只能看到 4 个多，
-            // 而横滚**没有任何视觉提示** —— 用户根本不知道右边还有「存储」「关于」。
-            //
-            // 右侧加一层渐隐提示「右边还有」。M3 的 ScrollableTabRow 不暴露
-            // scrollState（没法判断是否滚到头），所以这层常显 —— 代价是滚到最右
-            // 仍有一点点渐隐，换来的是「一眼能看出还能滑」，值得。
             Box {
                 ScrollableTabRow(
                     selectedTabIndex = selectedIndex,
                     edgePadding = 8.dp,
                     containerColor = container,
+                    indicator = { tabPositions -> QkTabIndicator(tabPositions, selectedIndex) },
                 ) {
                     labels.forEachIndexed { i, label ->
                         Box(modifier = Modifier.width(minTabWidth.dp)) {
@@ -151,6 +146,31 @@ fun QkTabRow(
             }
         }
     }
+}
+
+@Composable
+private fun QkTabIndicator(tabPositions: List<TabPosition>, selectedIndex: Int) {
+    val current = tabPositions.getOrNull(selectedIndex) ?: return
+    val left by animateDpAsState(
+        targetValue = current.left,
+        animationSpec = QookiX.fastSpatialSpec(),
+        label = "tabIndLeft",
+    )
+    val width by animateDpAsState(
+        targetValue = current.width,
+        animationSpec = QookiX.layoutSpec(),
+        label = "tabIndWidth",
+    )
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .wrapContentSize(Alignment.BottomStart)
+            .offset { IntOffset(left.roundToPx(), 0) }
+            .width(width)
+            .height(3.dp)
+            .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+            .background(MaterialTheme.colorScheme.primary),
+    )
 }
 
 /** 单个 tab（纯文字，与三处页面的既有观感一致）。 */

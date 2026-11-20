@@ -43,8 +43,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,6 +57,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
+import com.zhayi.qookix.compose.ui.QkTabContent
+import com.zhayi.qookix.compose.ui.QkTabRow
 import com.zhayi.qookix.compose.ui.SkeletonList
 
 /**
@@ -100,47 +100,45 @@ fun MultiplayerPage(
     onRetry: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = state.tab.ordinal) {
-            Tab(
-                selected = state.tab == MultiplayerTab.Servers,
-                onClick = { onTabChange(MultiplayerTab.Servers) },
-                text = { Text(stringResource(R.string.multiplayer_tab_servers)) },
-            )
-            Tab(
-                selected = state.tab == MultiplayerTab.Tunnel,
-                onClick = { onTabChange(MultiplayerTab.Tunnel) },
-                // 这里原本叫「联机房间」，但实际内容是**陶瓦联机** ——
-                // 而真正的「联机房间」（FRP / XTCP）是另一个页面。
-                // 两个名字撞车会让用户以为是一回事，所以改名。
-                text = { Text(stringResource(R.string.multiplayer_tab_tunnel)) },
-            )
-            Tab(
-                selected = state.tab == MultiplayerTab.FrpRooms,
-                onClick = { onTabChange(MultiplayerTab.FrpRooms) },
-                text = { Text(stringResource(R.string.multiplayer_tab_rooms)) },
-            )
-        }
+        QkTabRow(
+            labels = listOf(
+                stringResource(R.string.multiplayer_tab_servers),
+                stringResource(R.string.multiplayer_tab_tunnel),
+                stringResource(R.string.multiplayer_tab_rooms),
+            ),
+            selectedIndex = state.tab.ordinal,
+            onSelect = { onTabChange(MultiplayerTab.entries[it]) },
+        )
 
-        when (state.tab) {
-            MultiplayerTab.Servers -> ServersTab(
-                state = state,
-                onStartServer = onStartServer,
-                onStopServer = onStopServer,
-                onOpenServer = onOpenServer,
-                onCreateServer = onCreateServer,
-                onPingServer = onPingServer,
-                onRetry = onRetry,
-            )
-            MultiplayerTab.Tunnel -> TunnelTab(
-                state = state,
-                onToggle = onToggleTunnel,
-                onJoin = onJoinRoom,
-                onCopyRoom = onCopyRoom,
-                busy = tunnelBusy,
-            )
-            // FRP 房间是独立页面（内容多），这里只放入口卡片 ——
-            // 与旧版一致：联机类功能都从多人页进，但房间有自己的完整页面。
-            MultiplayerTab.FrpRooms -> FrpRoomsEntryTab(onOpenFrp, onOpenFrpRooms)
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            QkTabContent(
+                targetState = state.tab,
+                order = { it.ordinal },
+                modifier = Modifier.fillMaxSize(),
+                label = "multiplayerTab",
+            ) { tab ->
+                when (tab) {
+                    MultiplayerTab.Servers -> ServersTab(
+                        state = state,
+                        onStartServer = onStartServer,
+                        onStopServer = onStopServer,
+                        onOpenServer = onOpenServer,
+                        onCreateServer = onCreateServer,
+                        onPingServer = onPingServer,
+                        onRetry = onRetry,
+                    )
+                    MultiplayerTab.Tunnel -> TunnelTab(
+                        state = state,
+                        onToggle = onToggleTunnel,
+                        onJoin = onJoinRoom,
+                        onCopyRoom = onCopyRoom,
+                        busy = tunnelBusy,
+                    )
+                    // FRP 房间是独立页面（内容多），这里只放入口卡片 ——
+                    // 与旧版一致：联机类功能都从多人页进，但房间有自己的完整页面。
+                    MultiplayerTab.FrpRooms -> FrpRoomsEntryTab(onOpenFrp, onOpenFrpRooms)
+                }
+            }
         }
     }
 }

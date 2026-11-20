@@ -15,24 +15,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.zhayi.qookix.compose.motion.QookiX
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +35,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import com.zhayi.qookix.compose.theme.qkPressable
+import com.zhayi.qookix.compose.ui.QkBannerVisibility
+import com.zhayi.qookix.compose.ui.QkExpandChevron
+import com.zhayi.qookix.compose.ui.QkProgressBar
+import com.zhayi.qookix.compose.ui.QkTabContent
+import com.zhayi.qookix.compose.ui.QkTabRow
 
 /**
  * 下载页。
@@ -75,82 +70,79 @@ fun DownloadsPage(
      */
     onClearFinished: () -> Unit,
 ) {
-    // 当前 tab 的列表先取出来：「已完成」tab 顶部工具条要知道有没有东西可清
-    val list = when (state.tab) {
-        DownloadsTab.Active -> state.active
-        DownloadsTab.Finished -> state.finished
-    }
-
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = if (state.tab == DownloadsTab.Active) 0 else 1) {
-            Tab(
-                selected = state.tab == DownloadsTab.Active,
-                onClick = { onTabChange(DownloadsTab.Active) },
-                text = { Text(stringResource(R.string.download_tab_active)) },
-            )
-            Tab(
-                selected = state.tab == DownloadsTab.Finished,
-                onClick = { onTabChange(DownloadsTab.Finished) },
-                text = { Text(stringResource(R.string.download_tab_finished)) },
-            )
-        }
-
-        // ── 「已完成」tab 的清空入口 ────────────────────────────────────
-        //
-        // 只在「已完成」tab 出现：进行中的任务对应的是「取消」（在卡片上），
-        // 放到这里会被误点成一键清空。
-        //
-        // ⚠️ 它必须画在**空列表分支之外**：清空之后列表就空了，
-        // 按钮若跟着列表一起消失，用户会看到「按钮没了」而以为出错。
-        // 所以按钮挂在列表之上（列表为空时它依然在，只是被禁用）。
-        if (state.tab == DownloadsTab.Finished) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = QkSpacing.md, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(Modifier.weight(1f))
-                TextButton(
-                    onClick = onClearFinished,
-                    // 没有已完成任务时禁用（点了也没意义）
-                    enabled = list.isNotEmpty(),
-                ) {
-                    Icon(
-                        Icons.Filled.DeleteSweep,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.download_clear_finished))
-                }
-            }
-        }
-
-        if (list.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (state.tab == DownloadsTab.Active) stringResource(R.string.download_empty_active)
-                    else stringResource(R.string.download_empty_finished),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            return@Column
-        }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp,
+        QkTabRow(
+            labels = listOf(
+                stringResource(R.string.download_tab_active),
+                stringResource(R.string.download_tab_finished),
             ),
-            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-        ) {
-            items(list, key = { it.id }) { t ->
-                TaskCard(t, onCancel = { onCancel(t.id) })
+            selectedIndex = state.tab.ordinal,
+            onSelect = { onTabChange(DownloadsTab.entries[it]) },
+        )
+
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            QkTabContent(
+                targetState = state.tab,
+                order = { it.ordinal },
+                modifier = Modifier.fillMaxSize(),
+                label = "downloadsTab",
+            ) { tab ->
+                val tabList = when (tab) {
+                    DownloadsTab.Active -> state.active
+                    DownloadsTab.Finished -> state.finished
+                }
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // ── 「已完成」tab 的清空入口 ────────────────────────────
+                    // 只在「已完成」tab 出现且画在空列表分支之外：清空之后按钮依然保留（禁用）。
+                    if (tab == DownloadsTab.Finished) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = QkSpacing.md, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Spacer(Modifier.weight(1f))
+                            TextButton(
+                                onClick = onClearFinished,
+                                enabled = tabList.isNotEmpty(),
+                            ) {
+                                Icon(
+                                    Icons.Filled.DeleteSweep,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(stringResource(R.string.download_clear_finished))
+                            }
+                        }
+                    }
+
+                    if (tabList.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (tab == DownloadsTab.Active) stringResource(R.string.download_empty_active)
+                                else stringResource(R.string.download_empty_finished),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+                        ) {
+                            items(tabList, key = { it.id }) { t ->
+                                TaskCard(t, onCancel = { onCancel(t.id) })
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -192,11 +184,10 @@ internal fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
                             .qkPressable { expanded = !expanded },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        QkExpandChevron(
+                            expanded = expanded,
                             contentDescription = stringResource(R.string.download_detail_toggle),
                             modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -212,46 +203,27 @@ internal fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
             }
 
             Spacer(Modifier.height(QkSpacing.sm))
-            // 进度条平滑跟随：事件是离散推送的（几百 ms 一次），
-            // 直接绑定会一格一格跳；animateFloatAsState 让它连续滑动
-            val animatedFraction by animateFloatAsState(
-                targetValue = t.fraction,
-                // 事件几百 ms 一次，300ms 补间会被下一个事件不断打断、进度永远滞后；
-                // 用短档让每段动画都能在下一个事件到来前跑完。
-                animationSpec = tween(
-                    durationMillis = QookiX.SHORT_MS,
-                    easing = QookiX.EaseOut,
-                ),
-                label = "dlProgress",
+            QkProgressBar(
+                progress = t.fraction,
+                modifier = Modifier.height(6.dp),
             )
-            LinearProgressIndicator(
-                progress = { animatedFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp),
-            )
-
 
             // ── 停滞提示 ────────────────────────────────────────────────
-            //
-            // Rust 侧的下载器**没有读超时** —— 连接建立后传输中断时，
-            // 请求会一直挂着，重试逻辑不触发、进度条不动、也不报错。
-            // 实测（2026-10-14）：26.3.jar 卡在 39.6/151.4 MB 超过 3 分钟，
-            // 用户完全不知道发生了什么、也不知道能做什么。
-            //
-            // 前端能做的：速度归零超过阈值时明确告知 + 给出可操作建议。
-            if (!t.finished && t.stalled) {
-                Spacer(Modifier.height(QkSpacing.xs))
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.errorContainer,
-                ) {
-                    Text(
-                        text = stringResource(R.string.download_stalled_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 6.dp),
-                    )
+            // 速度归零超过阈值时明确告知 + 给出可操作建议。
+            QkBannerVisibility(visible = !t.finished && t.stalled) {
+                Column {
+                    Spacer(Modifier.height(QkSpacing.xs))
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.download_stalled_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 6.dp),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(QkSpacing.xs))
@@ -272,47 +244,49 @@ internal fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
             }
 
             // ── 展开明细 ────────────────────────────────────────────────
-            if (expanded) {
-                Spacer(Modifier.height(QkSpacing.xs))
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(QkSpacing.sm),
-                        verticalArrangement = Arrangement.spacedBy(QkSpacing.xxs),
+            QkBannerVisibility(visible = expanded) {
+                Column {
+                    Spacer(Modifier.height(QkSpacing.xs))
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     ) {
-                        if (t.stage.isNotBlank()) {
-                            TaskDetailLine(
-                                stringResource(R.string.download_detail_stage),
-                                t.stage,
-                            )
-                        }
-                        if (t.bytesTotal > 0) {
-                            TaskDetailLine(
-                                stringResource(R.string.download_detail_bytes),
-                                "${fmtBytes(t.bytesDone)} / ${fmtBytes(t.bytesTotal)}",
-                            )
-                        }
-                        if (t.fileTotal > 0) {
-                            TaskDetailLine(
-                                stringResource(R.string.download_detail_files),
-                                "${t.fileDone} / ${t.fileTotal}",
-                            )
-                        }
-                        if (t.stepTotal > 0) {
-                            TaskDetailLine(
-                                stringResource(R.string.download_detail_steps),
-                                "${t.stepDone} / ${t.stepTotal}",
-                            )
-                        }
-                        if (t.message.isNotBlank()) {
-                            TaskDetailLine(
-                                stringResource(R.string.download_detail_current),
-                                t.message,
-                            )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(QkSpacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(QkSpacing.xxs),
+                        ) {
+                            if (t.stage.isNotBlank()) {
+                                TaskDetailLine(
+                                    stringResource(R.string.download_detail_stage),
+                                    t.stage,
+                                )
+                            }
+                            if (t.bytesTotal > 0) {
+                                TaskDetailLine(
+                                    stringResource(R.string.download_detail_bytes),
+                                    "${fmtBytes(t.bytesDone)} / ${fmtBytes(t.bytesTotal)}",
+                                )
+                            }
+                            if (t.fileTotal > 0) {
+                                TaskDetailLine(
+                                    stringResource(R.string.download_detail_files),
+                                    "${t.fileDone} / ${t.fileTotal}",
+                                )
+                            }
+                            if (t.stepTotal > 0) {
+                                TaskDetailLine(
+                                    stringResource(R.string.download_detail_steps),
+                                    "${t.stepDone} / ${t.stepTotal}",
+                                )
+                            }
+                            if (t.message.isNotBlank()) {
+                                TaskDetailLine(
+                                    stringResource(R.string.download_detail_current),
+                                    t.message,
+                                )
+                            }
                         }
                     }
                 }

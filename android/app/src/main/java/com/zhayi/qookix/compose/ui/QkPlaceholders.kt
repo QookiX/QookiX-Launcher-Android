@@ -22,10 +22,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -61,12 +62,10 @@ fun QkSkeleton(
     height: Dp = 14.dp,
     width: Dp? = null,
 ) {
-    // 系统关闭动画时不启动无限过渡：列表里每个骨架块一条无限动画，关了还跑纯浪费
-    val alpha: Float = if (!QkMotionPolicy.animationsEnabled) {
-        0.42f
-    } else {
+    // 动画进度只在 drawBehind 绘制期读取，不在组合期读写以免每帧重组整条骨架
+    val alphaState: State<Float>? = if (QkMotionPolicy.animationsEnabled) {
         val transition = rememberInfiniteTransition(label = "qkSkeleton")
-        val animated by transition.animateFloat(
+        transition.animateFloat(
             initialValue = 0.30f,
             targetValue = 0.55f,
             animationSpec = infiniteRepeatable(
@@ -75,14 +74,18 @@ fun QkSkeleton(
             ),
             label = "qkSkeletonAlpha",
         )
-        animated
+    } else {
+        null
     }
+    val baseColor = MaterialTheme.colorScheme.surfaceVariant
     Box(
         modifier
             .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
             .height(height)
             .clip(RoundedCornerShape(QkRadius.small))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha)),
+            .drawBehind {
+                drawRect(color = baseColor.copy(alpha = alphaState?.value ?: 0.42f))
+            },
     )
 }
 

@@ -43,7 +43,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
@@ -58,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.compose.ui.QkAppear
+import com.zhayi.qookix.compose.ui.QkProgressBar
 
 /**
  * 首页（门面）。
@@ -334,11 +334,9 @@ private fun TaskRow(t: TaskUi, onCancel: () -> Unit = {}) {
                 }
             }
             Spacer(Modifier.height(QkSpacing.xs))
-            LinearProgressIndicator(
-                progress = { t.fraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp),
+            QkProgressBar(
+                progress = t.fraction,
+                modifier = Modifier.height(4.dp),
             )
         }
     }

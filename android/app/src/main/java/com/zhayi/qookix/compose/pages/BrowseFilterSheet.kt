@@ -1,57 +1,34 @@
 package com.zhayi.qookix.compose.pages
 
 import com.zhayi.qookix.compose.theme.QkSpacing
-
 import com.zhayi.qookix.compose.theme.QkRadius
-
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.zhayi.qookix.R
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.offset
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.IntOffset
-import com.zhayi.qookix.compose.motion.QookiX
+import com.zhayi.qookix.compose.ui.QkBottomSheetDialog
 
 /**
  * 内容中心的**筛选面板**（底部弹出）。
@@ -86,6 +63,7 @@ import com.zhayi.qookix.compose.motion.QookiX
  *      measured with an infinity maximum height constraints`。
  *   2. 不要再套第二层 `Column(verticalScroll)` —— 一层就够，套两层同样崩。
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun BrowseFilterSheet(
     visible: Boolean,
@@ -94,167 +72,87 @@ fun BrowseFilterSheet(
     onTypeChange: (String) -> Unit,
     loader: String,
     onLoaderChange: (String) -> Unit,
-    /** UI-10：「重置」要连搜索词一起清，否则列表仍被旧词过滤，看着像没生效。 */
     onReset: () -> Unit,
-    /** 插件类型不显示加载器（Hangar 没有加载器维度）。 */
     hideLoader: Boolean,
 ) {
-    if (!visible) return
-
-    // 抽屉高度按屏幕高度的 85% 算（不能用固定 dp：横屏只有 384dp 高，
-    // 写 520dp 等于全屏，看起来像整页而不是抽屉）。
-    val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
-    val sheetMaxHeight = (screenHeightDp * 0.85f).dp
-    // 位移起点也按屏高收一下：横屏只有 384dp 时，固定 96dp 等于四分之一屏高
-    val startOffset = 96.dp.coerceAtMost((screenHeightDp * 0.15f).dp)
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            // 抽屉要通栏（默认宽度会留边距）
-            usePlatformDefaultWidth = false,
-            // 关键：不避开系统栏，否则窗口会为状态栏让位 → 状态栏被顶出来
-            decorFitsSystemWindows = false,
-        ),
-    ) {
-        // ── 进场动画（2026-10-27）────────────────────────────────────────
-        //
-        // 之前这块弹层是**硬出现**的：只有 Dialog 窗口自带的一点淡入，
-        // 内容没有任何"弹出"的过程。
-        //
-        // 现在：从下方滑到 0，位移走 spatialSpec（轻微过冲就是"Q 弹"的来源）。
-        // 透明度单独用 effectsSpec（无回弹）：回弹曲线驱动 alpha 会瞬间到位，
-        // 淡入等于没有（踩过两次）。
-        var shown by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { shown = true }
-        val slide by animateDpAsState(
-            targetValue = if (shown) 0.dp else startOffset,
-            animationSpec = QookiX.spatialSpec(),
-            label = "sheetSlide",
-        )
-        val fade by animateFloatAsState(
-            targetValue = if (shown) 1f else 0f,
-            animationSpec = QookiX.effectsSpec(),
-            label = "sheetFade",
-        )
+    QkBottomSheetDialog(visible = visible, onDismiss = onDismiss) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                // 点空白处关闭（等价于 ModalBottomSheet 的遮罩）
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { onDismiss() },
-            contentAlignment = Alignment.BottomCenter,
+                .align(Alignment.CenterHorizontally)
+                .padding(bottom = QkSpacing.sm)
+                .width(32.dp)
+                .height(4.dp)
+                .background(
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    RoundedCornerShape(QkRadius.badge),
+                ),
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // 吞掉面板内部的点击：否则点标题/chip 间隙会冒泡到遮罩把抽屉关掉
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { }
-                    // 限高：外层 Box 是无限约束，不限高的话里面的
-                    // verticalScroll 会直接抛异常（真机实测崩溃）。
-                    .heightIn(max = sheetMaxHeight)
-                    // lambda 版 offset 只改绘制、不触发每帧重排（dp 版会）
-                    .offset { IntOffset(0, slide.roundToPx()) }
-                    .graphicsLayer { alpha = fade },
-                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            Text(
+                text = stringResource(R.string.browse_filter),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onReset) { Text(stringResource(R.string.browse_reset)) }
+        }
+
+        Spacer(Modifier.height(QkSpacing.sm))
+
+        Text(
+            text = stringResource(R.string.browse_content_type),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(QkSpacing.xs))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+        ) {
+            BrowseType.entries.forEach { t ->
+                FilterChip(
+                    selected = type == t.id,
+                    onClick = { onTypeChange(t.id) },
+                    label = { Text(stringResource(t.labelRes)) },
+                )
+            }
+        }
+
+        if (!hideLoader) {
+            Spacer(Modifier.height(QkSpacing.lg))
+            Text(
+                text = stringResource(R.string.browse_mod_loader),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(QkSpacing.xs))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // 只有这一层 verticalScroll（两层必崩）
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = QkSpacing.lg)
-                        .padding(top = QkSpacing.sm, bottom = 28.dp),
-                ) {
-                    // ── 拖动提示条（视觉上等价于 BottomSheet 的 dragHandle）──
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(bottom = QkSpacing.sm)
-                            .width(32.dp)
-                            .height(4.dp)
-                            .background(
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                RoundedCornerShape(QkRadius.badge),
-                            ),
+                BrowseRepo.LOADERS.forEach { l ->
+                    FilterChip(
+                        selected = loader == l.id,
+                        onClick = { onLoaderChange(l.id) },
+                        label = { Text(stringResource(l.labelRes)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        ),
                     )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.browse_filter),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = onReset) { Text(stringResource(R.string.browse_reset)) }
-                    }
-
-                    Spacer(Modifier.height(QkSpacing.sm))
-
-                    // ── 内容类型 ─────────────────────────────────────────
-                    Text(
-                        text = stringResource(R.string.browse_content_type),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(QkSpacing.xs))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                        verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                    ) {
-                        BrowseType.entries.forEach { t ->
-                            FilterChip(
-                                selected = type == t.id,
-                                onClick = { onTypeChange(t.id) },
-                                label = { Text(stringResource(t.labelRes)) },
-                            )
-                        }
-                    }
-
-                    // ── 加载器（插件不显示）──────────────────────────────
-                    if (!hideLoader) {
-                        Spacer(Modifier.height(QkSpacing.lg))
-                        Text(
-                            text = stringResource(R.string.browse_mod_loader),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(QkSpacing.xs))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                        ) {
-                            BrowseRepo.LOADERS.forEach { l ->
-                                FilterChip(
-                                    selected = loader == l.id,
-                                    onClick = { onLoaderChange(l.id) },
-                                    label = { Text(stringResource(l.labelRes)) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    ),
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(QkSpacing.xl))
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.browse_done)) }
-                    Spacer(Modifier.height(QkSpacing.xs))
                 }
             }
         }
+
+        Spacer(Modifier.height(QkSpacing.xl))
+        Button(
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(stringResource(R.string.browse_done)) }
+        Spacer(Modifier.height(QkSpacing.xs))
     }
 }
 

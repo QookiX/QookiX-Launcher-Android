@@ -51,10 +51,10 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Icon
+import com.zhayi.qookix.compose.ui.QkBannerVisibility
+import com.zhayi.qookix.compose.ui.QkExpandChevron
 import com.zhayi.qookix.compose.ui.QkImage
 
 /**
@@ -1048,15 +1048,13 @@ private fun ContributorSection(contributors: List<String>) {
                 )
                 Spacer(Modifier.width(6.dp))
             }
-            Icon(
-                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            QkExpandChevron(
+                expanded = expanded,
                 modifier = Modifier.size(20.dp),
             )
         }
 
-        if (expanded) {
+        QkBannerVisibility(visible = expanded) {
             Text(
                 text = if (contributors.isEmpty()) {
                     // 名单为空时告诉维护者文件在哪，而不是干瘪的「暂无」

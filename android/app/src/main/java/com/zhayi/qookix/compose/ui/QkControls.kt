@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -93,6 +94,7 @@ fun QkButton(
     Surface(
         modifier = modifier
             .height(48.dp)
+            .clip(CircleShape)
             .then(if (interactive) Modifier.qkPressable { onClick() } else Modifier),
         shape = CircleShape,
         color = if (interactive) container else container.copy(alpha = 0.38f),
@@ -143,6 +145,7 @@ fun QkIconButton(
     Surface(
         modifier = modifier
             .size(40.dp)
+            .clip(CircleShape)
             .then(if (enabled) Modifier.qkPressable { onClick() } else Modifier),
         shape = CircleShape,
         color = if (selected) colors.primaryContainer else Color.Transparent,

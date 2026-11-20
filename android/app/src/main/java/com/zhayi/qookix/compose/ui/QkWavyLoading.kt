@@ -17,7 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -61,10 +62,9 @@ fun QkWavyLoader(
     /** 一个完整周期的时间（毫秒）—— 越小流得越快。 */
     periodMs: Int = QkMotionPolicy.LOOP_MS,
 ) {
-    // 系统关动画时停在静态相位，不启动无限过渡
-    val phase: Float = if (!QkMotionPolicy.animationsEnabled) 0f else {
+    val phaseState: State<Float>? = if (QkMotionPolicy.animationsEnabled) {
         val transition = rememberInfiniteTransition(label = "wavy")
-        val animated by transition.animateFloat(
+        transition.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
@@ -73,19 +73,21 @@ fun QkWavyLoader(
             ),
             label = "wavyPhase",
         )
-        animated
+    } else {
+        null
     }
+    val path = remember { Path() }
 
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
+        val phase = phaseState?.value ?: 0f
         val w = size.width
         val h = size.height
         val midY = h / 2f
         val wl = wavelength.toPx().coerceAtLeast(1f)
         val amp = amplitude.toPx().coerceAtMost(h / 2f)
-        // 相位让波形横向滚动：phase 从 0 到 1，波形正好平移一个波长
         val offset = phase * wl
 
-        val path = Path()
+        path.reset()
         // 步长 2px：足够平滑，又不会太耗
         val step = 2f
         var x = 0f
@@ -150,9 +152,9 @@ fun QkWavyRing(
     size: Dp = 24.dp,
     strokeWidth: Dp = 2.5.dp,
 ) {
-    val phase: Float = if (!QkMotionPolicy.animationsEnabled) 0f else {
+    val phaseState: State<Float>? = if (QkMotionPolicy.animationsEnabled) {
         val transition = rememberInfiniteTransition(label = "wavyRing")
-        val animated by transition.animateFloat(
+        transition.animateFloat(
             initialValue = 0f,
             targetValue = (2 * PI).toFloat(),
             animationSpec = infiniteRepeatable(
@@ -161,14 +163,17 @@ fun QkWavyRing(
             ),
             label = "wavyRingPhase",
         )
-        animated
+    } else {
+        null
     }
+    val path = remember { Path() }
 
     Canvas(modifier = modifier.size(size)) {
+        val phase = phaseState?.value ?: 0f
         val r = (this.size.minDimension - strokeWidth.toPx()) / 2f
         val center = Offset(this.size.width / 2f, this.size.height / 2f)
         val steps = 120
-        val path = Path()
+        path.reset()
         var first = true
         for (i in 0..steps) {
             val t = i.toFloat() / steps

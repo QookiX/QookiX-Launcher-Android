@@ -31,7 +31,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,6 +62,7 @@ import com.zhayi.qookix.compose.bridge.lanConnect
 import com.zhayi.qookix.compose.bridge.lanDownloadInstance
 import com.zhayi.qookix.compose.bridge.lanListInstances
 import com.zhayi.qookix.compose.theme.QkSpacing
+import com.zhayi.qookix.compose.ui.QkProgressBar
 import com.zhayi.qookix.compose.ui.QkFeedback
 import org.json.JSONObject
 
@@ -645,10 +645,7 @@ private fun DownloadProgressSection(
 
             if (total > 0) {
                 val ratio = (done.toFloat() / total).coerceIn(0f, 1f)
-                LinearProgressIndicator(
-                    progress = { ratio },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                QkProgressBar(progress = ratio)
                 // 一行：已传 / 总量  ←→  百分比
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -669,7 +666,7 @@ private fun DownloadProgressSection(
             } else {
                 // PC 端没给 Content-Length（chunked 传输）—— 算不出百分比，
                 // 但至少要让用户看到"在动、有多少、多快"，别只给一个无限转的条。
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                QkProgressBar(progress = null)
                 Text(
                     "已传输 ${formatBytes(done)}",
                     style = MaterialTheme.typography.bodySmall,
@@ -693,7 +690,7 @@ private fun DownloadProgressSection(
             }
         }
         "extract" -> {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            QkProgressBar(progress = null)
             Text(
                 stringResource(R.string.lan_sync_extracting),
                 style = MaterialTheme.typography.bodySmall,
@@ -708,7 +705,7 @@ private fun DownloadProgressSection(
             )
         }
         else -> {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            QkProgressBar(progress = null)
         }
     }
 }

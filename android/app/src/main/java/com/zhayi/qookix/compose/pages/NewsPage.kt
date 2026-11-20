@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.*
+import com.zhayi.qookix.compose.ui.QkStateCrossfade
 
 /**
  * 新闻页。
@@ -47,6 +48,8 @@ import com.zhayi.qookix.compose.bridge.*
  *   - 每张卡片：图片 / 标题 / 描述 / 日期 · 作者
  *   - 点击卡片用系统浏览器打开链接
  */
+private enum class NewsPaneState { Loading, Empty, Content }
+
 @Composable
 fun NewsPage(
     state: NewsUiState,
@@ -72,35 +75,48 @@ fun NewsPage(
             }
         }
 
-        when {
-            state.loading && state.items.isEmpty() -> {
-                // 骨架屏：比转圈更「活」—— 用户能看到即将出现的内容形状
-                androidx.compose.foundation.layout.Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = QkSpacing.md),
-                ) {
-                    com.zhayi.qookix.compose.ui.SkeletonList(rows = 4, rowHeight = 120.dp)
-                }
-            }
-
-            state.items.isEmpty() -> CenterBox {
-                Text(
-                    text = state.error ?: stringResource(R.string.news_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            else -> LazyColumn(
+        val paneState = when {
+            state.loading && state.items.isEmpty() -> NewsPaneState.Loading
+            state.items.isEmpty() -> NewsPaneState.Empty
+            else -> NewsPaneState.Content
+        }
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            QkStateCrossfade(
+                targetState = paneState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 16.dp, end = 16.dp, bottom = 16.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-            ) {
-                items(state.items, key = { it.url }) { n ->
-                    NewsCard(n) { onOpen(n.url) }
+                label = "newsPane",
+            ) { mode ->
+                when (mode) {
+                    NewsPaneState.Loading -> {
+                        // 骨架屏：比转圈更「活」—— 用户能看到即将出现的内容形状
+                        androidx.compose.foundation.layout.Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = QkSpacing.md),
+                        ) {
+                            com.zhayi.qookix.compose.ui.SkeletonList(rows = 4, rowHeight = 120.dp)
+                        }
+                    }
+
+                    NewsPaneState.Empty -> CenterBox {
+                        Text(
+                            text = state.error ?: stringResource(R.string.news_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    NewsPaneState.Content -> LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            start = 16.dp, end = 16.dp, bottom = 16.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+                    ) {
+                        items(state.items, key = { it.url }) { n ->
+                            NewsCard(n) { onOpen(n.url) }
+                        }
+                    }
                 }
             }
         }

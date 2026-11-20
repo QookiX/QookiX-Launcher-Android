@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.theme.QkSpacing
+import com.zhayi.qookix.compose.ui.QkStateCrossfade
 import com.zhayi.qookix.compose.ui.SkeletonList
 
 /**
@@ -34,6 +35,8 @@ import com.zhayi.qookix.compose.ui.SkeletonList
  * 实际只是没权限读目录。现在 Rust 会如实报错，这里必须把错误显示出来，
  * 否则等于继续骗用户。
  */
+private enum class ServersPaneState { Loading, Error, Empty, Content }
+
 @Composable
 internal fun ServersListPane(
     state: MultiplayerUiState,
@@ -44,76 +47,87 @@ internal fun ServersListPane(
     onOpenServer: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
-    when {
+    val paneState = when {
         // 只有「还没有数据」时才显示骨架屏；已有列表时刷新不该闪成空页。
-        state.loading && state.servers.isEmpty() ->
-            SkeletonList(rows = 3, rowHeight = 96.dp)
-
+        state.loading && state.servers.isEmpty() -> ServersPaneState.Loading
         // 读不到目录 ≠ 没有服务器：给出原因 + 重试出口。
-        state.servers.isEmpty() && state.error != null -> Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = state.error.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
-                Spacer(Modifier.height(QkSpacing.sm))
-                TextButton(onClick = onRetry) {
-                    Text(stringResource(R.string.first_run_retry))
-                }
-            }
-        }
+        state.servers.isEmpty() && state.error != null -> ServersPaneState.Error
+        filtered.isEmpty() -> ServersPaneState.Empty
+        else -> ServersPaneState.Content
+    }
+    QkStateCrossfade(
+        targetState = paneState,
+        modifier = Modifier.fillMaxSize(),
+        label = "serversPane",
+    ) { mode ->
+        when (mode) {
+            ServersPaneState.Loading -> SkeletonList(rows = 3, rowHeight = 96.dp)
 
-        filtered.isEmpty() -> Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = if (query.isNotBlank() && state.servers.isNotEmpty())
-                        stringResource(R.string.multiplayer_search_no_result)
-                    else stringResource(R.string.multiplayer_empty_servers_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(QkSpacing.xs))
-                if (query.isBlank()) {
+            ServersPaneState.Error -> Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = stringResource(R.string.multiplayer_empty_servers_desc),
+                        text = state.error.orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-
-        else -> LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-        ) {
-            // 列表还在、只是这次刷新失败：保留旧数据，但把原因摆出来。
-            state.error?.let { msg ->
-                item {
-                    Text(
-                        text = msg,
-                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp),
                     )
+                    Spacer(Modifier.height(QkSpacing.sm))
+                    TextButton(onClick = onRetry) {
+                        Text(stringResource(R.string.first_run_retry))
+                    }
                 }
             }
-            items(filtered, key = { it.id }) { s ->
-                ServerCard(
-                    server = s,
-                    onStart = { onStartServer(s.id) },
-                    onStop = { onStopServer(s.id) },
-                    onOpen = { onOpenServer(s.id) },
-                )
+
+            ServersPaneState.Empty -> Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (query.isNotBlank() && state.servers.isNotEmpty())
+                            stringResource(R.string.multiplayer_search_no_result)
+                        else stringResource(R.string.multiplayer_empty_servers_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(QkSpacing.xs))
+                    if (query.isBlank()) {
+                        Text(
+                            text = stringResource(R.string.multiplayer_empty_servers_desc),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            ServersPaneState.Content -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+            ) {
+                // 列表还在、只是这次刷新失败：保留旧数据，但把原因摆出来。
+                state.error?.let { msg ->
+                    item {
+                        Text(
+                            text = msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                items(filtered, key = { it.id }) { s ->
+                    ServerCard(
+                        server = s,
+                        onStart = { onStartServer(s.id) },
+                        onStop = { onStopServer(s.id) },
+                        onOpen = { onOpenServer(s.id) },
+                    )
+                }
             }
         }
     }

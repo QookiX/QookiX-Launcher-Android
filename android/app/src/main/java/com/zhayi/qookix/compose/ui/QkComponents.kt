@@ -19,7 +19,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,10 +75,11 @@ fun QkCard(
     contentPadding: PaddingValues = PaddingValues(QkSpacing.md),
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val shape = RoundedCornerShape(QkRadius.card)
     val clickMod = if (onClick != null) Modifier.qkPressable { onClick() } else Modifier
     Surface(
-        modifier = modifier.then(clickMod),
-        shape = RoundedCornerShape(QkRadius.card),
+        modifier = modifier.clip(shape).then(clickMod),
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Column(Modifier.padding(contentPadding), content = content)
@@ -125,7 +128,11 @@ fun QkListRow(
     onClick: (() -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
-    val clickMod = if (onClick != null) Modifier.qkPressable { onClick() } else Modifier
+    val clickMod = if (onClick != null) {
+        Modifier.clip(RoundedCornerShape(QkRadius.small)).qkPressable { onClick() }
+    } else {
+        Modifier
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -252,6 +259,10 @@ fun QkAppear(
     maxStagger: Int = 5,
     content: @Composable () -> Unit,
 ) {
+    if (!QkMotionPolicy.animationsEnabled) {
+        content()
+        return
+    }
     // scope 参与 key：同一个组合跨分组复用时不能沿用上一组的"已播过"
     val alreadyPlayed = remember(scope) { playedScopes.contains(scope) }
     var visible by remember(scope) { mutableStateOf(alreadyPlayed) }

@@ -21,7 +21,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -40,6 +39,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
+import com.zhayi.qookix.compose.ui.QkBannerVisibility
+import com.zhayi.qookix.compose.ui.QkProgressBar
 import com.zhayi.qookix.compose.ui.SkeletonList
 
 /**
@@ -147,20 +148,24 @@ fun PluginsPane(
                         }
                     }
                     // 安装进度（审计 H-6）：显示正在装哪个、进度多少
-                    if (state.busy && (state.installMessage.isNotBlank() || state.installProgress > 0f)) {
-                        Spacer(Modifier.height(QkSpacing.sm))
-                        LinearProgressIndicator(
-                            progress = { state.installProgress.coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(QkSpacing.xs))
-                        Text(
-                            text = state.installMessage.ifBlank {
-                                stringResource(R.string.plugins_installing_progress)
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    QkBannerVisibility(
+                        visible = state.busy && (state.installMessage.isNotBlank() || state.installProgress > 0f),
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(Modifier.height(QkSpacing.sm))
+                            QkProgressBar(
+                                progress = state.installProgress.coerceIn(0f, 1f),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(QkSpacing.xs))
+                            Text(
+                                text = state.installMessage.ifBlank {
+                                    stringResource(R.string.plugins_installing_progress)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

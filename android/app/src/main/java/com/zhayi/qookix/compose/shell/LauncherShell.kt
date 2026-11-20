@@ -43,12 +43,21 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
-import androidx.compose.animation.togetherWith
-import androidx.compose.runtime.getValue
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
 import com.zhayi.qookix.compose.motion.QookiX
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -57,20 +66,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import com.zhayi.qookix.compose.theme.QkRadius
-import com.zhayi.qookix.compose.theme.qkPressable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.geometry.Rect
@@ -165,16 +172,26 @@ fun LauncherShell(
     }
 
     val topBar: @Composable () -> Unit = {
+        val barResolvedTitle = title ?: when {
+            onBack != null &&
+                (current == NavDestination.InstanceDetail ||
+                    current == NavDestination.ServerDetail) -> ""
+            else -> titleFor(current)
+        }
+        val titleKey: Any = if (titleContent != null) "custom" else (current to barResolvedTitle)
         TopAppBar(
             navigationIcon = {
-                // 返回键**从右侧滑进来**（原来是"啪"一下出现，进详情页时很生硬）
-                androidx.compose.animation.AnimatedContent(
+                AnimatedContent(
                     targetState = onBack != null,
                     transitionSpec = {
-                        (androidx.compose.animation.slideInHorizontally { it } +
-                            androidx.compose.animation.fadeIn()) togetherWith
-                            (androidx.compose.animation.slideOutHorizontally { -it } +
-                                androidx.compose.animation.fadeOut())
+                        if (!QkMotionPolicy.animationsEnabled) {
+                            EnterTransition.None togetherWith ExitTransition.None
+                        } else {
+                            (slideInHorizontally(QookiX.fastSpatialSpec()) { it / 2 } +
+                                fadeIn(QookiX.fastEffectsSpec())) togetherWith
+                                (slideOutHorizontally(QookiX.fastEffectsSpec()) { -it / 2 } +
+                                    fadeOut(QookiX.fastEffectsSpec()))
+                        }
                     },
                     label = "barIcon",
                 ) { hasBack ->
@@ -188,33 +205,25 @@ fun LauncherShell(
                 }
             },
             title = {
-                // 标题区滑动替换：品牌名向左退场、页面标题从右进场。
-                androidx.compose.animation.AnimatedContent(
-                    targetState = titleContent != null,
+                AnimatedContent(
+                    targetState = titleKey,
                     transitionSpec = {
-                        (androidx.compose.animation.slideInHorizontally { it / 4 } +
-                            androidx.compose.animation.fadeIn()) togetherWith
-                            (androidx.compose.animation.slideOutHorizontally { -it / 4 } +
-                                androidx.compose.animation.fadeOut())
+                        if (!QkMotionPolicy.animationsEnabled) {
+                            EnterTransition.None togetherWith ExitTransition.None
+                        } else {
+                            (slideInHorizontally(QookiX.fastSpatialSpec()) { it / 5 } +
+                                fadeIn(QookiX.fastEffectsSpec())) togetherWith
+                                (slideOutHorizontally(QookiX.fastEffectsSpec()) { -it / 5 } +
+                                    fadeOut(QookiX.fastEffectsSpec()))
+                        }.using(SizeTransform(clip = false))
                     },
                     label = "barTitle",
-                ) { custom ->
+                ) { key ->
                     val body = titleContent
-                    if (custom && body != null) {
+                    if (key == "custom" && body != null) {
                         body()
                     } else {
-                        // ⚠️ 只有「实例详情 / 服务器详情」这两页才**不**回退默认标题：
-                        // 它们第一帧 titleContent 还没注册上来，回退会闪一下「实例详情」。
-                        //
-                        // 但别的二级页（设置 / 皮肤 / 新闻 / 统计 / FRP…）根本不注册
-                        // titleContent，靠的就是这个默认标题 —— 之前一刀切成「有返回键
-                        // 就不填」，结果进设置页标题直接空白（用户报的大问题）。
-                        val t = title ?: when {
-                            onBack != null &&
-                                (current == NavDestination.InstanceDetail ||
-                                    current == NavDestination.ServerDetail) -> ""
-                            else -> titleFor(current)
-                        }
+                        val t = (key as? Pair<*, *>)?.second as? String ?: ""
                         if (t.isNotEmpty()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -271,13 +280,7 @@ fun LauncherShell(
         var sidebarExpanded by remember { mutableStateOf(false) }
         val sidebarW by animateDpAsState(
             targetValue = if (sidebarExpanded) 168.dp else 88.dp,
-            // ⚠️ 宽度**不能**用 spatialSpec（带过冲）：
-            // 宽度每帧变化都会触发整个 Row（侧栏 + 内容区）重新测量布局，
-            // 而 spring 的过冲会让它「冲过 168 → 弹回 162 → 再到 168」，
-            // 触发三四轮重排 —— 视觉上就是卡顿。
-            // 会引起布局变化的属性（width / height / padding）只能走单调曲线；
-            // 弹性的爽感留给 scale / translation（它们只走绘制，不重排）。
-            animationSpec = QookiX.pageSpec(),
+            animationSpec = QookiX.layoutSpec(),
             label = "sidebarW",
         )
         // ── 横屏 / 平板：常驻侧栏（图标+文字横排）────────────────────────
@@ -339,13 +342,24 @@ fun LauncherShell(
                 val iy = remember { Animatable(0f) }
                 val iw = remember { Animatable(0f) }
                 val ih = remember { Animatable(0f) }
+                var pillInitialized by remember { mutableStateOf(false) }
 
-                LaunchedEffect(bounds[current], sidebarExpanded) {
-                    val r = bounds[current] ?: return@LaunchedEffect
-                    launch { ix.animateTo(r.left, QookiX.spatialSpec()) }
-                    launch { iy.animateTo(r.top, QookiX.spatialSpec()) }
-                    launch { iw.animateTo(r.width, QookiX.spatialSpec()) }
-                    launch { ih.animateTo(r.height, QookiX.spatialSpec()) }
+                val activeTab = current.rootTab()
+                LaunchedEffect(bounds[activeTab], sidebarExpanded) {
+                    val r = bounds[activeTab] ?: return@LaunchedEffect
+                    if (!pillInitialized || !QkMotionPolicy.animationsEnabled) {
+                        ix.snapTo(r.left)
+                        iy.snapTo(r.top)
+                        iw.snapTo(r.width)
+                        ih.snapTo(r.height)
+                        pillInitialized = true
+                    } else {
+                        val spec = QookiX.fastSpatialSpec<Float>()
+                        launch { ix.animateTo(r.left, spec) }
+                        launch { iy.animateTo(r.top, spec) }
+                        launch { iw.animateTo(r.width, spec) }
+                        launch { ih.animateTo(r.height, spec) }
+                    }
                 }
 
                 // ⚠️ padding 必须放在这个 Box 上，不能放在里面的 Column 上。
@@ -415,14 +429,23 @@ fun LauncherShell(
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     NavDestination.bottomBar.forEach { dest ->
                         val selected = dest == current.rootTab()
+                        val navInteraction = remember { MutableInteractionSource() }
                         NavigationBarItem(
                             selected = selected,
                             onClick = { onNavigate(dest) },
+                            interactionSource = navInteraction,
+                            modifier = Modifier.pressScale(navInteraction, small = true),
                             icon = {
-                                Icon(
-                                    imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
-                                    contentDescription = stringResource(dest.labelRes),
-                                )
+                                Crossfade(
+                                    targetState = selected,
+                                    animationSpec = QookiX.fastEffectsSpec(),
+                                    label = "navIcon",
+                                ) { isSelected ->
+                                    Icon(
+                                        imageVector = if (isSelected) dest.selectedIcon else dest.unselectedIcon,
+                                        contentDescription = stringResource(dest.labelRes),
+                                    )
+                                }
                             },
                             label = { Text(stringResource(dest.labelRes)) },
                         )
@@ -493,17 +516,12 @@ private fun QkRailItem(
     // 否则会出现「滑块在动 + 每项自己也变色」的双重效果。
     val fg by animateColorAsState(
         targetValue = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant,
-        animationSpec = tween(QookiX.SHORT_MS, easing = QookiX.EaseOut),
+        animationSpec = QookiX.fastEffectsSpec(),
         label = "railFg",
     )
     val icon = if (selected) dest.selectedIcon else dest.unselectedIcon
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
-    // ⚠️ 只能有一份点击处理。
-    // 原来同时挂了 `qkPressable { onClick() }`（内含 clickable）和
-    // `combinedClickable(onClick = onClick)` —— 一次点击会触发两次导航。
-    // 现在：pressScale 只负责"按下缩放"（它自己不挂 clickable），
-    //       combinedClickable 负责「点击 + 长按」。
     val base = Modifier
         .fillMaxWidth()
         .clip(RoundedCornerShape(QkRadius.medium))
@@ -516,42 +534,40 @@ private fun QkRailItem(
             onLongClick = onLongPress,
         )
 
-    if (expanded) {
-        Row(
-            modifier = base
-                .height(48.dp)
-                .padding(horizontal = QkSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(QkSpacing.sm))
-            Text(
-                text = stringResource(dest.labelRes),
-                style = MaterialTheme.typography.labelLarge,
-                color = fg,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    Row(
+        modifier = base
+            .height(48.dp)
+            .padding(horizontal = QkSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
+    ) {
+        Crossfade(
+            targetState = selected,
+            animationSpec = QookiX.fastEffectsSpec(),
+            label = "railIcon",
+        ) { isSel ->
+            Icon(
+                imageVector = if (isSel) dest.selectedIcon else dest.unselectedIcon,
+                contentDescription = if (expanded) null else stringResource(dest.labelRes),
+                tint = fg,
+                modifier = Modifier.size(if (expanded) 22.dp else 24.dp),
             )
         }
-    } else {
-        // 收起态：**只有图标**（用户 2026-10-29 明确要求）。
-        //
-        // 之前试过「图标 + 小字」（A 方案），理由是 6 个入口光看图容易混；
-        // 但用户的判断是收起就该是纯图标（名字在长按展开时才出现），
-        // 那就按这个来 —— 收起态本来就是为了把宽度让给内容。
-        //
-        // 每项 48dp，6 项 = 288dp，横屏扣顶栏(64) 后可用约 347dp，留了 60dp 余量。
-        // contentDescription 仍传标签：收起只是视觉上省空间，无障碍不能丢。
-        Box(
-            modifier = base.height(48.dp),
-            contentAlignment = Alignment.Center,
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(QookiX.fastEffectsSpec()),
+            exit = fadeOut(QookiX.fastEffectsSpec()),
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = stringResource(dest.labelRes),
-                tint = fg,
-                modifier = Modifier.size(24.dp),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(QkSpacing.sm))
+                Text(
+                    text = stringResource(dest.labelRes),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = fg,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

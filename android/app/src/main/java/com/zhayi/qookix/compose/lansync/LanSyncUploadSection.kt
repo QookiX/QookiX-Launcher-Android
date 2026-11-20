@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,6 +36,7 @@ import com.zhayi.qookix.compose.bridge.RustBridge
 import com.zhayi.qookix.compose.bridge.lanUploadInstance
 import com.zhayi.qookix.compose.theme.QkSpacing
 import com.zhayi.qookix.compose.ui.QkFeedback
+import com.zhayi.qookix.compose.ui.QkProgressBar
 import com.zhayi.qookix.compose.ui.QkSelectField
 import com.zhayi.qookix.compose.ui.QkSelectOption
 import org.json.JSONObject
@@ -229,7 +229,7 @@ internal fun LanSyncUploadSection(
                     when (phase) {
                         "pack" -> {
                             Spacer(Modifier.height(QkSpacing.xs))
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            QkProgressBar(progress = null)
                             Text(
                                 stringResource(R.string.lan_sync_upload_packing, packedFiles),
                                 style = MaterialTheme.typography.bodySmall,
@@ -240,11 +240,8 @@ internal fun LanSyncUploadSection(
                         "upload" -> {
                             Spacer(Modifier.height(QkSpacing.xs))
                             if (bytesTotal > 0) {
-                                LinearProgressIndicator(
-                                    progress = {
-                                        (bytesDone.toFloat() / bytesTotal).coerceIn(0f, 1f)
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
+                                QkProgressBar(
+                                    progress = (bytesDone.toFloat() / bytesTotal).coerceIn(0f, 1f),
                                 )
                                 Text(
                                     "${humanSize(bytesDone)} / ${humanSize(bytesTotal)}",
@@ -252,7 +249,7 @@ internal fun LanSyncUploadSection(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             } else {
-                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                QkProgressBar(progress = null)
                             }
                         }
 

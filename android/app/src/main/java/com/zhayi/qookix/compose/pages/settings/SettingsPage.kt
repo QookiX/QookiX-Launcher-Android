@@ -2,6 +2,7 @@ package com.zhayi.qookix.compose.pages.settings
 
 import com.zhayi.qookix.compose.theme.QkSpacing
 
+import com.zhayi.qookix.compose.ui.QkTabContent
 import com.zhayi.qookix.compose.ui.QkTabRow
 
 import androidx.compose.foundation.clickable
@@ -170,7 +171,14 @@ fun SettingsPage(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            content(current)
+            QkTabContent(
+                targetState = current,
+                order = { it.ordinal },
+                modifier = Modifier.fillMaxSize(),
+                label = "settingsTab",
+            ) { tab ->
+                content(tab)
+            }
         }
     }
 }

@@ -14,6 +14,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -34,7 +37,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
-import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.acos
@@ -73,37 +75,32 @@ fun AboutShowcase(
     // 曲奇图标：用 Android 端真实应用图标（用户明确要求）
     val cookieImage: ImageBitmap = ImageBitmap.imageResource(R.mipmap.ic_launcher_round)
     val sim = remember { ShowcaseSim() }
-    // 彩蛋状态（连点曲奇触发的炸碎 + 苦力怕偷曲奇）
     val egg = remember { EggState() }
-    // ⚠️ 帧触发器必须是**真正的 Compose State**：
-    // 之前用普通 Float 字段（sim.frame），Canvas 里读它不会订阅变化，
-    // 结果是"画了一次就再也不重绘" —— 真机连拍 6 帧大小完全一致（静止）。
     var tick by remember { mutableFloatStateOf(0f) }
+    val layerPaint = remember { Paint() }
+    val clearPaint = remember { Paint().apply { blendMode = BlendMode.Clear } }
+    val bitePath = remember { Path() }
 
-    LaunchedEffect(Unit) {
-        // 原版 frame()：dtReal 截断到 0.1，acc 累积到 >= STEP 就推进物理。
-        // 用 compose 的协程循环等价实现（约 60fps）。
+    LaunchedEffect(QkMotionPolicy.animationsEnabled) {
+        if (!QkMotionPolicy.animationsEnabled) return@LaunchedEffect
         var lastNanos = 0L
-        while (true) {
-            val now = System.nanoTime()
-            val dtReal =
-                if (lastNanos == 0L) 0f
-                else min((now - lastNanos) / 1_000_000_000f, 0.1f)
-            lastNanos = now
+        while (isActive) {
+            withFrameNanos { now ->
+                val dtReal =
+                    if (lastNanos == 0L) 0f
+                    else min((now - lastNanos) / 1_000_000_000f, 0.1f)
+                lastNanos = now
 
-            sim.elapsed += dtReal
-            sim.acc += dtReal
-            var guard = 0
-            while (sim.acc >= STEP && guard < 40) {
-                // 彩蛋接管时只推彩蛋时间轴，不跑咬合弹簧
-                // （原版 updatePhysics 里 shatterT >= 0 就直接 return）
-                if (!egg.update(STEP)) sim.updatePhysics()
-                guard++
-                sim.acc -= STEP
+                sim.elapsed += dtReal
+                sim.acc += dtReal
+                var guard = 0
+                while (sim.acc >= STEP && guard < 40) {
+                    if (!egg.update(STEP)) sim.updatePhysics()
+                    guard++
+                    sim.acc -= STEP
+                }
+                tick += 1f
             }
-            // 递增帧号 → 触发重组 → Canvas 重绘
-            tick = tick + 1f
-            delay(16L)
         }
     }
 
@@ -169,7 +166,7 @@ fun AboutShowcase(
                     topLeft = Offset(cx - r * 1.05f, cy + r * 0.50f),
                     size = Size(r * 2.1f, r * 0.42f),
                 )
-                drawCookieLayer(cx, cy, r, sim, cookieImage)
+                drawCookieLayer(cx, cy, r, sim, cookieImage, layerPaint, clearPaint, bitePath)
             }
 
             // ④ 碎屑（全局坐标，不在任何变换里）
@@ -247,6 +244,9 @@ private fun DrawScope.drawCookieLayer(
     r: Float,
     sim: ShowcaseSim,
     cookie: ImageBitmap,
+    layerPaint: Paint,
+    clearPaint: Paint,
+    progressivePath: Path,
 ) {
     val biteR = r * 0.5f
     val biteDc = r * 1.64f
@@ -263,16 +263,13 @@ private fun DrawScope.drawCookieLayer(
     val angleDeg = sim.angleValue * 180f / PI.toFloat()
 
     drawIntoCanvas { canvas ->
-        val paint = Paint()
         val bounds = Rect(0f, 0f, size.width, size.height)
-        canvas.saveLayer(bounds, paint)
+        canvas.saveLayer(bounds, layerPaint)
 
-        // ── 曲奇本体：translate → rotate → 质心补偿 → drawImage ──
         canvas.save()
         canvas.translate(cx, cy)
         canvas.rotate(angleDeg)
         canvas.translate(centeringDx, centeringDy)
-        // 原版 drawImage(img, -R, -R, 2R, 2R)
         canvas.drawImageRect(
             cookie,
             srcOffset = androidx.compose.ui.unit.IntOffset(0, 0),
@@ -283,51 +280,23 @@ private fun DrawScope.drawCookieLayer(
             dstSize = androidx.compose.ui.unit.IntSize(
                 (r * 2).toInt(), (r * 2).toInt()
             ),
-            paint = Paint(),
+            paint = layerPaint,
         )
 
-        // ── 咬口：在这个图层里 Clear 掉 ──
         val depth = sim.biteValue
         if (depth > 0.002f) {
-            val bitePath = Path().apply {
-                // 主圆
-                addOval(
-                    Rect(
-                        bx0 - biteR, by0 - biteR,
-                        bx0 + biteR, by0 + biteR,
-                    )
-                )
-                // 沿圆周的 9 个小圆：把圆凹边缘啃成参差波浪
-                val towardCenter = atan2(-by0, -bx0)
-                BITE_EDGES.forEach { (off, rf) ->
-                    val a = towardCenter + off
-                    val ex = bx0 + biteR * cos(a)
-                    val ey = by0 + biteR * sin(a)
-                    val er = biteR * rf
-                    addOval(Rect(ex - er, ey - er, ex + er, ey + er))
-                }
+            progressivePath.reset()
+            val rr = biteR * depth
+            progressivePath.addOval(Rect(bx0 - rr, by0 - rr, bx0 + rr, by0 + rr))
+            val towardCenter = atan2(-by0, -bx0)
+            BITE_EDGES.forEach { (off, rf) ->
+                val a = towardCenter + off
+                val ex = bx0 + biteR * cos(a)
+                val ey = by0 + biteR * sin(a)
+                val er = biteR * rf * depth
+                progressivePath.addOval(Rect(ex - er, ey - er, ex + er, ey + er))
             }
-            // globalAlpha = depth 的等价物：
-            // Clear 没有 alpha，所以用「depth 决定清多少」——
-            // 借用一个中间图层，把咬口按 depth 混进去。
-            //
-            // 简化做法：depth 接近 1 时全清；过程中按 depth 缩小咬口半径，
-            // 视觉上就是「缺口从小变大」，与原版淡出效果一致。
-            val progressivePath = Path().apply {
-                val rr = biteR * depth
-                addOval(Rect(bx0 - rr, by0 - rr, bx0 + rr, by0 + rr))
-                val towardCenter = atan2(-by0, -bx0)
-                BITE_EDGES.forEach { (off, rf) ->
-                    val a = towardCenter + off
-                    val ex = bx0 + biteR * cos(a)
-                    val ey = by0 + biteR * sin(a)
-                    val er = biteR * rf * depth
-                    addOval(Rect(ex - er, ey - er, ex + er, ey + er))
-                }
-            }
-            canvas.drawPath(progressivePath, Paint().apply {
-                blendMode = BlendMode.Clear
-            })
+            canvas.drawPath(progressivePath, clearPaint)
         }
 
         canvas.restore()

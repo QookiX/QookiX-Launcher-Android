@@ -52,9 +52,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.annotation.StringRes
 import com.zhayi.qookix.R
+import com.zhayi.qookix.compose.ui.QkBannerVisibility
 import com.zhayi.qookix.compose.ui.QkFieldLabel
 import com.zhayi.qookix.compose.ui.QkInlineError
 import com.zhayi.qookix.compose.ui.QkListHeader
+import com.zhayi.qookix.compose.ui.QkProgressBar
 import com.zhayi.qookix.compose.ui.QkVersionRow
 import com.zhayi.qookix.compose.ui.SkeletonList
 
@@ -185,44 +187,31 @@ fun CreateInstancePage(
                         else stringResource(R.string.create_instance_pick_file),
                     )
                 }
-                // ⚠️ 导入进度必须**在导入页可见**（2026-10-23）：
-                // 之前这里只有一个转圈，而导入本身要走「解压 → 下 1.21.1 → 装加载器 → 下 166 个文件」，
-                // 期间界面看不出任何变化；更要命的是当时桥接层对它用了 8 秒超时（已修），
-                // 失败时界面只是"退回原样"，用户完全无从判断。
-                if (importing) {
-                    Spacer(Modifier.height(QkSpacing.lg))
-                    val barMod = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = QkSpacing.xxl)
-                    // ⚠️ 必须去掉 M3 1.3 的「新样式」装饰，否则长这样：一条细线 + 末尾一个小圆点
-                    // （stop indicator + 4dp 断口），完全不是用户认得的安卓进度条。
-                    // gapSize = 0.dp 去掉断口、drawStopIndicator = null 去掉圆点、圆头收尾。
-                    if (importTotal > 0) {
-                        androidx.compose.material3.LinearProgressIndicator(
-                            progress = { importDone.toFloat() / importTotal },
+                // 导入进度在导入页直接可见（避免大整合包无提示）
+                QkBannerVisibility(visible = importing) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Spacer(Modifier.height(QkSpacing.lg))
+                        val barMod = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = QkSpacing.xxl)
+                        QkProgressBar(
+                            progress = if (importTotal > 0) importDone.toFloat() / importTotal else null,
                             modifier = barMod,
-                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-                            gapSize = 0.dp,
-                            // 这个版本的参数非空 → 传空 lambda 等于「什么装饰都不画」
-                            drawStopIndicator = {},
                         )
-                    } else {
-                        androidx.compose.material3.LinearProgressIndicator(
-                            modifier = barMod,
-                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-                            gapSize = 0.dp,
+                        Spacer(Modifier.height(QkSpacing.xs))
+                        Text(
+                            text = buildString {
+                                append(importStage.ifBlank { "正在导入…" })
+                                if (importTotal > 0) append("（$importDone/$importTotal）")
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
                         )
                     }
-                    Spacer(Modifier.height(QkSpacing.xs))
-                    Text(
-                        text = buildString {
-                            append(importStage.ifBlank { "正在导入…" })
-                            if (importTotal > 0) append("（$importDone/$importTotal）")
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
                 }
             }
             return@Column

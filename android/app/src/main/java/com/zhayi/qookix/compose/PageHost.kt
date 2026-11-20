@@ -171,8 +171,12 @@ import com.zhayi.qookix.compose.pages.settings.SettingsTab
 import com.zhayi.qookix.compose.pages.settings.SettingsUiState
 import com.zhayi.qookix.compose.pages.settings.StoragePane
 import com.zhayi.qookix.compose.shell.NavDestination
+import com.zhayi.qookix.compose.motion.NavTransitionKind
 import com.zhayi.qookix.compose.motion.SharedHero
 import com.zhayi.qookix.compose.motion.SharedHeroOverlay
+import com.zhayi.qookix.compose.motion.qkPageLayer
+import com.zhayi.qookix.compose.motion.rememberPageTransition
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
 
@@ -196,10 +200,7 @@ fun PageHost(
     bridge: RustBridge,
     bridgeReady: Boolean,
     onNavigate: (NavDestination) -> Unit,
-    // 打开外部链接用（关于页的 GitHub、许可证）。
-    // 传 Activity 而不是传一个 lambda：调用点太多，
-    // 传一个 openUrl 函数要一层层往下透传（至少 3 层），
-    // 而 Activity 本身就是宿主，页面需要什么就取什么。
+    transitionKind: NavTransitionKind = NavTransitionKind.TopLevel,
     activity: ComposeMainActivity? = null,
     /**
      * 设置页改了「外观」（深浅模式 / 主题色）时回调给根节点。
@@ -638,31 +639,8 @@ fun PageHost(
     // 起点仍在**同一帧**生效：`remember(dest)` 让 visible 初值 false，
     // 这一帧 alpha=0、translationY=16dp —— 完全不可见，所以「起点偏下」
     // 看不出来（第 3 轮的结论：几何动画安全与否，取决于起点是否可见）。
-    var visible by remember(dest) { mutableStateOf(false) }
-    LaunchedEffect(dest) {
-        // 等首帧：新页面的组合 + 布局要几十毫秒（首页 4 张卡 + 新闻列表），
-        // 动画同时起跑会被挤掉（实测卡顿）。等页面渲染出来（alpha=0）再动，
-        // 动画期间就只剩 layer 属性变化。
-        withFrameNanos { }
-        visible = true
-    }
-    val pageAlpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = QookiX.effectsSpec(),
-        label = "pageAlpha",
-    )
-    val pageShiftY by animateDpAsState(
-        targetValue = if (visible) 0.dp else 16.dp,
-        animationSpec = QookiX.spatialSpec(),
-        label = "pageShiftY",
-    )
-    // 恒为 1：缩放是唯一「必然抽搐」的属性 —— 从中心收缩时四周同时内收，
-    // 眼睛对这种变化极度敏感。位移和透明度都能靠「起点不可见」藏住，缩放不行。
-    val pageScale = 1f
+    val pageTransition = rememberPageTransition(dest = dest, kind = transitionKind)
 
-    // 临时测量（2026-10-27）：把「点击 → hero 就位」的 930ms 拆开。
-    // 这里是 PageHost 重组的入口 —— 如果重组开始 ≈ 点击时刻，
-    // 说明时间花在组合/布局里；如果重组开始就晚了，说明前面还有别的在占主线程。
     remember(dest) {
         val t = (System.nanoTime() - SharedHero.launchedAtNanos) / 1_000_000
         if (SharedHero.launchedAtNanos > 0 && t in 0..2000) {
@@ -671,9 +649,6 @@ fun PageHost(
         true
     }
 
-    // 外层 Box 只给飞行浮层一个**不受转场影响**的坐标系。
-    // 它的窗口原点在这里一次算好 —— 浮层自己测的话要多等一帧（布局完成后才有值），
-    // 用户会看到「图标先顿一下再飞」（反馈原话：「出现之后它会简单的顿一下」）。
     var contentOrigin by remember { mutableStateOf(Offset.Zero) }
     Box(
         modifier = Modifier
@@ -683,24 +658,8 @@ fun PageHost(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // ⚠️ 用 `graphicsLayer` 而不是 `offset`：
-            //
-            // `Modifier.offset` **只改绘制位置、不改触摸命中区域**
-            // （Compose 的既定行为），动画期间会出现
-            // 「内容画在这里、点击却要按在原位」的错位 ——
-            // 实测表现是「按钮点不动」，而且只在动画进行中复现，极难排查。
-            //
-            // `graphicsLayer` 的 translationY 会同步移动命中区域，没有这个问题。
-            .graphicsLayer {
-                // 不做横向平移：内容区左边紧贴侧边栏分隔线，横向移动时左侧会露出
-                // 一条背景缝（2026-10-17 实测「像被推歪了」）。纵向没有这个问题。
-                translationY = pageShiftY.toPx()
-                alpha = pageAlpha
-                scaleX = pageScale
-                scaleY = pageScale
-                // 中心锚点：四周对称内收，不会露出任何一侧的缝隙
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
-            },
+            .clipToBounds()
+            .qkPageLayer(pageTransition),
     ) {
     when (dest) {
             NavDestination.Home -> HomeRoute(

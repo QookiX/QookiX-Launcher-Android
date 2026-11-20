@@ -25,9 +25,14 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
 import com.zhayi.qookix.compose.motion.QookiX
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -180,25 +185,25 @@ fun PlaytimePage(
                             )
                             Spacer(Modifier.height(QkSpacing.xs))
                             // 大号等宽数字 —— 时长是本页主角，值得占满视觉重量
+                            val animatedSeconds = remember { Animatable(0f) }
+                            LaunchedEffect(state.totalSeconds) {
+                                if (!QkMotionPolicy.animationsEnabled) {
+                                    animatedSeconds.snapTo(state.totalSeconds.toFloat())
+                                } else {
+                                    animatedSeconds.animateTo(
+                                        targetValue = state.totalSeconds.toFloat(),
+                                        animationSpec = tween(
+                                            durationMillis = QookiX.XLONG_MS,
+                                            easing = QookiX.EaseOut,
+                                        ),
+                                    )
+                                }
+                            }
                             Text(
-                                // 数字滚动：从 0 平滑滚到当前时长，
-                // 比冷冰冰地直接显示更有"统计出来了"的仪式感
-                             // 数字滚动：从 0 平滑滚到当前时长，
-                             // 比冷冰冰地直接显示更有"统计出来了"的仪式感。
-                             // 用 Float 版本 —— animateLongAsState 在本版本
-                             // Compose 里不存在（import 直接 Unresolved），
-                             // 秒数在 Float 里精度足够（< 2^24 秒 ≈ 194 天）
-                             text = fmtDuration(
-                                 LocalContext.current,
-                                 animateFloatAsState(
-                                     targetValue = state.totalSeconds.toFloat(),
-                                     animationSpec = tween(
-                                         durationMillis = QookiX.XLONG_MS,
-                                         easing = QookiX.EaseOut,
-                                     ),
-                                     label = "playtimeTotal",
-                                 ).value.toLong(),
-                             ),
+                                text = fmtDuration(
+                                    LocalContext.current,
+                                    animatedSeconds.value.toLong(),
+                                ),
                                 style = MaterialTheme.typography.headlineMedium.copy(
                                     fontFamily = FontFamily.Monospace,
                                 ),
@@ -267,6 +272,14 @@ fun PlaytimePage(
 private fun DailyBars(values: List<Long>) {
     if (values.isEmpty()) return
     val maxV = values.max().coerceAtLeast(1L)
+    var revealed by remember(values) { mutableStateOf(!QkMotionPolicy.animationsEnabled) }
+    LaunchedEffect(values) { revealed = true }
+    val growth by animateFloatAsState(
+        targetValue = if (revealed) 1f else 0f,
+        animationSpec = QookiX.defaultSpatialSpec(),
+        label = "dailyBarsGrow",
+    )
+    val barColor = MaterialTheme.colorScheme.primary
 
     androidx.compose.foundation.Canvas(
         modifier = Modifier
@@ -274,22 +287,17 @@ private fun DailyBars(values: List<Long>) {
             .height(90.dp),
     ) {
         val n = values.size
-        // 柱宽 + 间隙按数量自适应：柱子多了要变窄，否则会挤在一起
         val gap = size.width / n * 0.25f
         val barW = (size.width - gap * (n - 1)) / n
-        val barColor = androidx.compose.ui.graphics.Color(
-            // 用主题色的主色调，但 Canvas 里拿不到 MaterialTheme，
-            // 所以由调用方在外部传入更合适 —— 这里用固定色值保底
-            0xFFD0BCFF.toInt()
-        )
+        val factor = if (QkMotionPolicy.animationsEnabled) growth else 1f
 
         values.forEachIndexed { i, v ->
-            val h = (v.toFloat() / maxV) * size.height
+            val h = ((v.toFloat() / maxV) * size.height * factor).coerceAtLeast(2f)
             val x = i * (barW + gap)
             drawRoundRect(
                 color = barColor,
                 topLeft = androidx.compose.ui.geometry.Offset(x, size.height - h),
-                size = androidx.compose.ui.geometry.Size(barW, h.coerceAtLeast(2f)),
+                size = androidx.compose.ui.geometry.Size(barW, h),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW / 3f),
             )
         }

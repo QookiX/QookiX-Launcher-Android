@@ -59,6 +59,7 @@ object SharedHero {
         val label: String,
         val background: Color,
         val foreground: Color,
+        val iconPath: String? = null,
     )
 
     /** 飞行块的当前位置（窗口坐标）。浮层读它绘制。 */
@@ -88,8 +89,19 @@ object SharedHero {
     /** 内容区左上角的窗口坐标（px），由浮层同步。估算落点要基于它，不能写死侧栏宽度。 */
     var contentOrigin: Offset = Offset.Zero
 
-    fun start(from: Rect, label: String, background: Color, foreground: Color, estimate: Rect) {
-        pending = Launch(from, label, background, foreground)
+    fun start(
+        from: Rect,
+        label: String,
+        background: Color,
+        foreground: Color,
+        estimate: Rect,
+        iconPath: String? = null,
+    ) {
+        if (!QkMotionPolicy.animationsEnabled) {
+            finish()
+            return
+        }
+        pending = Launch(from, label, background, foreground, iconPath)
         current.value = from
         target = estimate
         targetReal = false
@@ -127,6 +139,10 @@ object SharedHero {
      * @param onArrive 落地回调（置 landed=true，让目标页 hero 现身）
      */
     suspend fun flyLoop(onArrive: () -> Unit) {
+        if (!QkMotionPolicy.animationsEnabled) {
+            onArrive()
+            return
+        }
         // ⚠️ 用**固定时长 + 缓出曲线**，不用指数趋近。
         //
         // 指数趋近（每帧乘 0.72）数学上永远到不了终点：最后几厘米要走十几帧，
@@ -203,7 +219,7 @@ fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
     androidx.compose.runtime.LaunchedEffect(launch) {
         if (launch != null) SharedHero.flyLoop { SharedHero.finish() }
     }
-    if (launch == null) return
+    if (launch == null || !QkMotionPolicy.animationsEnabled) return
     val rect = SharedHero.current.value ?: return
     val density = LocalDensity.current
 
@@ -223,11 +239,20 @@ fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
             .background(launch.background),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = launch.label,
-            color = launch.foreground,
-            fontSize = with(density) { (rect.height * 0.42f).toSp() },
-            fontWeight = FontWeight.Bold,
-        )
+        if (!launch.iconPath.isNullOrBlank()) {
+            com.zhayi.qookix.compose.ui.QkImage(
+                model = java.io.File(launch.iconPath),
+                contentDescription = null,
+                modifier = Modifier.size(with(density) { rect.width.coerceAtLeast(1f).toDp() }),
+                cornerRadius = QkRadius.medium,
+            )
+        } else {
+            Text(
+                text = launch.label,
+                color = launch.foreground,
+                fontSize = with(density) { (rect.height * 0.42f).toSp() },
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }

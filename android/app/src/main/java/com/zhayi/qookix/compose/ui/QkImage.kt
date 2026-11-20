@@ -29,6 +29,7 @@ import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.valentinilk.shimmer.shimmer
+import com.zhayi.qookix.compose.motion.QkMotionPolicy
 
 /**
  * 图片加载（基于 Coil 3）。
@@ -62,7 +63,7 @@ fun QkImage(
     AsyncImage(
         model = ImageRequest.Builder(LocalContext.current)
             .data(model)
-            .crossfade(true)   // 淡入，避免「啪」地跳出来
+            .crossfade(QkMotionPolicy.animationsEnabled)
             .build(),
         contentDescription = contentDescription,
         modifier = modifier.clip(RoundedCornerShape(cornerRadius)),
@@ -87,7 +88,7 @@ fun QkImageWithSkeleton(
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(LocalContext.current)
             .data(model)
-            .crossfade(true)
+            .crossfade(QkMotionPolicy.animationsEnabled)
             .build(),
     )
 
@@ -134,44 +135,30 @@ fun QkImageWithSkeleton(
     }
 }
 
-/** 加载失败或没有图时的占位块。 */
 @Composable
 private fun ImagePlaceholder(modifier: Modifier, cornerRadius: Dp) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
-            .let { it },
-    ) {
-        SkeletonBox(Modifier.fillMaxSize())
-    }
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+    )
 }
 
-/**
- * shimmer 骨架块。
- *
- * 这是加载态的统一视觉语言 —— 全应用一致，比各页面自己画灰色方块更专业。
- */
 @Composable
 fun SkeletonBox(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 8.dp,
 ) {
+    val shimmerMod = if (QkMotionPolicy.animationsEnabled) Modifier.shimmer() else Modifier
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
-            .shimmer()
-            .let { it },
+            .then(shimmerMod),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .let { it },
-        ) {
-            androidx.compose.material3.Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            ) {}
-        }
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ) {}
     }
 }
 

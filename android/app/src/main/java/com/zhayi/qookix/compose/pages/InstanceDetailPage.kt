@@ -59,21 +59,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import com.zhayi.qookix.compose.ui.QkInlineError
+import com.zhayi.qookix.compose.ui.QkProgressBar
+import com.zhayi.qookix.compose.ui.QkTabContent
 import com.zhayi.qookix.compose.ui.QkTabRow
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.togetherWith
-import com.zhayi.qookix.compose.motion.qkSlideInLeft
-import com.zhayi.qookix.compose.motion.qkSlideInRight
-import com.zhayi.qookix.compose.motion.qkFadeOut
-import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -385,11 +377,9 @@ fun InstanceDetailPage(
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                         )
                         Spacer(Modifier.height(QkSpacing.xs))
-                        LinearProgressIndicator(
-                            progress = { t.fraction },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp),
+                        QkProgressBar(
+                            progress = t.fraction,
+                            modifier = Modifier.height(6.dp),
                         )
                         Spacer(Modifier.height(QkSpacing.xxs))
                         Text(
@@ -502,15 +492,10 @@ fun InstanceDetailPage(
             if (!bodyReady) {
                 Spacer(Modifier.fillMaxSize())
             } else {
-            AnimatedContent(
+            QkTabContent(
                 targetState = state.tab,
+                order = { it.ordinal },
                 modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    // 按索引方向滑动：往右的 tab 从右进，往左的从左进，
-                    // 与 tab 排列顺序一致，方向感自然
-                    val forward = targetState.ordinal > initialState.ordinal
-                    (if (forward) qkSlideInRight() else qkSlideInLeft()) togetherWith qkFadeOut()
-                },
                 label = "detailTab",
             ) { tab ->
             when (tab) {

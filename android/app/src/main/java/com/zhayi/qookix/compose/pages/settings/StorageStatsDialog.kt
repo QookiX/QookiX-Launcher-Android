@@ -16,7 +16,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.theme.QkSpacing
+import com.zhayi.qookix.compose.ui.QkProgressBar
 import org.json.JSONObject
 
 /**
@@ -214,10 +214,9 @@ private fun CategoryRow(row: StorageStatRow, total: Long) {
         }
         if (total > 0 && row.size > 0) {
             Spacer(Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { (row.size.toFloat() / total).coerceIn(0f, 1f) },
+            QkProgressBar(
+                progress = (row.size.toFloat() / total).coerceIn(0f, 1f),
                 modifier = Modifier
-                    .fillMaxWidth()
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp)),
             )

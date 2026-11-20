@@ -50,7 +50,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
@@ -65,6 +64,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.compose.ui.QkAppear
+import com.zhayi.qookix.compose.ui.QkBannerVisibility
+import com.zhayi.qookix.compose.ui.QkProgressBar
 
 /**
  * 首页（门面）。
@@ -274,9 +275,11 @@ internal fun CurrentInstanceCard(
 
             // 启动进度：`launch://progress` 的百分比一直只写不读（审查 P1-2）。
             // 补全大实例要好几分钟，光有阶段文案用户不知道还剩多少。
-            if (launching && launchProgress > 0f) {
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(progress = { launchProgress }, modifier = Modifier.fillMaxWidth())
+            QkBannerVisibility(visible = launching && launchProgress > 0f) {
+                Column {
+                    Spacer(Modifier.height(8.dp))
+                    QkProgressBar(progress = launchProgress)
+                }
             }
         }
     }

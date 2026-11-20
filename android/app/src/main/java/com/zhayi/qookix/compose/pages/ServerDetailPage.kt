@@ -44,12 +44,12 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import com.zhayi.qookix.compose.ui.QkBannerVisibility
+import com.zhayi.qookix.compose.ui.QkTabContent
 import com.zhayi.qookix.compose.ui.QkTabRow
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -72,30 +72,8 @@ import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.ui.SkeletonList
 
 /**
- * 服务器详情。
- *
- * 对应旧界面 views/ServerDetailView.vue —— **1383 行 / 15 个 api 调用**，
- * 是除设置外最大的一块。
- *
- * ── 设计（完全重做）─────────────────────────────────────────────────────
- * 旧界面是「顶部状态条 + 长滚动」。横屏下改成 **三 tab** 结构：
- *
- *   ┌──────────────────────────────────────────────────┐
- *   │ ← 我的服务器        [●运行中]  [停止]            │  ← 顶栏
- *   ├──────────────────────────────────────────────────┤
- *   │  控制台  │  文件  │  配置                         │  ← TabRow
- *   ├──────────────────────────────────────────────────┤
- *   │  [12:01:03] Done (1.2s)! For help, type "help"   │
- *   │  [12:01:10] Player Steve joined the game         │  ← 控制台
- *   │  ┌──────────────────────────────┐ [发送]          │
- *   │  │ 输入命令…                    │                 │
- *   └──────────────────────────────────────────────────┘
- *
- * **为什么分 tab**：服务器管理有三类互不相关的操作（看日志/发命令、
- * 管理文件、改配置），堆在一页要滚很久；tab 让每类都有自己的完整空间。
- *
- * **控制台优先**：开服后最高频的操作是看日志和发命令（`list`/`op`），
- * 所以它是第一个 tab、且占满高度。
+ * 服务器详情页：顶部状态/提示 + 分页（控制台 / 文件 / 插件 / 配置 / 设置）。
+ * 控制台为默认首 tab 并占满剩余高度。
  */
 @Composable
 fun ServerDetailPage(
@@ -167,7 +145,9 @@ fun ServerDetailPage(
         // （横屏尤其明显，日志被压到只剩一两行）。
         // 现在挪到 TabRow **上面**：标题栏下方本来就是空白，
         // 提示放那儿不占日志区的地方。
-        if (!state.error.isNullOrBlank()) {
+        var lastError by remember { mutableStateOf("") }
+        if (!state.error.isNullOrBlank()) lastError = state.error
+        QkBannerVisibility(visible = !state.error.isNullOrBlank()) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -189,7 +169,7 @@ fun ServerDetailPage(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = state.error,
+                        text = lastError,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.weight(1f),
@@ -226,7 +206,9 @@ fun ServerDetailPage(
         // Rust 写进 `runtime.json.exit` / `launch-error.txt` 的那句话。
         // 以前界面完全不显示它 —— 用户只能看到「点了没反应」，
         // 而唯一的日志页也没有入口，等于断了所有排查手段。
-        if (!state.exitNote.isNullOrBlank()) {
+        var lastExitNote by remember { mutableStateOf("") }
+        if (!state.exitNote.isNullOrBlank()) lastExitNote = state.exitNote
+        QkBannerVisibility(visible = !state.exitNote.isNullOrBlank()) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -248,7 +230,7 @@ fun ServerDetailPage(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = state.exitNote,
+                        text = lastExitNote,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -257,7 +239,9 @@ fun ServerDetailPage(
         }
 
         // ── 操作成功提示 ──────────────────────────────────────────────
-        if (!state.notice.isNullOrBlank()) {
+        var lastNotice by remember { mutableStateOf("") }
+        if (!state.notice.isNullOrBlank()) lastNotice = state.notice
+        QkBannerVisibility(visible = !state.notice.isNullOrBlank()) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -272,7 +256,7 @@ fun ServerDetailPage(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = state.notice,
+                        text = lastNotice,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.weight(1f),
@@ -282,39 +266,48 @@ fun ServerDetailPage(
             }
         }
 
-        when (state.tab) {
-            ServerTab.Console -> ConsoleTab(
-                state = state,
-                onInputChange = onCommandInput,
-                onSend = onCommandSend,
-                onToggleShare = onToggleShare,
-                onCopyRoom = onCopyRoom,
-                onRefreshLogs = onRefreshLogs,
-                onRequestBatteryUnrestricted = onRequestBatteryUnrestricted,
-                onQuickCommand = onQuickCommand,
-            )
-            ServerTab.Files -> FilesTab(
-                state = state,
-                onOpenDirectory = onOpenDirectory,
-                onOpenFiles = onOpenFiles,
-                onRefreshLogs = onRefreshLogs,
-                onSetMemory = onSetMemory,
-                onDeleteServer = { confirmDeleteServer = true },
-            )
-            ServerTab.Plugins -> PluginsTab(
-                state = state,
-                onOpenPluginFolder = onOpenPluginFolder,
-                onAskDeletePlugin = onAskDeletePlugin,
-            )
-            ServerTab.Config -> ConfigTab(state, onSetProperty, onToggleProperty)
-            // 服务器设置：EULA 同意 + 对外分享（陶瓦联机）
-            ServerTab.Settings -> SettingsTab(
-                state = state,
-                onToggleShare = onToggleShare,
-                onCopyRoom = onCopyRoom,
-                onSetEula = onSetEula,
-                onDeleteServer = { confirmDeleteServer = true },
-            )
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            QkTabContent(
+                targetState = state.tab,
+                order = { it.ordinal },
+                modifier = Modifier.fillMaxSize(),
+                label = "serverTab",
+            ) { tab ->
+                when (tab) {
+                    ServerTab.Console -> ConsoleTab(
+                        state = state,
+                        onInputChange = onCommandInput,
+                        onSend = onCommandSend,
+                        onToggleShare = onToggleShare,
+                        onCopyRoom = onCopyRoom,
+                        onRefreshLogs = onRefreshLogs,
+                        onRequestBatteryUnrestricted = onRequestBatteryUnrestricted,
+                        onQuickCommand = onQuickCommand,
+                    )
+                    ServerTab.Files -> FilesTab(
+                        state = state,
+                        onOpenDirectory = onOpenDirectory,
+                        onOpenFiles = onOpenFiles,
+                        onRefreshLogs = onRefreshLogs,
+                        onSetMemory = onSetMemory,
+                        onDeleteServer = { confirmDeleteServer = true },
+                    )
+                    ServerTab.Plugins -> PluginsTab(
+                        state = state,
+                        onOpenPluginFolder = onOpenPluginFolder,
+                        onAskDeletePlugin = onAskDeletePlugin,
+                    )
+                    ServerTab.Config -> ConfigTab(state, onSetProperty, onToggleProperty)
+                    // 服务器设置：EULA 同意 + 对外分享（陶瓦联机）
+                    ServerTab.Settings -> SettingsTab(
+                        state = state,
+                        onToggleShare = onToggleShare,
+                        onCopyRoom = onCopyRoom,
+                        onSetEula = onSetEula,
+                        onDeleteServer = { confirmDeleteServer = true },
+                    )
+                }
+            }
         }
     }
 

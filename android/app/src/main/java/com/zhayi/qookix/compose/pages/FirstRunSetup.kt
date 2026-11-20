@@ -5,6 +5,10 @@ import com.zhayi.qookix.compose.theme.QkSpacing
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import com.zhayi.qookix.compose.motion.QookiX
+import com.zhayi.qookix.compose.ui.QkBannerVisibility
+import com.zhayi.qookix.compose.ui.QkProgressBar
+import com.zhayi.qookix.compose.ui.QkStateCrossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
@@ -25,7 +29,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -128,8 +131,8 @@ fun FirstRunSetup(
 ) {
     AnimatedVisibility(
         visible = state.visible,
-        enter = fadeIn(),
-        exit = fadeOut(),
+        enter = fadeIn(QookiX.effectsSpec()),
+        exit = fadeOut(QookiX.fastEffectsSpec()),
     ) {
         Box(
             modifier = Modifier
@@ -191,29 +194,31 @@ fun FirstRunSetup(
                                     else -> ItemState.Pending
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    when (st) {
-                                        ItemState.Done -> Text(
-                                            text = "✓",
-                                            color = MaterialTheme.colorScheme.primary,
-                                            style = MaterialTheme.typography.titleMedium,
-                                        )
-                                        ItemState.Failed -> Text(
-                                            text = "✕",
-                                            color = MaterialTheme.colorScheme.error,
-                                            style = MaterialTheme.typography.titleMedium,
-                                        )
-                                        ItemState.Running -> CircularProgressIndicator(
-                                            modifier = Modifier.size(14.dp),
-                                            strokeWidth = 2.dp,
-                                        )
-                                        ItemState.Pending -> Box(
-                                            modifier = Modifier
-                                                .size(14.dp)
-                                                .background(
-                                                    MaterialTheme.colorScheme.surfaceVariant,
-                                                    MaterialTheme.shapes.small,
-                                                ),
-                                        )
+                                    QkStateCrossfade(targetState = st, label = "firstRunItem") { itemSt ->
+                                        when (itemSt) {
+                                            ItemState.Done -> Text(
+                                                text = "✓",
+                                                color = MaterialTheme.colorScheme.primary,
+                                                style = MaterialTheme.typography.titleMedium,
+                                            )
+                                            ItemState.Failed -> Text(
+                                                text = "✕",
+                                                color = MaterialTheme.colorScheme.error,
+                                                style = MaterialTheme.typography.titleMedium,
+                                            )
+                                            ItemState.Running -> CircularProgressIndicator(
+                                                modifier = Modifier.size(14.dp),
+                                                strokeWidth = 2.dp,
+                                            )
+                                            ItemState.Pending -> Box(
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .background(
+                                                        MaterialTheme.colorScheme.surfaceVariant,
+                                                        MaterialTheme.shapes.small,
+                                                    ),
+                                            )
+                                        }
                                     }
                                     Spacer(Modifier.width(10.dp))
                                     Text(
@@ -235,27 +240,29 @@ fun FirstRunSetup(
                     }
 
                     // 失败原因逐条列出（后端给的是「名字：原因」，见 afterInstall）
-                    if (!state.running && state.failureDetails.isNotEmpty()) {
-                        Spacer(Modifier.height(QkSpacing.sm))
-                        Column(verticalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
-                            state.failureDetails.forEach { line ->
-                                Text(
-                                    text = line,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
+                    QkBannerVisibility(visible = !state.running && state.failureDetails.isNotEmpty()) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(Modifier.height(QkSpacing.sm))
+                            Column(verticalArrangement = Arrangement.spacedBy(QkSpacing.xs)) {
+                                state.failureDetails.forEach { line ->
+                                    Text(
+                                        text = line,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
                             }
                         }
                     }
 
-                    if (state.running) {
-                        Spacer(Modifier.height(QkSpacing.sm))
-                        // 总进度：done 数 / 总数（由 plugin://progress 的 done 事件逐项推进）
-                        val done = state.doneIds.size
-                        val total = state.planned.size
-                        if (total > 0) {
-                            LinearProgressIndicator(
-                                progress = { done.toFloat() / total },
+                    // 总进度：done 数 / 总数（由 plugin://progress 的 done 事件逐项推进）
+                    val done = state.doneIds.size
+                    val total = state.planned.size
+                    QkBannerVisibility(visible = state.running && total > 0) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(Modifier.height(QkSpacing.sm))
+                            QkProgressBar(
+                                progress = if (total > 0) done.toFloat() / total else 0f,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             Spacer(Modifier.height(QkSpacing.xs))
