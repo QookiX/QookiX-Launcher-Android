@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import net.kdt.pojavlaunch.Tools
 import java.io.File
-import java.security.MessageDigest
 
 /**
  * 内置默认控制布局的落盘（`<files>/controlmap/default.json`）。
@@ -31,16 +30,19 @@ import java.security.MessageDigest
  * ## 升级语义
  *
  * 只在「文件不存在」或「皮肤版本号变了」时写入，版本标记放在同目录的 [STYLE_MARKER] 里。
- * 场景控件升级只替换原样的内置 `default.json`，保留玩家编辑过的布局。
+ * 版本变化一律换成新版内置布局，旧文件先备份为 `default.user-backup.json`。
+ * 曾经靠单个 SHA 判断「是不是原样内置布局」来决定跳不跳过，内置布局一改这个判断就失效，
+ * 老用户永远拿不到新按钮和新场景标记 —— 改为按版本覆盖，靠备份兜底。
  */
 object ControlLayoutSeed {
 
     private const val TAG = "QookiXControl"
 
     /** 内置布局的皮肤版本，见类注释。 */
-    private const val CONTROL_STYLE_VERSION = 5
+    // 从 5 再升一格：上一版因 SHA 判断失效只写了 marker 没换布局，那些设备需要再触发一次覆盖。
+    private const val CONTROL_STYLE_VERSION = 6
     private const val STYLE_MARKER = ".qk-control-style"
-    private const val PREVIOUS_DEFAULT_SHA256 = "81ac3be7fc6647d9914e75f1f4e09443c8d149f53afc76b1aeb48717f163e982"
+    private const val USER_BACKUP = "default.user-backup.json"
 
     /**
      * 确保 `<files>/controlmap/default.json` 存在、且是当前皮肤版本。
@@ -70,16 +72,9 @@ object ControlLayoutSeed {
         if (target.isFile && target.length() > 0L && installed == wanted) return true
 
         return try {
-            if (target.isFile && target.length() > 0L && !isPreviousBundledLayout(target)) {
-                marker.writeText(wanted)
-                return true
-            }
-            // ⚠️ 版本号变化要覆盖 default.json 前，先把用户手里那份备份走。
-            // default.json 是编辑器的默认打开对象，用户手调过的布局会在启动器
-            // 升级皮肤版本时被内置布局无声覆盖 —— 先备份到 default.user-backup.json，
-            // 用户仍能从文件管理器/布局导入里找回。
+            // 版本变化就覆盖，旧布局备份一次（保留用户第一次手调的版本，不被后续升级冲掉）。
             if (target.isFile && target.length() > 0L) {
-                val backup = File(target.parentFile, "default.user-backup.json")
+                val backup = File(target.parentFile, USER_BACKUP)
                 runCatching { if (!backup.exists()) target.copyTo(backup) }
                     .onFailure { Log.w(TAG, "备份用户默认布局失败", it) }
             }
@@ -96,9 +91,4 @@ object ControlLayoutSeed {
         }
     }
 
-    private fun isPreviousBundledLayout(layout: File): Boolean {
-        if (layout.length() > 12_000L) return false
-        val digest = MessageDigest.getInstance("SHA-256").digest(layout.readBytes())
-        return digest.joinToString("") { "%02x".format(it) } == PREVIOUS_DEFAULT_SHA256
-    }
 }
