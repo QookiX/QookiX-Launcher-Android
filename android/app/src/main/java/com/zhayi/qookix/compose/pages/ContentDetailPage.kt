@@ -108,6 +108,8 @@ fun ContentDetailRoute(
     /** 进行中的任务（由外层共用的 TasksRepo 快照传入，不另建订阅）。 */
     tasks: List<TaskUi> = emptyList(),
     onCancelTask: (Long) -> Unit = {},
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     /**
      * 把「图标 + 资源名 + 作者」注册到顶栏（null = 注销）。
      *
@@ -211,6 +213,8 @@ fun ContentDetailRoute(
                 installing = installHandle.installing,
                 onOpenWiki = openWiki,
                 onInstall = { installHandle.install() },
+                isFavorite = isFavorite,
+                onToggleFavorite = onToggleFavorite,
             )
         }
     }

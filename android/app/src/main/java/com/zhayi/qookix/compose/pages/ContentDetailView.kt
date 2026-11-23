@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,7 +44,6 @@ import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.m3.Markdown
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.theme.QkSpacing
-import com.zhayi.qookix.compose.ui.QkImageWithSkeleton
 import com.zhayi.qookix.compose.ui.QkStateCrossfade
 
 /**
@@ -60,14 +62,11 @@ internal fun ContentDetailTopBar(
     installing: Boolean,
     onOpenWiki: () -> Unit,
     onInstall: () -> Unit,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        QkImageWithSkeleton(
-            model = icon.takeIf { it.isNotBlank() },
-            contentDescription = null,
-            modifier = Modifier.size(32.dp),
-            cornerRadius = 6.dp,
-        )
+        ContentProjectIcon(icon, Modifier.size(32.dp))
         Spacer(Modifier.width(QkSpacing.xs))
         // 名字在上、作者 + 下载量在下（不跟名字横着挤一行）
         Column(modifier = Modifier.weight(1f)) {
@@ -91,6 +90,15 @@ internal fun ContentDetailTopBar(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        IconToggleButton(checked = isFavorite, onCheckedChange = { onToggleFavorite() }) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                contentDescription = stringResource(
+                    if (isFavorite) R.string.browse_remove_favorite else R.string.browse_add_favorite,
+                ),
+                tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         // ⚠️ 2026-10-28（竖屏审计）：411dp 竖屏下「MC 百科」四个字 + 安装按钮
         // 把标题挤得只剩一点，作者/下载量被省略号吃掉。窄屏改成图标按钮。

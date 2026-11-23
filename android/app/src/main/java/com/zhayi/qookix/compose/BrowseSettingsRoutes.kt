@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -105,6 +106,8 @@ import com.zhayi.qookix.compose.pages.InstanceSection
 import com.zhayi.qookix.compose.pages.ProjectUi
 import com.zhayi.qookix.compose.pages.ContentDetailRoute
 import com.zhayi.qookix.compose.pages.ContentSelection
+import com.zhayi.qookix.compose.pages.ContentFavorites
+import com.zhayi.qookix.compose.pages.withDescriptionTranslation
 import com.zhayi.qookix.compose.pages.ContentInstallHost
 import com.zhayi.qookix.compose.pages.ContentVersionUi
 import com.zhayi.qookix.compose.pages.DependencyUi
@@ -130,6 +133,7 @@ import com.zhayi.qookix.compose.pages.MsLoginFlow
 import com.zhayi.qookix.compose.pages.PlaytimePage
 import com.zhayi.qookix.compose.pages.PlaytimeRoute
 import com.zhayi.qookix.compose.ui.QkFeedback
+import com.zhayi.qookix.compose.ui.QkTabContent
 import com.zhayi.qookix.compose.pages.PlaytimeUiState
 import com.zhayi.qookix.compose.pages.InstancePlaytimeUi
 import com.zhayi.qookix.compose.pages.DailyPlaytimeUi
@@ -844,6 +848,7 @@ internal fun SettingsRoute(
 internal fun BrowseRoute(
     bridge: RustBridge,
     ready: Boolean,
+    favorites: ContentFavorites,
     openUrl: ((String) -> Unit)? = null,
     onRequestCreateInstance: (() -> Unit)? = null,
     /** 向顶栏注册自定义内容（搜索/筛选/排序/紧凑）。 */
@@ -873,61 +878,35 @@ internal fun BrowseRoute(
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
     val repo = remember(api) { BrowseRepo(api) }
-
-    // 列表网格的滚动状态：提到这里才能在「进详情 → 返回」之间存活
+    var showingFavorites by rememberSaveable { mutableStateOf(false) }
+    var favoriteQuery by rememberSaveable { mutableStateOf("") }
+    var favoriteType by rememberSaveable { mutableStateOf("") }
+    var favoriteSort by rememberSaveable { mutableStateOf(ContentFavorites.RECENT_SORT) }
     val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val favoritesGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
 
     // 初始化时读上次的紧凑模式偏好（2026-10-17：记住用户选择）
     var state by remember {
         mutableStateOf(BrowseUiState(compact = activity?.browseCompactPref() ?: false))
     }
 
-    // 当前页码（0 起）。分页状态放在这里而不是 BrowseUiState 里，
-    // 因为它是「请求进度」而不是「界面状态」—— 界面只关心 items 列表。
     var page by remember { mutableStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
-    /** 还有没有下一页（上一页返回满页就认为有）。 */
     var hasMore by remember { mutableStateOf(true) }
-    /** 整页翻译进行中（B1）。 */
-    var translatingPage by remember { mutableStateOf(false) }
+    var translatingFavorites by remember { mutableStateOf<Boolean?>(null) }
 
-    // ── 安装对话框 ──────────────────────────────────────────────────────
-    //
-    // 只记「要装哪个项目」。版本筛选 / 依赖 / 目标实例与服务器、安装请求
-    // 全部在 ContentInstallHost 里 —— 详情页用的是同一个宿主，
-    // 两处各维护一份的话必然改一处漏一处。
-    var installTarget by remember { mutableStateOf<ProjectUi?>(null) }
-
-    /**
-     * 搜索请求代际。
-     *
-     * ⚠️ 2026-10-29（外部审计 B19 核实成立）：原来回调里无条件
-     * `state = state.copy(items = it, ...)` —— 用户在 A 的请求还没回来时
-     * 又搜了 B（或换了类型 / 加载器 / 排序），A 的响应后到就会把 B 的结果
-     * 覆盖掉，界面显示的是上一次的关键词的列表，点进去对不上。
-     */
+    var installTarget by remember { mutableStateOf<ContentSelection?>(null) }
+    // 搜索、分页和翻译回调只更新发起请求时的发现列表。
     var searchSeq by remember { mutableStateOf(0) }
 
     fun doSearch() {
         if (!ready) return
-        // ⚠️ 空关键词**允许**：进内容中心要能直接看到热门内容，
-        // 而不是一面白墙等用户猜关键词。
-        //
-        // 用户反馈「内容默认加载不出来」就是这里造成的 ——
-        // 旧 BrowseView onMounted 就 load（Modrinth 空 query = 按下载量
-        // 排序的热门项目），我却写成空词直接 return。
-        //
-        // Rust browse 对空 query 的行为：facets 仍带 project_type 过滤，
-        // 返回的就是热门列表（实测 curl 空 query 有数据）。
         val q = state.query.trim()
         page = 0
         hasMore = true
-        // ⚠️ 新搜索先清旧列表：否则请求失败时旧关键词的条目还挂着，触底 loadMore
-        // 会把新查询的第 1 页追加到旧列表后面，两组结果混在一起（B19 的失败分支）。
         state = state.copy(items = emptyList(), loading = true, error = null)
         val seq = ++searchSeq
         repo.search(q, state.type, page = 0, loader = state.loader, sort = state.sort) { r ->
-            // 期间又发起过搜索 → 这份是过期结果，丢掉（见 searchSeq 注释）
             if (seq != searchSeq) return@search
             state = r.fold(
                 onSuccess = { state.copy(items = it, loading = false) },
@@ -938,87 +917,29 @@ internal fun BrowseRoute(
         }
     }
 
-    /**
-     * 整页翻译：把当前页所有项目的简介批量翻成中文。
-     *
-     * 2026-10-29：按钮从列表第一行挪到顶栏（用户要求），逻辑原样搬出来，
-     * 顶栏和以后任何入口都调这一个函数。
-     */
-    fun translatePageAction() {
-        val items = state.items
-        if (items.isEmpty() || translatingPage) return
-        translatingPage = true
-        api.translateModDescriptions(items.first().provider, items.map { it.id }) { r ->
-            translatingPage = false
-            r.fold(
-                onSuccess = { o ->
-                    val t = o.optJSONObject("translations") ?: org.json.JSONObject()
-                    state = state.copy(
-                        items = state.items.map { p ->
-                            val zh = t.optString(p.id)
-                            if (zh.isNotBlank()) p.copy(description = zh) else p
-                        },
-                    )
-                },
-                onFailure = { e ->
-                    state = state.copy(
-                        error = context.getString(
-                            R.string.browse_translate_failed,
-                            e.message ?: "",
-                        )
-                    )
-                },
-            )
-        }
-    }
-
-    // ── 把工具栏注册到顶栏（2026-10-17）──────────────────────────────
-    //
-    // 用户要求「搜索条要跟『内容』标题平着、右边一直到用户头像」。
-    // 状态都在本函数里，而 TopAppBar 在 ComposeMainActivity 外层 ——
-    // 靠 onRegisterToolbar 把一段 composable 递上去。
-    //
-    // ⚠️ 放在 doSearch() 定义**之后**：Kotlin 局部函数不能前向引用。
-    //
-    // ⚠️ 必须用 `SideEffect` 而不是 `DisposableEffect(Unit)`：
-    //   - DisposableEffect(Unit) 只在**首次组合**执行一次，注册的 lambda 闭包
-    //     捕获的是**那一刻的 state**（永远是初始值）—— 搜索框输入不会更新、
-    //     紧凑模式点了没反应、筛选徽标永远 0。
-    //   - SideEffect 每次成功重组后都跑，注册的 lambda 拿到的是最新 state。
-    //     这里只是给外层赋一个 lambda 引用，代价极低。
-    var filterOpen by remember { mutableStateOf(false) }
-    SideEffect {
-        // 详情页开着时顶栏要让位（否则「内容」标题 + 搜索框会盖在资源名上）
-        if (selection != null) {
-            onRegisterToolbar(null)
-        } else {
-            onRegisterToolbar {
-            com.zhayi.qookix.compose.pages.BrowseToolbar(
-                title = context.getString(R.string.browse_title),
-                query = state.query,
-                onQueryChange = { state = state.copy(query = it) },
-                onSearch = { doSearch() },
-                onOpenFilter = { filterOpen = true },
-                activeFilterCount = (if (state.type != BrowseType.Mod.id) 1 else 0) +
-                    (if (state.loader.isNotBlank()) 1 else 0),
-                sort = state.sort,
-                onSortChange = {
-                    state = state.copy(sort = it, items = emptyList())
-                    doSearch()
-                },
-                compact = state.compact,
-                onCompactChange = {
-                    state = state.copy(compact = it)
-                    // 记住选择（下次进内容中心还是这个模式）
-                    activity?.setBrowseCompactPref(it)
-                },
-                // 整页翻译按钮（2026-10-29 从列表第一行挪进标题栏）
-                onTranslatePage = { translatePageAction() },
-                translatingPage = translatingPage,
-            )
+    fun translatePageAction(items: List<ProjectUi>, forFavorites: Boolean) {
+        if (items.isEmpty() || translatingFavorites != null) return
+        translatingFavorites = forFavorites
+        val seq = searchSeq
+        repo.translateDescriptions(items) { translations, error ->
+            translatingFavorites = null
+            if (forFavorites) {
+                favorites.applyTranslations(translations)
+            } else if (seq == searchSeq) {
+                state = state.copy(items = state.items.map { it.withDescriptionTranslation(translations) })
+            } else {
+                return@translateDescriptions
+            }
+            if (showingFavorites == forFavorites) {
+                when {
+                    error != null -> QkFeedback.show(context.getString(R.string.browse_translate_failed, error))
+                    translations.size < items.size -> QkFeedback.show(context.getString(R.string.browse_translate_unavailable))
+                }
             }
         }
     }
+
+    var filterOpen by remember { mutableStateOf(false) }
     // 离开内容页时清空顶栏（否则切到别的页面顶栏还挂着搜索框）
     DisposableEffect(Unit) {
         onDispose { onRegisterToolbar(null) }
@@ -1064,12 +985,9 @@ internal fun BrowseRoute(
         }
     }
 
-    // 切换类型 / 加载器时自动重搜（与旧界面行为一致）
-    LaunchedEffect(state.type, state.loader) {
-        // ⚠️ 进页无条件加载（对齐旧 BrowseView 的 onMounted）：
-        // 空关键词 = 热门列表（Modrinth 空查询按下载量排序）。
-        // 之前的 isNotBlank 判断就是「内容中心默认加载不出来」的直接原因。
-        doSearch()
+    LaunchedEffect(ready) { doSearch() }
+    LaunchedEffect(favoriteQuery, favoriteType, favoriteSort) {
+        favoritesGridState.scrollToItem(0)
     }
 
     // ── 内容详情（2026-10-27：从弹窗改成独立页面）────────────────────────
@@ -1084,6 +1002,8 @@ internal fun BrowseRoute(
             activity = activity,
             tasks = tasks.active,
             onCancelTask = onCancelTask,
+            isFavorite = favorites.contains(selection.project),
+            onToggleFavorite = { favorites.toggle(selection) },
             // 顶栏复用内容中心那条通道：图标 + 资源名 + 作者
             onRegisterToolbar = onRegisterToolbar,
             onRequestCreateInstance = onRequestCreateInstance,
@@ -1091,41 +1011,90 @@ internal fun BrowseRoute(
         return
     }
 
-    BrowsePage(
-        state = state,
-        // 滚动状态由本函数持有，进详情再返回不会回到顶部
-        gridState = gridState,
-        onQueryChange = { state = state.copy(query = it) },
-        onSearch = { doSearch() },
-        // 排序变更：同样要重搜（排序是服务端行为，本地排没用）
-        onSortChange = {
-            state = state.copy(sort = it, items = emptyList())
-            doSearch()
-        },
-        // 紧凑模式切换：只改 UI，不重新请求（同一批数据换种排布）
-        onCompactChange = { state = state.copy(compact = it) },
-        // 点条目 → 独立详情页（2026-10-27：原来是一个正文只显示 500 字的弹窗）
-        onOpenProject = { p -> onOpenContent(p, state.type) },
-        // 卡片上的「安装」：直接弹安装对话框，不走详情页
-        onInstall = { p -> installTarget = p },
-        onLoadMore = { loadMore() },
-        loadingMore = loadingMore,
-        hasMore = hasMore,
-        translatingPage = translatingPage,
-    )
+    val favoritesState by remember(favorites) {
+        derivedStateOf {
+            BrowseUiState(
+                query = favoriteQuery,
+                type = favoriteType,
+                sort = favoriteSort,
+                compact = state.compact,
+                items = favorites.visibleItems(favoriteQuery, favoriteType, favoriteSort),
+            )
+        }
+    }
+    val visibleState = if (showingFavorites) favoritesState else state
+    val defaultType = if (showingFavorites) "" else BrowseType.Mod.id
+    val activeFilters = (if (visibleState.type != defaultType) 1 else 0) +
+        (if (visibleState.loader.isNotBlank()) 1 else 0)
+    val onSearch: () -> Unit = { if (!showingFavorites) doSearch() }
 
-    // ── 安装对话框 ──────────────────────────────────────────────────────
-    //
-    // 版本筛选 / 依赖 / 目标实例与服务器 / 真正的安装请求都在
-    // ContentInstallHost 里 —— 内容详情页共用同一份，别再各写一套。
+    // 详情页自行注册顶栏。两个列表共用工具栏和网格样式，各自保留搜索和筛选。
+    SideEffect {
+        onRegisterToolbar {
+            com.zhayi.qookix.compose.pages.BrowseToolbar(
+                query = if (showingFavorites) favoriteQuery else state.query,
+                onQueryChange = {
+                    if (showingFavorites) favoriteQuery = it else state = state.copy(query = it)
+                },
+                onSearch = onSearch,
+                onOpenFilter = { filterOpen = true },
+                activeFilterCount = activeFilters,
+                sort = visibleState.sort,
+                sortOptions = if (showingFavorites) ContentFavorites.SORTS else BrowseRepo.SORTS,
+                onSortChange = {
+                    if (showingFavorites) {
+                        favoriteSort = it
+                    } else {
+                        state = state.copy(sort = it)
+                        doSearch()
+                    }
+                },
+                compact = visibleState.compact,
+                onCompactChange = {
+                    state = state.copy(compact = it)
+                    activity?.setBrowseCompactPref(it)
+                },
+                onTranslatePage = { translatePageAction(visibleState.items, showingFavorites) },
+                translatingPage = translatingFavorites == showingFavorites,
+                translationEnabled = ready && visibleState.items.isNotEmpty() && translatingFavorites == null,
+            )
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        com.zhayi.qookix.compose.ui.QkTabRow(
+            labels = listOf(stringResource(R.string.browse_discover), stringResource(R.string.browse_favorites)),
+            selectedIndex = if (showingFavorites) 1 else 0,
+            onSelect = { showingFavorites = it == 1 },
+        )
+        QkTabContent(
+            tabs = listOf(false, true),
+            selected = showingFavorites,
+            onSelect = { showingFavorites = it },
+            modifier = Modifier.weight(1f),
+        ) { favoriteTab ->
+            BrowsePage(
+                state = if (favoriteTab) favoritesState else state,
+                showingFavorites = favoriteTab,
+                emptyMessage = if (!favoriteTab) null
+                    else if (favorites.items.isEmpty()) R.string.browse_favorites_empty else R.string.browse_no_results,
+                gridState = if (favoriteTab) favoritesGridState else gridState,
+                onSearch = onSearch,
+                onOpenProject = { p -> onOpenContent(p, if (favoriteTab) p.projectType else state.type) },
+                onInstall = { p -> installTarget = ContentSelection(p, if (favoriteTab) p.projectType else state.type) },
+                onLoadMore = { loadMore() },
+                loadingMore = !favoriteTab && loadingMore,
+                hasMore = !favoriteTab && hasMore,
+            )
+        }
+    }
+
     ContentInstallHost(
         api = api,
-        project = installTarget,
-        kind = state.type,
+        project = installTarget?.project,
+        kind = installTarget?.kind ?: state.type,
         onCreateTargetInstance = onRequestCreateInstance?.let { cb ->
             {
-                // 先关掉安装对话框，再跳去新建实例页 ——
-                // 否则回来时对话框还开着，用户会以为没生效。
                 installTarget = null
                 cb()
             }
@@ -1133,17 +1102,16 @@ internal fun BrowseRoute(
         onDismiss = { installTarget = null },
     )
 
-    // ── 筛选面板（2026-10-18 修：原来只设 filterOpen=true，没人读它，
-    //    筛选图标点了没反应。组件早就写好了，就差这一处渲染）
     com.zhayi.qookix.compose.pages.BrowseFilterSheet(
         visible = filterOpen,
         onDismiss = { filterOpen = false },
-        type = state.type,
+        type = visibleState.type,
         onTypeChange = { newType ->
             filterOpen = false
-            if (newType != state.type) {
-                // UI-10：切到插件要清 loader（那块 UI 隐藏，留着等于在看不见的地方被过滤）
-                state = state.copy(type = newType, loader = if (newType == BrowseType.Plugin.id) "" else state.loader, items = emptyList())
+            if (showingFavorites) {
+                favoriteType = newType
+            } else if (newType != state.type) {
+                state = state.copy(type = newType, loader = if (newType == BrowseType.Plugin.id) "" else state.loader)
                 doSearch()
             }
         },
@@ -1151,13 +1119,21 @@ internal fun BrowseRoute(
         onLoaderChange = { newLoader ->
             filterOpen = false
             if (newLoader != state.loader) {
-                state = state.copy(loader = newLoader, items = emptyList())
+                state = state.copy(loader = newLoader)
                 doSearch()
             }
         },
-        onReset = { state = state.copy(type = BrowseType.Mod.id, loader = "", query = "", items = emptyList()); doSearch() },
-        // 插件（Hangar）没有加载器维度
-        hideLoader = state.type == BrowseType.Plugin.id,
+        onReset = {
+            if (showingFavorites) {
+                favoriteType = ""
+                favoriteQuery = ""
+            } else {
+                state = state.copy(type = BrowseType.Mod.id, loader = "", query = "")
+                doSearch()
+            }
+        },
+        hideLoader = showingFavorites || state.type == BrowseType.Plugin.id,
+        includeAllTypes = showingFavorites,
     )
 
 }

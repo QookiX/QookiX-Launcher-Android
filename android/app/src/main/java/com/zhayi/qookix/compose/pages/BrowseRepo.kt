@@ -107,6 +107,37 @@ class BrowseRepo(private val api: QookixApi) {
     /** 一个排序选项（sort 参数值 + 展示名资源）。 */
     data class SortOption(val id: String, @StringRes val labelRes: Int)
 
+    fun translateDescriptions(
+        items: List<ProjectUi>,
+        onResult: (Map<String, String>, String?) -> Unit,
+    ) {
+        val providers = items.groupBy { it.provider }.iterator()
+        val translations = mutableMapOf<String, String>()
+        var error: String? = null
+
+        // 各来源依次翻译，避免并发读写后端的同一个翻译缓存。
+        fun translateNext() {
+            if (!providers.hasNext()) {
+                onResult(translations, error)
+                return
+            }
+            val (provider, projects) = providers.next()
+            val slugs = projects.groupBy { it.slug.ifBlank { it.id } }
+            api.translateModDescriptions(provider, slugs.keys.toList()) { result ->
+                result.onSuccess { response ->
+                    val bySlug = response.optJSONObject("translations")
+                    for ((slug, projectsForSlug) in slugs) {
+                        val text = bySlug?.optText(slug)?.takeIf { it.isNotBlank() } ?: continue
+                        projectsForSlug.forEach { translations[it.contentKey] = text }
+                    }
+                    error = error ?: response.optText("error")?.takeIf { it.isNotBlank() }
+                }.onFailure { error = error ?: it.message }
+                translateNext()
+            }
+        }
+        translateNext()
+    }
+
     /**
      * 搜索。
      *

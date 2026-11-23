@@ -286,7 +286,7 @@ fun AppearancePane(
             }
         }
 
-        // ── 首页分区开关 ──────────────────────────────────────────────
+        CustomHomeSettings()
         SettingsGroup(stringResource(R.string.settings_appearance_home_group)) {
             SettingsRow(
                 title = stringResource(R.string.settings_appearance_home_downloads),

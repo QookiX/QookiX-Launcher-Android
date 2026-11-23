@@ -121,6 +121,9 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
     public void sendKeyPresses(boolean isDown) {/*STUB since non swipeable*/ }
 
     @Override
+    public void cancelControlInput() { resetJoystickInput(); }
+
+    @Override
     public void loadEditValues(EditControlSideDialog editControlPopup) {
         editControlPopup.loadJoystickValues(mControlData);
     }

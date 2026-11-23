@@ -19,21 +19,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,7 +44,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -83,13 +77,8 @@ fun MultiplayerPage(
     onStopServer: (String) -> Unit,
     onOpenServer: (String) -> Unit,
     onCreateServer: () -> Unit,
-    onToggleTunnel: () -> Unit,
-    /** 加入别人的房间（房间码）。旧 UI 有、先前漏做的功能。 */
-    onJoinRoom: (String) -> Unit = {},
-    /** 复制房间码到剪贴板。 */
-    onCopyRoom: () -> Unit = {},
-    /** 陶瓦操作进行中（禁用按钮 + 显示转圈）。 */
-    tunnelBusy: Boolean = false,
+    tunnelContent: @Composable () -> Unit,
+    friendRoomsContent: @Composable () -> Unit,
     /** 进入 FRP 联机房间页。 */
     onOpenFrpRooms: () -> Unit = {},
     /** 进入 FRP 隧道页（MohuaFrp 主入口）。 */
@@ -104,6 +93,7 @@ fun MultiplayerPage(
             labels = listOf(
                 stringResource(R.string.multiplayer_tab_servers),
                 stringResource(R.string.multiplayer_tab_tunnel),
+                stringResource(R.string.qookix_friend_rooms),
                 stringResource(R.string.multiplayer_tab_rooms),
             ),
             selectedIndex = state.tab.ordinal,
@@ -112,10 +102,10 @@ fun MultiplayerPage(
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             QkTabContent(
-                targetState = state.tab,
-                order = { it.ordinal },
+                tabs = MultiplayerTab.entries,
+                selected = state.tab,
+                onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
-                label = "multiplayerTab",
             ) { tab ->
                 when (tab) {
                     MultiplayerTab.Servers -> ServersTab(
@@ -127,13 +117,8 @@ fun MultiplayerPage(
                         onPingServer = onPingServer,
                         onRetry = onRetry,
                     )
-                    MultiplayerTab.Tunnel -> TunnelTab(
-                        state = state,
-                        onToggle = onToggleTunnel,
-                        onJoin = onJoinRoom,
-                        onCopyRoom = onCopyRoom,
-                        busy = tunnelBusy,
-                    )
+                    MultiplayerTab.Tunnel -> tunnelContent()
+                    MultiplayerTab.FriendRooms -> friendRoomsContent()
                     // FRP 房间是独立页面（内容多），这里只放入口卡片 ——
                     // 与旧版一致：联机类功能都从多人页进，但房间有自己的完整页面。
                     MultiplayerTab.FrpRooms -> FrpRoomsEntryTab(onOpenFrp, onOpenFrpRooms)
@@ -416,194 +401,10 @@ internal fun ServerCard(
     }
 }
 
-/**
- * 陶瓦联机 tab。
- *
- * ── 这块补了什么（2026-10-13）────────────────────────────────────────────
- * 用户反馈「多人缺很多功能」，对照旧 `MultiplayerView.vue` 发现两个硬缺失：
- *
- *   1. **加入别人的房间**（旧 `joinRoom`）—— 调 `/guest?room=<码>&player=<名>`。
- *      我原来只有「开启联机」，等于只能当房主、不能当客人 ——
- *      而「进朋友的房间」恰恰是这个功能最常见的用法。
- *
- *   2. **复制房间码**（旧 `copyRoom`）—— 房间码是一串要发给朋友的字符，
- *      不能复制的话用户体验很差（要手抄）。
- *
- * 另外按旧 UI 的信息层级重排：**开房** 和 **加入** 是两个独立区域，
- * 各自有明确的输入与按钮，而不是混在一起。
- */
-@Composable
-private fun TunnelTab(
-    state: MultiplayerUiState,
-    onToggle: () -> Unit,
-    onJoin: (String) -> Unit,
-    onCopyRoom: () -> Unit,
-    busy: Boolean,
-) {
-    // 加入房间的输入码（受控状态放这里 —— 它只服务这个 tab）
-    var roomInput by remember { mutableStateOf("") }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(QkSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
-    ) {
-        // ── 开房 ────────────────────────────────────────────────────────
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ),
-        ) {
-            Column(modifier = Modifier.padding(QkSpacing.lg)) {
-                Text(
-                    text = stringResource(R.string.multiplayer_host_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(QkSpacing.xs))
-                Text(
-                    text = stringResource(R.string.multiplayer_host_desc),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                // 房间码：出现了才显示（并给复制按钮）
-                if (state.tunnelRunning && state.roomCode.isNotBlank()) {
-                    Spacer(Modifier.height(QkSpacing.md))
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(start = QkSpacing.md, end = 8.dp, top = 12.dp, bottom = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(R.string.multiplayer_room_code_label),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                                Spacer(Modifier.height(QkSpacing.xxs))
-                                Text(
-                                    text = state.roomCode,
-                                    style = MaterialTheme.typography.headlineSmall.copy(
-                                        fontFamily = FontFamily.Monospace,
-                                    ),
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                            }
-                            // 复制 —— 房间码本来就是要发给别人的，
-                            // 不能复制就得手抄，体验差
-                            IconButton(onClick = onCopyRoom) {
-                                Icon(
-                                    imageVector = Icons.Filled.ContentCopy,
-                                    contentDescription = stringResource(R.string.multiplayer_copy_room_code),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(QkSpacing.md))
-                Button(
-                    onClick = onToggle,
-                    enabled = !busy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = MaterialTheme.shapes.extraLarge,
-                ) {
-                    if (busy) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text(
-                        when {
-                            busy -> stringResource(R.string.multiplayer_busy)
-                            state.tunnelRunning -> stringResource(R.string.multiplayer_tunnel_stop)
-                            else -> stringResource(R.string.multiplayer_tunnel_start)
-                        },
-                    )
-                }
-            }
-        }
-
-        // ── 加入别人的房间 ──────────────────────────────────────────────
-        //
-        // 这是旧 UI 有、我先前完全漏掉的功能。
-        // 对多数用户来说「进朋友的房间」比「自己开房」更常用。
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
-        ) {
-            Column(modifier = Modifier.padding(QkSpacing.lg)) {
-                Text(
-                    text = stringResource(R.string.multiplayer_guest_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(QkSpacing.xs))
-                Text(
-                    text = stringResource(R.string.multiplayer_guest_desc),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(QkSpacing.md))
-
-                OutlinedTextField(
-                    value = roomInput,
-                    onValueChange = { roomInput = it.take(12) },
-                    label = { Text(stringResource(R.string.multiplayer_room_code)) },
-                    placeholder = { Text(stringResource(R.string.multiplayer_room_code_hint)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    // 房间码是等宽短串，用等宽字体更易核对（避免 0/O 看错）
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                )
-                Spacer(Modifier.height(QkSpacing.sm))
-                Button(
-                    onClick = {
-                        if (roomInput.isNotBlank()) onJoin(roomInput.trim())
-                    },
-                    // 码为空就不给点 —— 免得发一个无意义的请求
-                    enabled = roomInput.isNotBlank() && !busy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary,
-                        contentColor = MaterialTheme.colorScheme.onSecondary,
-                    ),
-                ) {
-                    Text(stringResource(R.string.multiplayer_join_room))
-                }
-            }
-        }
-    }
-}
-
 enum class MultiplayerTab {
     Servers,
     Tunnel,
+    FriendRooms,
     FrpRooms,
 }
 
@@ -621,8 +422,6 @@ data class MultiplayerUiState(
     val tab: MultiplayerTab = MultiplayerTab.Servers,
     val servers: List<ServerUi> = emptyList(),
     val loading: Boolean = false,
-    val tunnelRunning: Boolean = false,
-    val roomCode: String = "",
     val error: String? = null,
 )
 

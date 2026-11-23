@@ -241,21 +241,25 @@ public class JoystickView extends View {
 
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                mTracking = false;
-                if (mForwardLocked) {
-                    mForwardLocked = false;
-                    if (mOnMoveListener != null) mOnMoveListener.onForwardLock(false);
-                }
-                mStrength = 0;
-                mAngle = 0;
-                if (mAutoReCenterButton) resetButton();
-                if (mOnMoveListener != null) mOnMoveListener.onMove(0, 0);
-                invalidate();
+                resetJoystickInput();
                 return true;
 
             default:
                 return super.onTouchEvent(event);
         }
+    }
+
+    protected void resetJoystickInput() {
+        mTracking = false;
+        if (mForwardLocked) {
+            mForwardLocked = false;
+            if (mOnMoveListener != null) mOnMoveListener.onForwardLock(false);
+        }
+        mStrength = 0;
+        mAngle = 0;
+        if (mAutoReCenterButton) resetButton();
+        if (mOnMoveListener != null) mOnMoveListener.onMove(0, 0);
+        invalidate();
     }
 
     private void moveButton(float x, float y) {

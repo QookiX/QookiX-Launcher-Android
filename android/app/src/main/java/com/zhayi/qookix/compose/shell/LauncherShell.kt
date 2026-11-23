@@ -20,9 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,30 +36,20 @@ import androidx.compose.runtime.collectAsState
 import com.zhayi.qookix.compose.ui.QkFeedback
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import com.zhayi.qookix.compose.motion.QkMotionPolicy
 import com.zhayi.qookix.compose.motion.QookiX
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
@@ -130,6 +117,7 @@ fun LauncherShell(
     current: NavDestination,
     onNavigate: (NavDestination) -> Unit,
     onOpenAccount: () -> Unit = {},
+    onCreateInstance: () -> Unit,
     title: String? = null,
     /**
      * 顶栏左侧的返回箭头（null = 不显示）。
@@ -155,11 +143,9 @@ fun LauncherShell(
      * 横屏 384dp 高度里白吃掉约 60dp。放进标题行后这部分完全省下来。
      */
     titleContent: (@Composable () -> Unit)? = null,
-    actions: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val size = rememberWindowSize()
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     // 全局一句话反馈：删除/复制/备份这类「做完了」的操作统一在这里冒一下。
     // 每个页面自己弹 Dialog 的话，位置和样式又会各不相同（审查 A-1 / X-3）。
@@ -172,100 +158,7 @@ fun LauncherShell(
     }
 
     val topBar: @Composable () -> Unit = {
-        val barResolvedTitle = title ?: when {
-            onBack != null &&
-                (current == NavDestination.InstanceDetail ||
-                    current == NavDestination.ServerDetail) -> ""
-            else -> titleFor(current)
-        }
-        val titleKey: Any = if (titleContent != null) "custom" else (current to barResolvedTitle)
-        TopAppBar(
-            navigationIcon = {
-                AnimatedContent(
-                    targetState = onBack != null,
-                    transitionSpec = {
-                        if (!QkMotionPolicy.animationsEnabled) {
-                            EnterTransition.None togetherWith ExitTransition.None
-                        } else {
-                            (slideInHorizontally(QookiX.fastSpatialSpec()) { it / 2 } +
-                                fadeIn(QookiX.fastEffectsSpec())) togetherWith
-                                (slideOutHorizontally(QookiX.fastEffectsSpec()) { -it / 2 } +
-                                    fadeOut(QookiX.fastEffectsSpec()))
-                        }
-                    },
-                    label = "barIcon",
-                ) { hasBack ->
-                    if (hasBack) {
-                        IconButton(onClick = { onBack?.invoke() }) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.shell_action_back))
-                        }
-                    } else {
-                        Spacer(Modifier.width(4.dp))
-                    }
-                }
-            },
-            title = {
-                AnimatedContent(
-                    targetState = titleKey,
-                    transitionSpec = {
-                        if (!QkMotionPolicy.animationsEnabled) {
-                            EnterTransition.None togetherWith ExitTransition.None
-                        } else {
-                            (slideInHorizontally(QookiX.fastSpatialSpec()) { it / 5 } +
-                                fadeIn(QookiX.fastEffectsSpec())) togetherWith
-                                (slideOutHorizontally(QookiX.fastEffectsSpec()) { -it / 5 } +
-                                    fadeOut(QookiX.fastEffectsSpec()))
-                        }.using(SizeTransform(clip = false))
-                    },
-                    label = "barTitle",
-                ) { key ->
-                    val body = titleContent
-                    if (key == "custom" && body != null) {
-                        body()
-                    } else {
-                        val t = (key as? Pair<*, *>)?.second as? String ?: ""
-                        if (t.isNotEmpty()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "QookiX",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Spacer(Modifier.width(QkSpacing.md))
-                                Text(
-                                    text = t,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            actions = {
-                actions()
-                // 账号入口固定最右（对齐旧界面「顶栏右侧是账号」的位置语义）
-                IconButton(onClick = onOpenAccount) {
-                    Icon(
-                        imageVector = Icons.Filled.AccountCircle,
-                        contentDescription = stringResource(R.string.shell_action_account),
-                    )
-                }
-            },
-            scrollBehavior = scrollBehavior,
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
-                // 滚动时也不再变成一块更亮的色块 —— 那会在内容上方压出一条"假分隔"，
-                // 和 ZL2 那种「顶栏完全融进背景」相反。
-                scrolledContainerColor = MaterialTheme.colorScheme.background,
-                // 标题用次级色（灰），和 ZL2 一致：焦点留给内容
-                titleContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
-        )
+        LauncherTopBar(current, title, titleContent, onBack, onCreateInstance, onOpenAccount)
     }
 
     if (size.useRail) {
@@ -461,34 +354,6 @@ fun LauncherShell(
         }
     }
 }
-
-/** 顶栏标题（i18n：取自 string 资源）。 */
-@Composable
-private fun titleFor(d: NavDestination): String = stringResource(
-    when (d) {
-        // 首页在横屏下品牌名已经出现在侧栏，顶栏不必重复 —— 用「首页」更清楚
-        NavDestination.Home -> R.string.shell_title_home
-        NavDestination.Instances -> R.string.shell_title_instances
-        NavDestination.Browse -> R.string.shell_title_browse
-        // 详情页会通过 onTitleChange 覆盖成资源名，这里只是兜底
-        NavDestination.ContentDetail -> R.string.nav_content_detail
-        NavDestination.Multiplayer -> R.string.shell_title_multiplayer
-        NavDestination.Downloads -> R.string.shell_title_downloads
-        NavDestination.More -> R.string.shell_title_more
-        NavDestination.News -> R.string.shell_title_news
-        NavDestination.Skins -> R.string.shell_title_skins
-        NavDestination.Settings -> R.string.shell_title_settings
-        NavDestination.CreateInstance -> R.string.shell_title_create_instance
-        NavDestination.ServerCreate -> R.string.nav_server_create
-        NavDestination.ServerDetail -> R.string.shell_title_server_detail
-        NavDestination.InstanceDetail -> R.string.shell_title_instance_detail
-        NavDestination.Account -> R.string.shell_title_account
-        NavDestination.Playtime -> R.string.shell_title_playtime
-        NavDestination.FrpRooms -> R.string.shell_title_frp_rooms
-        NavDestination.Frp -> R.string.shell_title_frp
-        NavDestination.LanSync -> R.string.nav_lan_sync
-    }
-)
 
 /**
  * 侧栏项：收起时竖排（图标 + 小字），展开时横排（图标 + 文字）。

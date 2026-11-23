@@ -1,6 +1,5 @@
 package com.zhayi.qookix.compose.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
@@ -15,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -29,7 +30,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -45,25 +48,40 @@ import com.zhayi.qookix.compose.motion.QkMotionPolicy
 import com.zhayi.qookix.compose.motion.QookiX
 import com.zhayi.qookix.compose.motion.qkExpandVertically
 import com.zhayi.qookix.compose.motion.qkShrinkVertically
-import com.zhayi.qookix.compose.motion.qkTabTransition
 import com.zhayi.qookix.compose.theme.QkSpacing
+import kotlinx.coroutines.launch
 
-/** 统一的详情/设置页标签切换容器。 */
+/** 点击与滑动共用页面的选中状态，手势停稳后才切换业务状态。 */
 @Composable
 fun <T> QkTabContent(
-    targetState: T,
-    order: (T) -> Int,
+    tabs: List<T>,
+    selected: T,
+    onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
-    label: String = "qkTabContent",
     content: @Composable (T) -> Unit,
 ) {
-    AnimatedContent(
-        targetState = targetState,
+    val selectedIndex = tabs.indexOf(selected).coerceAtLeast(0)
+    val pager = rememberPagerState(initialPage = selectedIndex) { tabs.size }
+    val selectTab by rememberUpdatedState(onSelect)
+    val currentTabs by rememberUpdatedState(tabs)
+    LaunchedEffect(pager, selectedIndex) {
+        if (pager.settledPage != selectedIndex) {
+            // 触摸可以打断点击触发的滚动。独立子任务取消时，仍要继续观察手势。
+            launch {
+                if (QkMotionPolicy.animationsEnabled) pager.animateScrollToPage(selectedIndex)
+                else pager.scrollToPage(selectedIndex)
+            }.join()
+        }
+        snapshotFlow { pager.settledPage }.collect { page ->
+            if (page != selectedIndex) currentTabs.getOrNull(page)?.let(selectTab)
+        }
+    }
+    HorizontalPager(
+        state = pager,
         modifier = modifier,
-        transitionSpec = { qkTabTransition(order(targetState) >= order(initialState)) },
-        label = label,
-    ) { state ->
-        content(state)
+        verticalAlignment = Alignment.Top,
+    ) { page ->
+        content(tabs[page])
     }
 }
 

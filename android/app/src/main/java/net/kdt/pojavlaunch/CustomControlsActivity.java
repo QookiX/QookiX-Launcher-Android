@@ -16,8 +16,9 @@ import net.kdt.pojavlaunch.customcontrols.ControlData;
 import net.kdt.pojavlaunch.customcontrols.ControlDrawerData;
 import net.kdt.pojavlaunch.customcontrols.ControlJoystickData;
 import net.kdt.pojavlaunch.customcontrols.ControlLayout;
-import net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface;
+import net.kdt.pojavlaunch.customcontrols.ControlSceneDialog;
 import net.kdt.pojavlaunch.customcontrols.EditorExitable;
+import net.kdt.pojavlaunch.customcontrols.MouseWheelControls;
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
 
 import java.io.IOException;
@@ -45,10 +46,12 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 			R.drawable.ic_qk_plus,     // 添加按键
 			R.drawable.ic_qk_plus,     // 添加组合键
 			R.drawable.ic_qk_plus,     // 添加摇杆
+			R.drawable.ic_qk_plus,     // 添加滚轮按键
 			R.drawable.ic_qk_folder,   // 加载
 			R.drawable.ic_qk_save,     // 保存
 			R.drawable.ic_qk_star,     // 选择默认控制布局
 			R.drawable.ic_qk_share,    // 导出
+			R.drawable.ic_qk_sliders,  // 控件场景
 	};
 	/** 预览模式菜单：0 = 就用这个，1 = 取消。 */
 	private static final int[] PREVIEW_MENU_ICONS = {
@@ -109,6 +112,7 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 
 				// 预览模式：只读 + 菜单换成「就用这个 / 取消」；否则是可编辑的完整编辑器。
 				mControlLayout.setModifiable(!mPreviewMode);
+				mControlLayout.setReadOnlyPreview(mPreviewMode);
 				mDrawerNavigationView.setAdapter(new com.zhayi.qookix.control.QookixMenuAdapter(this,
 						com.zhayi.qookix.control.QookixMenuAdapter.entriesOf(this,
 								mPreviewMode ? R.array.menu_customcontrol_preview : R.array.menu_customcontrol_customactivity,
@@ -124,10 +128,12 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 						case 0: mControlLayout.addControlButton(new ControlData("New")); break;
 						case 1: mControlLayout.addDrawer(new ControlDrawerData()); break;
 						case 2: mControlLayout.addJoystickButton(new ControlJoystickData()); break;
-						case 3: mControlLayout.openLoadDialog(); break;
-						case 4: mControlLayout.openSaveDialog(this); break;
-						case 5: mControlLayout.openSetDefaultDialog(); break;
-						case 6: // Saving the currently shown control
+						case 3: MouseWheelControls.showAddDialog(mControlLayout); break;
+						case 4: mControlLayout.openLoadDialog(); break;
+						case 5: mControlLayout.openSaveDialog(this); break;
+						case 6: mControlLayout.openSetDefaultDialog(); break;
+						case 8: ControlSceneDialog.show(mControlLayout); break;
+						case 7: // Saving the currently shown control
 					try {
 						// QookiX 没有 Pojav 的 scoped.FolderProvider（那个 DocumentsProvider 依赖
 			//  @string/storageProviderAuthorities，由 Gradle resValue 生成）。这里改用本项目
@@ -174,26 +180,6 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 			}
 			mControlLayout.loadLayout(path);
 
-			// **必须在加载之后再设一次**：setModifiable(true) 里那句
-			// 「编辑模式下所有控件都要显示」只作用于调用那一刻已经存在的按钮，
-			// 而按钮是 loadLayout 刚刚创建的 —— 顺序反了的话编辑器会一片空白
-			// （按钮都在，只是全 INVISIBLE）。
-			mControlLayout.setModifiable(!mPreviewMode);
-			if (mPreviewMode) {
-				// 预览要看的是「**全部**控件」，所以直接设 View 的可见性：
-				// ① `ControlInterface.setVisible` 只对 `isHideable` 的控件生效，
-				//    从布局文件加载的按钮大多不是，调用它等于没调；
-				// ② `ControlLayout.setControlVisible` 又会按 displayInMenu/InGame 过滤
-				//    （没有游戏窗口时 isGrabbing=false，只有 displayInMenu 的会亮）。
-				//
-				// 而且**必须 post 出去**：View 还没 attach，此时设的可见性会被布局覆盖
-				// （游戏侧也是 `mControlLayout.post { loadControls() }` —— 同一个坑）。
-				mControlLayout.post(() -> {
-					for (ControlInterface c : mControlLayout.getButtonChildren()) {
-						c.getControlView().setVisibility(View.VISIBLE);
-					}
-				});
-			}
 		}catch (Throwable e) {
 			// 故意捕获 Throwable：布局文件损坏 / 字段缺失都可能抛运行时异常，
 			// 这里崩掉等于用户只是点了个「编辑布局」就把 App 弄没了。

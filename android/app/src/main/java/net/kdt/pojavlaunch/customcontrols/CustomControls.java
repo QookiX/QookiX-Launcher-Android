@@ -12,6 +12,7 @@ import net.kdt.pojavlaunch.*;
 @Keep
 public class CustomControls {
 	public int version = -1;
+    public boolean hideTouchControlsWithExternalInput;
     public float scaledAt;
 	public List<ControlData> mControlDataList;
 	public List<ControlDrawerData> mDrawerDataList;

@@ -1,0 +1,74 @@
+// QookiX 首页布局。保存为 UTF-8，可使用注释和尾逗号。
+// 修改后，到「设置 → 外观 → 自定义首页」导入或重新加载。
+{
+  "version": 1,
+  "variables": { "showTip": true },
+  "nodes": [
+    {
+      "type": "grid",
+      "columns": ["1.4fr", "1fr"],
+      "children": [
+        {
+          "type": "card",
+          "title": "欢迎回来，{user}",
+          "children": [
+            { "type": "text", "text": "{instance}", "size": 25, "bold": true },
+            { "type": "text", "text": "{date} · {time}", "muted": true },
+            {
+              "type": "button",
+              "text": "启动游戏",
+              "variant": "primary",
+              "onClick": { "type": "launch" }
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "title": "快捷入口",
+          "children": [
+            {
+              "type": "buttons",
+              "children": [
+                { "type": "button", "text": "我的实例", "onClick": { "type": "navigate", "to": "/instances" } },
+                { "type": "button", "text": "发现内容", "onClick": { "type": "navigate", "to": "/browse" } },
+                { "type": "button", "text": "多人游戏", "onClick": { "type": "navigate", "to": "/multiplayer" } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "card",
+      "title": "编辑这份首页",
+      "collapsible": true,
+      "children": [
+        { "type": "hint", "if": "showTip", "text": "导出 home.json 后，可以修改卡片顺序、文字和按钮操作。" },
+        {
+          "type": "buttons",
+          "children": [
+            {
+              "type": "button",
+              "text": "隐藏说明",
+              "variant": "ghost",
+              "if": "showTip",
+              "onClick": { "type": "set-var", "name": "showTip", "value": "false" }
+            },
+            {
+              "type": "button",
+              "text": "显示说明",
+              "variant": "ghost",
+              "unless": "showTip",
+              "onClick": { "type": "set-var", "name": "showTip", "value": "true" }
+            },
+            {
+              "type": "button",
+              "text": "打开设置",
+              "onClick": { "type": "navigate", "to": "/settings" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -162,6 +162,12 @@ enum class NavDestination(
         selectedIcon = Icons.Filled.AccountCircle,
         unselectedIcon = Icons.Outlined.AccountCircle,
     ),
+    QookixAccount(
+        route = "qookix-account",
+        labelRes = R.string.qookix_account_title,
+        selectedIcon = Icons.Filled.AccountCircle,
+        unselectedIcon = Icons.Outlined.AccountCircle,
+    ),
 
     /**
      * 内容详情（内容中心点条目进入）。
@@ -230,6 +236,7 @@ fun NavDestination.rootTab(): NavDestination = when (this) {
     -> NavDestination.Multiplayer
 
     NavDestination.Account,
+    NavDestination.QookixAccount,
     NavDestination.Downloads,
     NavDestination.More,
     NavDestination.News,

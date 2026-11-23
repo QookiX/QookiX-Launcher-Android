@@ -133,6 +133,11 @@ import com.zhayi.qookix.compose.pages.DailyPlaytimeUi
 import com.zhayi.qookix.compose.pages.MultiplayerPage
 import com.zhayi.qookix.compose.pages.MultiplayerRepo
 import com.zhayi.qookix.compose.pages.MultiplayerUiState
+import com.zhayi.qookix.compose.pages.MultiplayerTab
+import com.zhayi.qookix.compose.pages.QookixAccount
+import com.zhayi.qookix.compose.pages.QookixFriendRoomsPage
+import com.zhayi.qookix.compose.pages.TerracottaRoomPage
+import com.zhayi.qookix.compose.pages.rememberTerracottaRoomControls
 import com.zhayi.qookix.compose.pages.ServerDetailPage
 import com.zhayi.qookix.compose.pages.ServerDetailRepo
 import com.zhayi.qookix.compose.pages.ServerDetailRoute
@@ -214,13 +219,7 @@ internal fun SkinRoute(
                 onFailure = { state.copy(loading = false, error = context.getString(R.string.skin_lib_read_failed, friendlyError(context, it))) },
             )
         }
-        // 顺带读一下当前账号（用于「应用到账号」按钮）
-        //
-        // ⚠️ 2026-10-29（外部审计 B21 核实成立）：原来直接取 `listAccounts`
-        // 返回数组的**第一个**，完全不看 `settings.selected_account` ——
-        // 多账号时皮肤会应用到错的账号（预览的是 A，实际写进 B）。
-        // 现在按「selected_account → 第一个」的顺序选，和启动游戏时
-        // Rust 侧的优先级（实例 account_id → settings.selected_account → 第一个）对齐。
+        // 应用皮肤时优先使用全局选中的账号。
         api.getSettings { sr ->
             val preferUuid = sr.getOrNull()?.let { s ->
                 s.optString("selected_account").ifBlank { s.optString("selectedAccount") }
@@ -237,6 +236,8 @@ internal fun SkinRoute(
                         accountUuid = acc.optString("uuid"),
                         accountName = accName,
                         accountOnline = isOnline,
+                        skinServerName = acc.optString("skin_server_name").takeIf { !acc.isNull("skin_server_name") },
+                        skinServerUrl = acc.optString("skin_server_url").takeIf { !acc.isNull("skin_server_url") },
                     )
                 // ⚠️ 2026-10-18 加（修「正版账号皮肤页永远显示未选择皮肤」）：
                 // 正版账号的皮肤在 Mojang 服务器上，本地皮肤库是空的 ——
@@ -524,6 +525,7 @@ internal fun SkinRoute(
             }
         },
         onSelect = { s -> state = state.copy(selected = s, imageDataUrl = "") },
+        onOpenSkinServer = { url -> activity?.openExternalUrl(url) },
         onApply = { s ->
             state = state.copy(applying = s.filename)
             // ⚠️ 把当前选中的模型（经典/纤细）一起传下去 ——
@@ -687,10 +689,9 @@ internal fun SkinRoute(
 internal fun MultiplayerRoute(
     bridge: RustBridge,
     bridgeReady: Boolean,
+    qookixAccount: QookixAccount,
     onOpenServer: (String) -> Unit,
     onNavigate: (NavDestination) -> Unit,
-        // 复制房间码要用（房间码是发给朋友的短串）
-        activity: ComposeMainActivity? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
@@ -698,29 +699,9 @@ internal fun MultiplayerRoute(
 
     var state by remember { mutableStateOf(MultiplayerUiState(loading = true)) }
 
-    // 新建服务器对话框
-    var showCreate by remember { mutableStateOf(false) }
-    var creating by remember { mutableStateOf(false) }
-    var createError by remember { mutableStateOf<String?>(null) }
-
-    // 联机房间（陶瓦）状态
-    var tunnelBusy by remember { mutableStateOf(false) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var tunnelReady by remember { mutableStateOf<Boolean?>(null) }
-
-    // ── 生命周期取消闸 ─────────────────────────────────────────────────
-    // 陶瓦开房的房间码轮询（postDelayed({ poll(tries - 1) }, 1500) × 8 轮）
-    // 会在用户离开页面后继续跑：迟到回调会写 `state` / `notice` /
-    // `tunnelBusy`，把状态写进一个已经不存在的页面，还可能卡住下一次
-    // 进来时的 `tunnelBusy`。
-    //
-    // 为什么用 alive 布尔闸而不是 removeCallbacks：
-    //   poll 是局部嵌套函数，靠自我 postDelayed 重排，Runnable 引用在
-    //   lambda 深处，外部要存句柄再逐一取消既繁琐又容易漏；页面里的
-    //   多个循环还共用 Main Looper。布尔闸最简单可靠 —— onDispose 一定
-    //   执行，回调醒来后读 alive 就知道自己该不该继续/写状态。
-    var alive by remember { mutableStateOf(true) }
-    DisposableEffect(Unit) { onDispose { alive = false } }
+    val tunnel = rememberTerracottaRoomControls(
+        api, bridgeReady, state.tab == MultiplayerTab.Tunnel || state.tab == MultiplayerTab.FriendRooms,
+    )
 
     fun reload() {
         // error 在**开始时**清，不在成功回调里清 —— 否则「启动失败」的红字
@@ -745,17 +726,6 @@ internal fun MultiplayerRoute(
     val serversRevision by CoreState.serversRevision.collectAsState()
     LaunchedEffect(bridgeReady, serversRevision) {
         if (bridgeReady) reload()
-    }
-
-    LaunchedEffect(bridgeReady) {
-        if (bridgeReady) {
-            // 顺带探一次陶瓦隧道是否就绪（决定按钮文案是「下载」还是「开启」）。
-            //
-            // ⚠️ 这里以前调 `terracotta_detect` —— Android 上没有这个命令，
-            // 运行时报「Command terracotta_detect not found」。
-            // Android 的正确探法是 `terracotta_ping`（见 [terracottaTunnelReady]）。
-            api.terracottaTunnelReady { ready -> tunnelReady = ready }
-        }
     }
 
     MultiplayerPage(
@@ -787,130 +757,21 @@ internal fun MultiplayerRoute(
         },
         onOpenFrp = { onNavigate(NavDestination.Frp) },
         onOpenFrpRooms = { onNavigate(NavDestination.FrpRooms) },
-        tunnelBusy = tunnelBusy, onRetry = { reload() },
-        // 复制房间码 —— 房间码本来就是要发给朋友的，
-        // 不能复制就得手抄（旧 UI 的 copyRoom 就是这个作用）
-        onCopyRoom = {
-            if (state.roomCode.isNotBlank()) {
-                activity?.copyToClipboard(context.getString(R.string.frp_room_code), state.roomCode)
-                notice = context.getString(R.string.frp_room_code_copied)
-            }
-        },
-        // ── 加入别人的房间（旧 UI 的 joinRoom，我先前完全漏做）──────────
-        //
-        // 对多数用户来说「进朋友的房间」比「自己开房」更常用，
-        // 漏掉它等于这个功能只能单向使用。
-        onJoinRoom = { code ->
-            if (tunnelBusy) return@MultiplayerPage
-            tunnelBusy = true
-            notice = null
-
-            // 加入前同样要确保隧道在跑 —— 隧道没起来的话 /guest 会直接连接被拒，
-            // 报错看不懂。探活走 terracotta_ping（Android 上没有 detect 命令）。
-            api.terracottaTunnelReady { ready ->
-                if (!ready) {
-                    tunnelBusy = false
-                    notice = context.getString(R.string.frp_tunnel_not_ready_join)
-                    return@terracottaTunnelReady
-                }
-                // 顺序：先确保 VPN 授权（数据面要走 TUN），否则客人的包根本进不来
-                api.terracottaRequestVpn { _ ->
-                    api.terracottaGuest(code, "player") { jr ->
-                        tunnelBusy = false
-                        val body = jr.getOrNull().orEmpty()
-                        if (body.contains("\"ok\":true")) {
-                            state = state.copy(tunnelRunning = true, roomCode = code)
-                            notice = context.getString(R.string.frp_joined_room, code)
-                        } else {
-                            val err = Regex("\"error\":\"([^\"]*)\"")
-                                .find(body)?.groupValues?.getOrNull(1)
-                notice = if (err != null) context.getString(R.string.frp_join_failed, err)
-                else context.getString(R.string.frp_join_invalid)
-                        }
-                    }
-                }
-            }
-        },
-        onToggleTunnel = {
-            if (tunnelBusy) return@MultiplayerPage
-            tunnelBusy = true
-            notice = null
-
-            // 陶瓦联机在 **Android** 上的正确顺序（对照旧 Vue 的 startHosting）：
-            //   1. 探活   —— 隧道进程可能刚被系统回收，直接发请求只会撞上
-            //               「连接被拒」这种看不懂的报错
-            //   2. VPN    —— TUN 模式必须授权，否则房间码出得来、朋友却连不上
-            //   3. /host  —— 真正开房
-            //   4. 轮询 /state —— 等房间码（房主要先在游戏里「对局域网开放」）
-            //
-            // ⚠️ 这里以前调 terracotta_detect / terracotta_download / terracotta_launch
-            // —— 三个**在 Android 上不存在**的命令（桌面版接口），整个功能是死的。
-            fun startHosting() {
-                api.terracottaRequestVpn { _ ->
-                    val playerName = "player"
-                    api.terracottaHost(playerName) { hr ->
-                        val body = hr.getOrNull().orEmpty()
-                        if (!body.contains("\"ok\":true")) {
-                            tunnelBusy = false
-                            val err = Regex("\"error\":\"([^\"]*)\"")
-                                .find(body)?.groupValues?.getOrNull(1)
-                notice = if (err != null) context.getString(R.string.frp_status_prefix, err)
-                else context.getString(R.string.frp_tunnel_not_ready)
-                            return@terracottaHost
-                        }
-                        // 房间码要等房主在游戏里「对局域网开放」才出现 —— 轮询 8 次
-                        fun poll(tries: Int) {
-                            // 页面已销毁：停止重排，也别再碰 tunnelBusy/notice
-                            if (!alive) return
-                            if (tries <= 0) {
-                                tunnelBusy = false
-                notice = context.getString(R.string.frp_room_creating)
-                                return
-                            }
-                            api.terracottaTunnelState { st ->
-                                // 迟到回调：页面可能已经不在了，别写它的状态
-                                if (!alive) return@terracottaTunnelState
-                                if (st.room.isNotBlank()) {
-                                    tunnelBusy = false
-                                    state = state.copy(tunnelRunning = true, roomCode = st.room)
-                                    notice = context.getString(R.string.frp_room_opened2, st.room)
-                                } else {
-                                    android.os.Handler(android.os.Looper.getMainLooper())
-                                        .postDelayed({ poll(tries - 1) }, 1500)
-                                }
-                            }
-                        }
-                        poll(8)
-                    }
-                }
-            }
-
-            // 先探活：ping 会在端口文件过期时顺手自愈（见 Rust terracotta_ping）
-            api.terracottaTunnelReady { ready ->
-                if (ready) {
-                    startHosting()
-                } else {
-                    // 隧道没在跑。Android 上**没有**「启动隧道」的命令 ——
-                    // 它由 :tunnel 进程自己管。给用户一个能自己动手的提示，
-                    // 而不是报一个不存在的命令名。
-                    tunnelBusy = false
-                    notice = context.getString(R.string.frp_tunnel_not_ready_host)
-                }
-            }
+        onRetry = { reload() },
+        tunnelContent = { TerracottaRoomPage(tunnel) },
+        friendRoomsContent = {
+            QookixFriendRoomsPage(
+                qookixAccount,
+                canJoin = !tunnel.busy && !tunnel.state.hosting && !tunnel.state.guesting,
+                onJoin = { code ->
+                    state = state.copy(tab = MultiplayerTab.Tunnel)
+                    tunnel.onJoin(code)
+                },
+            )
         },
     )
-
-    notice?.let { msg ->
-        InfoDialog(
-            title = context.getString(R.string.multiplayer_short),
-            body = msg,
-            onDismiss = { notice = null },
-        )
-    }
 }
 
-
-/** 新建实例 + 表单状态。 */
 @Composable
 internal fun CreateRoute(
     bridge: RustBridge,

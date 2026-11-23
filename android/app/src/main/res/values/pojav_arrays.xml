@@ -7,23 +7,27 @@
     </string-array>
 
     <string-array name="menu_customcontrol">
-        <item name="0">@string/customctrl_addbutton</item>
-        <item name="1">@string/customctrl_addbutton_drawer</item>
-        <item name="2">@string/customctrl_addbutton_joystick</item>
-        <item name="2">@string/global_load</item>
-        <item name="3">@string/global_save</item>
-        <item name="4">@string/customctrl_selectdefault</item>
-        <item name="5">@string/customctrl_editor_exit</item>
+        <item>@string/qk_control_add_button</item>
+        <item>@string/qk_control_add_drawer</item>
+        <item>@string/qk_control_add_joystick</item>
+        <item>@string/customctrl_add_wheel</item>
+        <item>@string/qk_control_load</item>
+        <item>@string/qk_control_save</item>
+        <item>@string/qk_control_select_default</item>
+        <item>@string/qk_control_exit_editor</item>
+        <item>@string/qk_control_scene</item>
     </string-array>
 
     <string-array name="menu_customcontrol_customactivity">
-        <item name="0">@string/customctrl_addbutton</item>
-        <item name="1">@string/customctrl_addbutton_drawer</item>
-        <item name="2">@string/customctrl_addbutton_joystick</item>
-        <item name="3">@string/global_load</item>
-        <item name="4">@string/global_save</item>
-        <item name="5">@string/customctrl_selectdefault</item>
-        <item name="6">@string/customctrl_export</item>
+        <item>@string/qk_control_add_button</item>
+        <item>@string/qk_control_add_drawer</item>
+        <item>@string/qk_control_add_joystick</item>
+        <item>@string/customctrl_add_wheel</item>
+        <item>@string/qk_control_load</item>
+        <item>@string/qk_control_save</item>
+        <item>@string/qk_control_select_default</item>
+        <item>@string/qk_control_export</item>
+        <item>@string/qk_control_scene</item>
     </string-array>
 
     <!-- 导入布局的预览模式菜单（只读，看一眼再决定要不要） -->

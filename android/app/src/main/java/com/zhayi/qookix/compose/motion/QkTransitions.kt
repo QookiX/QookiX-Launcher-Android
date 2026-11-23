@@ -3,13 +3,11 @@ package com.zhayi.qookix.compose.motion
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Alignment
 
@@ -37,32 +35,6 @@ fun qkSlideInLeft(): EnterTransition =
         animationSpec = QookiX.defaultSpatialSpec(),
         initialOffsetX = { -(it * 0.14f).toInt() },
     ) + fadeIn(QookiX.fastEffectsSpec())
-
-/** 详情/设置/下载页共享的方向性 Tab 转场。 */
-fun qkTabTransition(forward: Boolean): ContentTransform {
-    if (!QkMotionPolicy.animationsEnabled) {
-        return EnterTransition.None togetherWith ExitTransition.None
-    }
-    val enter = if (forward) {
-        slideInHorizontally(QookiX.defaultSpatialSpec()) { (it * 0.14f).toInt() } +
-            fadeIn(QookiX.fastEffectsSpec())
-    } else {
-        slideInHorizontally(QookiX.defaultSpatialSpec()) { -(it * 0.14f).toInt() } +
-            fadeIn(QookiX.fastEffectsSpec())
-    }
-    val exit = if (forward) {
-        slideOutHorizontally(QookiX.fastEffectsSpec()) { -(it * 0.08f).toInt() } +
-            fadeOut(QookiX.fastEffectsSpec())
-    } else {
-        slideOutHorizontally(QookiX.fastEffectsSpec()) { (it * 0.08f).toInt() } +
-            fadeOut(QookiX.fastEffectsSpec())
-    }
-    return ContentTransform(
-        targetContentEnter = enter,
-        initialContentExit = exit,
-        sizeTransform = SizeTransform(clip = false),
-    )
-}
 
 /** 无方向状态切换（加载中 / 错误 / 空态 / 内容）。 */
 fun qkFadeThrough(): ContentTransform {

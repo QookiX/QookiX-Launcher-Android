@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.AdapterView
@@ -44,9 +45,12 @@ import net.kdt.pojavlaunch.customcontrols.ControlButtonMenuListener
 import net.kdt.pojavlaunch.customcontrols.ControlData
 import net.kdt.pojavlaunch.customcontrols.ControlDrawerData
 import net.kdt.pojavlaunch.customcontrols.ControlJoystickData
+import net.kdt.pojavlaunch.customcontrols.ControlInputSource
 import net.kdt.pojavlaunch.customcontrols.ControlLayout
+import net.kdt.pojavlaunch.customcontrols.ControlSceneDialog
 import net.kdt.pojavlaunch.customcontrols.CustomControls
 import net.kdt.pojavlaunch.customcontrols.EditorExitable
+import net.kdt.pojavlaunch.customcontrols.MouseWheelControls
 import net.kdt.pojavlaunch.customcontrols.handleview.DrawerPullButton
 import net.kdt.pojavlaunch.customcontrols.keyboard.LwjglCharSender
 import net.kdt.pojavlaunch.customcontrols.keyboard.TouchCharInput
@@ -125,15 +129,17 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
             R.drawable.ic_qk_close,     // 返回
         )
 
-        /** `R.array.menu_customcontrol` 七项对应的图标（顺序必须与数组一致）。 */
+        /** `R.array.menu_customcontrol` 的图标（顺序与数组一致）。 */
         private val EDITOR_MENU_ICONS = intArrayOf(
             R.drawable.ic_qk_plus,      // 添加按键
             R.drawable.ic_qk_plus,      // 添加组合键
             R.drawable.ic_qk_plus,      // 添加摇杆
+            R.drawable.ic_qk_plus,      // 添加滚轮按键
             R.drawable.ic_qk_folder,    // 加载
             R.drawable.ic_qk_save,      // 保存
             R.drawable.ic_qk_star,      // 选择默认控制布局
             R.drawable.ic_qk_close,     // 退出编辑器
+            R.drawable.ic_qk_sliders,   // 控件场景
         )
 
         /** 控制层持有它（`MinecraftGLSurface.processKeyEvent` 转发软键盘事件用）。 */
@@ -354,10 +360,12 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
                 0 -> mControlLayout.addControlButton(ControlData("New"))
                 1 -> mControlLayout.addDrawer(ControlDrawerData())
                 2 -> mControlLayout.addJoystickButton(ControlJoystickData())
-                3 -> mControlLayout.openLoadDialog()
-                4 -> mControlLayout.openSaveDialog(this)
-                5 -> mControlLayout.openSetDefaultDialog()
-                6 -> mControlLayout.openExitDialog(this)
+                3 -> { drawerLayout.closeDrawers(); MouseWheelControls.showAddDialog(mControlLayout) }
+                4 -> mControlLayout.openLoadDialog()
+                5 -> mControlLayout.openSaveDialog(this)
+                6 -> mControlLayout.openSetDefaultDialog()
+                7 -> mControlLayout.openExitDialog(this)
+                8 -> { drawerLayout.closeDrawers(); ControlSceneDialog.show(mControlLayout) }
             }
         }
 
@@ -475,6 +483,10 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         }
         navDrawer.adapter = gameMenuAdapter
         navDrawer.onItemClickListener = gameActionClickListener
+        mControlLayout.setVisibilityListener {
+            if (!isInEditor && navDrawer.adapter === gameMenuAdapter) syncControlMenuHandle()
+        }
+        minecraftGLView.setCapturedPointerInputListener { mControlLayout.setExternalInput(true) }
         drawerLayout.closeDrawers()
 
         // ── Surface 就绪 → 启动 JVM ─────────────────────────────────────────
@@ -570,10 +582,8 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         } catch (th: Throwable) {
             Tools.showError(this, th)
         }
-        // 布局自带「菜单」按钮时就不需要下拉按钮（Pojav 同款）
-        mDrawerPullButton.visibility =
-            if (mControlLayout.hasMenuButton()) View.GONE else View.VISIBLE
-        mControlLayout.toggleControlVisible()
+        mControlLayout.setControlVisible(true)
+        syncControlMenuHandle()
     }
 
     // ------------------------------------------------------------------ 游戏启动
@@ -718,8 +728,7 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         navDrawer.onItemClickListener = gameActionClickListener
         menuTitle.setText(R.string.qk_menu_title_ingame)
         menuSubtitle.setText(R.string.qk_menu_subtitle_hint)
-        mDrawerPullButton.visibility =
-            if (mControlLayout.hasMenuButton()) View.GONE else View.VISIBLE
+        syncControlMenuHandle()
     }
 
     /**
@@ -778,9 +787,12 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         navDrawer.onItemClickListener = gameActionClickListener
         menuTitle.setText(R.string.qk_menu_title_ingame)
         menuSubtitle.setText(R.string.qk_menu_subtitle_hint)
-        mDrawerPullButton.visibility =
-            if (mControlLayout.hasMenuButton()) View.GONE else View.VISIBLE
+        syncControlMenuHandle()
         isInEditor = false
+    }
+
+    private fun syncControlMenuHandle() {
+        mDrawerPullButton.visibility = if (mControlLayout.hasMenuButton()) View.GONE else View.VISIBLE
     }
 
     /** 「强制关闭游戏」：先让 Rust 优雅结束 JVM（要落存档），再退界面。 */
@@ -799,6 +811,21 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
     }
 
     // ------------------------------------------------------------------ 按键
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (this::mControlLayout.isInitialized && ControlInputSource.beginsTouch(event)) mControlLayout.setExternalInput(false)
+        else trackExternalMotion(event)
+        return super.dispatchTouchEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        trackExternalMotion(event)
+        return super.dispatchGenericMotionEvent(event)
+    }
+
+    private fun trackExternalMotion(event: MotionEvent) {
+        if (this::mControlLayout.isInitialized && ControlInputSource.isExternalMotion(event)) mControlLayout.setExternalInput(true)
+    }
 
     /**
      * 照 Pojav `MainActivity.dispatchKeyEvent`：
@@ -821,6 +848,7 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
             }
             return super.dispatchKeyEvent(event)
         }
+        if (ControlInputSource.isExternalKey(event)) mControlLayout.setExternalInput(true)
         val handleEvent = minecraftGLView.processKeyEvent(event)
         if (!handleEvent) {
             if (event.keyCode == KeyEvent.KEYCODE_BACK && touchCharInput?.isEnabled != true) {
@@ -979,6 +1007,7 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         // 放大镜别在后台继续抓帧（PixelCopy 每 110ms 一次，纯浪费）
         magnifier?.stop()
         mGyroControl?.disable()
+        if (this::mControlLayout.isInitialized) mControlLayout.releaseHeldControls()
         // 切后台必然不该继续按住鼠标键（否则回来时玩家还在自动挥手/挖方块）
         if (this::minecraftGLView.isInitialized) minecraftGLView.releaseAllInput()
         // 游戏还抓着鼠标时先发一个 Esc：让它释放鼠标并进入暂停菜单，
@@ -996,6 +1025,7 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus && this::mControlLayout.isInitialized) mControlLayout.releaseHeldControls()
         // 从别的窗口（对话框/分屏切回）拿回焦点时，SDL 状态机也要恢复——
         // 它的暂停条件里包含失去焦点。
         if (hasFocus && MinecraftGLSurface.sdlEnabled) SDLActivity.notifyAppResume()

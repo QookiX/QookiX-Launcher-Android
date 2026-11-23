@@ -61,12 +61,13 @@ import com.zhayi.qookix.compose.ui.SkeletonList
  * **没有账号就没法启动游戏。** 首页的「启动游戏」按钮会先检查账号列表，
  * 为空时提示「还没有账号」。所以这个面板挡在「能用」与「不能用」之间。
  *
- * ── 两种账号 ────────────────────────────────────────────────────────────
+ * ── 账号类型 ────────────────────────────────────────────────────────────
  *
  * | 类型 | 添加方式 | 特点 |
  * |---|---|---|
  * | 离线 | 输入用户名即可 | 无需联网；皮肤要本地应用 |
  * | 正版 | 微软设备码登录 | 能进正版服、能用正版皮肤 |
+ * | 皮肤站 | Yggdrasil 登录 | 使用皮肤站角色和材质 |
  *
  * ── 为什么用「设备码」而不是内嵌网页登录 ─────────────────────────────────
  * 设备码流程（device code flow）让用户在**系统浏览器**里完成授权：
@@ -87,6 +88,7 @@ fun AccountPanel(
     onSelect: (String) -> Unit,
     onRemove: (String) -> Unit,
     onDismissError: () -> Unit,
+    skinLogin: @Composable (() -> Unit) -> Unit,
     /**
      * true = 嵌在别处的滚动容器里（「我的」页）。
      *
@@ -145,6 +147,9 @@ fun AccountPanel(
                         Icon(Icons.Filled.Wifi, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.account_ms_login))
+                    }
+                    FilledTonalButton(onClick = { addMode = AddMode.SkinServer; showAdd = true }) {
+                        Text(stringResource(R.string.account_add_skin_server))
                     }
                 }
             }
@@ -312,6 +317,7 @@ fun AccountPanel(
                 onDismiss = { showAdd = false },
                 onOpen = onOpenVerification,
             )
+            AddMode.SkinServer -> skinLogin { showAdd = false }
         }
     }
 
@@ -322,7 +328,9 @@ fun AccountPanel(
             title = { Text(stringResource(R.string.account_delete_title, target.name)) },
             text = {
                 Text(
-                    if (target.online) {
+                    if (target.skinServerName != null) {
+                        stringResource(R.string.account_skin_server_remove)
+                    } else if (target.online) {
                         stringResource(R.string.account_delete_online_desc)
                     } else {
                         stringResource(R.string.account_delete_offline_desc)
@@ -425,7 +433,7 @@ private fun AccountCard(
                     }
                 }
                 Text(
-                    text = if (account.online) stringResource(R.string.account_online)
+                    text = account.skinServerName ?: if (account.online) stringResource(R.string.account_online)
                     else stringResource(R.string.account_offline),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
@@ -559,7 +567,7 @@ private fun MsHintDialog(
 }
 
 /** 添加账号的方式。 */
-private enum class AddMode { Offline, Microsoft }
+private enum class AddMode { Offline, Microsoft, SkinServer }
 
 /** 账号条目（UI 模型）。 */
 data class AccountUi(
@@ -567,6 +575,7 @@ data class AccountUi(
     val name: String,
     /** 是否正版账号（微软登录）。 */
     val online: Boolean,
+    val skinServerName: String? = null,
 )
 
 /**

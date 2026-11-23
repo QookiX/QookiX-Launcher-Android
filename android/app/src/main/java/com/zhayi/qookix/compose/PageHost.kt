@@ -134,6 +134,9 @@ import com.zhayi.qookix.compose.pages.DailyPlaytimeUi
 import com.zhayi.qookix.compose.pages.MultiplayerPage
 import com.zhayi.qookix.compose.pages.MultiplayerRepo
 import com.zhayi.qookix.compose.pages.MultiplayerUiState
+import com.zhayi.qookix.compose.pages.QookixAccount
+import com.zhayi.qookix.compose.pages.QookixAccountSettings
+import com.zhayi.qookix.compose.pages.ContentFavorites
 import com.zhayi.qookix.compose.pages.ServerDetailPage
 import com.zhayi.qookix.compose.pages.ServerDetailRepo
 import com.zhayi.qookix.compose.pages.ServerDetailRoute
@@ -279,6 +282,9 @@ fun PageHost(
     // i18n（2026-10-17）：错误消息在非 Composable 的 lambda 里拼，
     // `stringResource` 用不了，只能靠 Context。这里取一次全程复用。
     val context = androidx.compose.ui.platform.LocalContext.current
+    val qookixAccount = remember(context) { QookixAccount(context) }
+    val contentFavorites = remember(context) { ContentFavorites(context.applicationContext) }
+    LaunchedEffect(qookixAccount) { qookixAccount.restore() }
 
     // 实例列表在首页与实例页共用 —— 提在这里加载一次，避免两个页面各拉一遍。
     //
@@ -682,6 +688,7 @@ fun PageHost(
             NavDestination.Browse, NavDestination.ContentDetail -> BrowseRoute(
                 bridge = bridge,
                 ready = bridgeReady,
+                favorites = contentFavorites,
                 openUrl = activity?.let { a -> { url: String -> a.openExternalUrl(url) } },
                 // 内容中心「没有可用实例」时的直达入口：跳到新建实例页。
                 // 修的是新用户路径断点：原来只提示"需要一个 Fabric 实例"，无路可走。
@@ -726,7 +733,7 @@ fun PageHost(
         NavDestination.Multiplayer -> MultiplayerRoute(
             bridge = bridge,
             bridgeReady = bridgeReady,
-            activity = activity,
+            qookixAccount = qookixAccount,
             onOpenServer = { id ->
                 onSelectedServerIdChange(id)
                 onNavigate(NavDestination.ServerDetail)
@@ -939,6 +946,8 @@ fun PageHost(
         )
 
         NavDestination.Playtime -> PlaytimeRoute(bridge, bridgeReady)
+
+        NavDestination.QookixAccount -> QookixAccountSettings(qookixAccount, contentFavorites)
 
         NavDestination.Account -> AccountRoute(
             bridge = bridge,

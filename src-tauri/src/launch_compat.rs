@@ -570,14 +570,14 @@ pub(crate) fn apply_renderer_env(
     }
 }
 
-/// 在多个候选目录中按顺序查找已安装的原生工具库（如 `libthreaddump.so`）。
+/// 在候选目录中查找可用于 HotSpot `-agentpath` 的原生工具库。
 pub(crate) fn find_agent_path(dirs: &[&str], filename: &str) -> Option<PathBuf> {
     for dir in dirs {
         if dir.trim().is_empty() {
             continue;
         }
         let candidate = Path::new(dir).join(filename);
-        if candidate.is_file() {
+        if !candidate.to_string_lossy().contains('=') && candidate.is_file() {
             return Some(candidate);
         }
     }
@@ -931,6 +931,23 @@ mod tests {
         push_unique_dir(&mut dirs, "/a");
         assert_eq!(dirs, vec!["/a", "/b"]);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn find_agent_skips_install_paths_with_the_options_delimiter() {
+        let dir = tempfile::tempdir().unwrap();
+        let install = dir.path().join("~~random==");
+        std::fs::create_dir(&install).unwrap();
+        let name = "libthreaddump.so";
+        std::fs::write(install.join(name), b"installed").unwrap();
+        assert!(find_agent_path(&[install.to_str().unwrap()], name).is_none());
+
+        let extracted = dir.path().join(name);
+        std::fs::write(&extracted, b"extracted").unwrap();
+        assert_eq!(
+            find_agent_path(&[install.to_str().unwrap(), dir.path().to_str().unwrap()], name),
+            Some(extracted),
+        );
     }
 
     #[test]

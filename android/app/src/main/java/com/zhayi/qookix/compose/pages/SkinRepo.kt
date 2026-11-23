@@ -232,6 +232,8 @@ data class SkinUiState(
     val accountUuid: String = "",
     val accountName: String = "",
     val accountOnline: Boolean = false,
+    val skinServerName: String? = null,
+    val skinServerUrl: String? = null,
     /** 正在获取的玩家名（按正版名获取，显示进度用）。 */
     val fetchingPlayer: String = "",
     /** 上次获取结果的提示（成功/失败文案）。 */

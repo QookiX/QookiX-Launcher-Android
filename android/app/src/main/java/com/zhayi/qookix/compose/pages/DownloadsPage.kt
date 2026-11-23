@@ -82,10 +82,10 @@ fun DownloadsPage(
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             QkTabContent(
-                targetState = state.tab,
-                order = { it.ordinal },
+                tabs = DownloadsTab.entries,
+                selected = state.tab,
+                onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
-                label = "downloadsTab",
             ) { tab ->
                 val tabList = when (tab) {
                     DownloadsTab.Active -> state.active

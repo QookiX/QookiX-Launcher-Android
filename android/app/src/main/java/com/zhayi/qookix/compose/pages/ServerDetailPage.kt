@@ -268,10 +268,10 @@ fun ServerDetailPage(
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             QkTabContent(
-                targetState = state.tab,
-                order = { it.ordinal },
+                tabs = ServerTab.entries,
+                selected = state.tab,
+                onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
-                label = "serverTab",
             ) { tab ->
                 when (tab) {
                     ServerTab.Console -> ConsoleTab(

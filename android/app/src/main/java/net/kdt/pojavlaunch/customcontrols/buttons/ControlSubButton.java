@@ -30,17 +30,6 @@ public class ControlSubButton extends ControlButton {
     }
 
     @Override
-    public void setVisible(boolean isVisible) {
-        // STUB, visibility handled by the ControlDrawer
-        //setVisibility(isVisible ? VISIBLE : (!mProperties.isHideable && parentDrawer.getVisibility() == GONE) ? VISIBLE : View.GONE);
-    }
-
-    @Override
-    public void onGrabState(boolean isGrabbing) {
-        // STUB, visibility lifecycle handled by the ControlDrawer
-    }
-
-    @Override
     public void setLayoutParams(ViewGroup.LayoutParams params) {
         if(parentDrawer != null && parentDrawer.drawerData.orientation != ControlDrawerData.Orientation.FREE){
             params.width = (int)parentDrawer.mProperties.getWidth();

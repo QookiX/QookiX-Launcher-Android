@@ -85,6 +85,7 @@ fun SkinPage(
     onApply: (SkinEntryUi) -> Unit,
     onDelete: (SkinEntryUi) -> Unit,
     onImport: () -> Unit,
+    onOpenSkinServer: (String) -> Unit = {},
     /** 按正版玩家名获取皮肤（输入的名字）。 */
     onFetchPlayer: (String) -> Unit = {},
     // ── 3D 预览（复用隐形 WebView 跑 skinview3d）────────────────────────
@@ -222,10 +223,12 @@ fun SkinPage(
 
                 if (state.accountName.isNotBlank()) {
                     Text(
-                        text = if (state.accountOnline) {
-                            stringResource(R.string.skin_current_account_online, state.accountName)
-                        } else {
-                            stringResource(R.string.skin_current_account_offline, state.accountName)
+                        text = when {
+                            state.skinServerName != null -> stringResource(
+                                R.string.account_skin_server_current, state.accountName, state.skinServerName,
+                            )
+                            state.accountOnline -> stringResource(R.string.skin_current_account_online, state.accountName)
+                            else -> stringResource(R.string.skin_current_account_offline, state.accountName)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -234,7 +237,11 @@ fun SkinPage(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
-                    Button(
+                    if (state.skinServerUrl != null) {
+                        TextButton(onClick = { onOpenSkinServer(state.skinServerUrl) }) {
+                            Text(stringResource(R.string.account_skin_server_manage))
+                        }
+                    } else Button(
                         onClick = { sel?.let(onApply) },
                         enabled = sel != null &&
                             state.accountUuid.isNotBlank() &&

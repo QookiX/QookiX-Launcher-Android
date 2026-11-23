@@ -43,7 +43,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -102,6 +101,7 @@ import com.zhayi.qookix.compose.pages.FrpNodeUi
 import com.zhayi.qookix.compose.pages.FrpRoomUi
 import com.zhayi.qookix.compose.pages.HomePage
 import com.zhayi.qookix.compose.pages.HomeUiState
+import com.zhayi.qookix.compose.pages.home.CustomHome
 import com.zhayi.qookix.compose.pages.InstanceFileOps
 import com.zhayi.qookix.compose.pages.InstanceDetailPage
 import com.zhayi.qookix.compose.pages.InstanceDetailRepo
@@ -153,6 +153,7 @@ import com.zhayi.qookix.compose.pages.ServerFileOps
 import com.zhayi.qookix.compose.pages.CapeUi
 import com.zhayi.qookix.compose.pages.Skin3dHost
 import com.zhayi.qookix.compose.pages.SkinPage
+import com.zhayi.qookix.compose.pages.SkinServerLoginDialog
 import com.zhayi.qookix.compose.pages.SkinRepo
 import com.zhayi.qookix.compose.pages.SkinUiState
 import com.zhayi.qookix.compose.pages.NewsCache
@@ -187,17 +188,6 @@ import com.zhayi.qookix.compose.shell.NavDestination
  *
  * 从 PageHost.kt 拆出（同包，符号不用 import）：三个页面各自 remember 自己的状态，
  * 只通过 bridge 取数据。纯搬运，private 改 internal，逻辑没动。
- */
-
-/**
- * FRP 隧道页（对应旧 UI `FrpView.vue`）。
- *
- * ⚠️ 这一页在之前的覆盖对照里**被整个漏掉了** —— 用户点不到 FRP，
- * 也就用不了「把本机端口映射到公网」这条最常用的联机路径。
- *
- * 三条数据线各自独立：status（登录态+frpc）/ running（本进程跑的隧道）/
- * tunnels + userInfo（登录后才拉）。旧 UI 用 `Promise.allSettled` 保证
- * 「一个失败不该让另一边也空着」—— 这里同样分开处理。
  */
 
 /**
@@ -244,7 +234,7 @@ internal fun AccountRoute(
                         AccountUi(
                             uuid = uuid,
                             name = o.optString("username").ifBlank { o.optString("name") },
-                            // 账号类型字段各版本叫法不同，几种都认
+                            skinServerName = o.optString("skin_server_name").takeIf { !o.isNull("skin_server_name") },
                             online = o.optString("type").contains("microsoft", true) ||
                                 o.optString("accountType").contains("microsoft", true) ||
                                 o.optBoolean("online", false),
@@ -302,10 +292,6 @@ internal fun AccountRoute(
         error = context.getString(R.string.login_timeout_detail)
     }
 
-    // 「我的」页：整页一条竖向滚动流，各块之间用统一间距。
-    //
-    // ⚠️ 必须包一层 Column：之前这些块直接平铺在函数体里，等于交给外层
-    // 的同一个容器，结果**全部叠在一起**（用户截图反馈）。
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -328,10 +314,8 @@ internal fun AccountRoute(
             onAddAccount = { addAccountRequest += 1 },
         )
 
-        // ── 进行中的任务（下载 / 安装 / 补全）────────────────────────────
         ProfileTasksSection(tasks, onCancelTask)
 
-        // ── 入口列表（下载任务 / 皮肤 / 统计 / 新闻 / 设置）─────────────
         ProfileEntryList(
             onNavigate,
             modifier = Modifier.padding(horizontal = QkSpacing.lg, vertical = 10.dp),
@@ -343,6 +327,15 @@ internal fun AccountRoute(
         msFlow = msFlow,
         error = error,
         currentUuid = currentUuid,
+        skinLogin = { onDismiss ->
+            SkinServerLoginDialog(api, onDismiss) { uuid ->
+                api.selectAccount(uuid) { result ->
+                    result.onSuccess { currentUuid = uuid }
+                    result.onFailure { error = friendlyError(context, it) }
+                    reload()
+                }
+            }
+        },
         onAddOffline = { name ->
             api.loginOffline(name) { r ->
                 r.fold(
@@ -457,6 +450,7 @@ internal fun HomeRoute(
     // 账号列表 —— 启动前必须检查：没有账号时 Rust 侧会直接报错，
     // 与其让用户看到一句技术性错误，不如提前拦住并引导去添加。
     var accounts by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var selectedAccount by remember { mutableStateOf("") }
 
     // 游玩总时长（B3）：首页统计卡用。失败静默（不该影响首页可用性）。
     var playtimeSeconds by remember { mutableStateOf(0L) }
@@ -481,6 +475,11 @@ internal fun HomeRoute(
             api.playtimeStats { r ->
                 r.onSuccess { o -> playtimeSeconds = o.optLong("totalSeconds", 0L) }
             }
+            api.getSettings { result ->
+                result.onSuccess { settings ->
+                    selectedAccount = settings.optString("selected_account").ifBlank { settings.optString("selectedAccount") }
+                }
+            }
             api.listAccounts { r ->
                 r.onSuccess { arr ->
                     accounts = (0 until arr.length()).mapNotNull { i ->
@@ -494,92 +493,74 @@ internal fun HomeRoute(
         }
     }
 
-    HomePage(
-        state = HomeUiState(
-            current = instances.firstOrNull(),
-            recent = instances.drop(1).take(8),
-            pinned = instances.filter { it.id in pinnedIds },
-            tasks = tasks,
-            news = news,
-            runningInstanceId = runningInstanceId,
-            playtimeSeconds = playtimeSeconds,
-        ),
-        launchProgress = launchProgress,
-        onCreateInstance = { onNavigate(NavDestination.Instances) },
-        onLaunch = {
-            val inst = instances.firstOrNull()
-            when {
-                inst == null -> notice = context.getString(R.string.no_instances_hint)
-
-                // 没账号时提前拦截。旧实现也是这个行为
-                // （弹提示 + 引导去账号管理），只是它用 message + 弹层，
-                // 这里用对话框，对横屏更友好。
-                accounts.isEmpty() ->
-                    notice = context.getString(R.string.no_account_hint)
-
-                launchingId != null -> Unit  // 已经在启动了，忽略重复点击
-
-                else -> {
-                    launchingId = inst.id
-                    // ⚠️ 首页启动也要走**完整流程**（检查文件 → 缺就补 → 再启动），
-                    // 不能裸调 launch_game。详见 InstanceDetailRepo.launch 的注释：
-                    // 下载中断的实例裸启动必然失败，而用户只看到英文错误码。
-                    //
-                    // 进度走 install://progress 事件 → 下载页可见，
-                    // 所以这里只在按钮上显示阶段文案。
-                    launchStage = context.getString(R.string.launch_checking_files)
-                    val detailRepo = InstanceDetailRepo(api, context)
-                    detailRepo.launch(
-                        instanceId = inst.id,
-                        onStage = { launchStage = it },
-                    ) { r ->
-                        launchingId = null
-                        launchStage = null
-                        r.fold(
-                            onSuccess = { /* 成功就不打扰，界面已经切到游戏了 */ },
-                            onFailure = { e ->
-                                // 同 InstanceDetailRoute：把 INSTANCE_NOT_INSTALLED
-                                // 这类哨兵错误翻成用户能照做的提示。
-                                val raw = e.message.orEmpty()
-                                notice = when {
-                                    raw.contains("INSTANCE_NOT_INSTALLED") -> context.getString(R.string.launch_not_installed_short)
-                                    raw.contains("NO_ACCOUNT") -> context.getString(R.string.no_account_hint)
-                                    else -> context.getString(R.string.launch_failed_msg, raw)
-                                }
-                            },
-                        )
+    val current = instances.firstOrNull()
+    fun launch(inst: InstanceUi?) {
+        when {
+            inst == null -> notice = context.getString(R.string.no_instances_hint)
+            accounts.isEmpty() -> notice = context.getString(R.string.no_account_hint)
+            launchingId != null -> Unit
+            else -> {
+                launchingId = inst.id
+                InstanceDetailRepo(api, context).launch(instanceId = inst.id, onStage = { launchStage = it }) { result ->
+                    launchingId = null
+                    launchStage = null
+                    result.onFailure { error ->
+                        val raw = error.message.orEmpty()
+                        notice = when {
+                            raw.contains("INSTANCE_NOT_INSTALLED") -> context.getString(R.string.launch_not_installed_short)
+                            raw.contains("NO_ACCOUNT") -> context.getString(R.string.no_account_hint)
+                            else -> context.getString(R.string.launch_failed_msg, raw)
+                        }
                     }
                 }
             }
+        }
+    }
+
+    fun openInstance(id: String) {
+        if (instances.any { it.id == id && id.isNotBlank() }) {
+            notice = null
+            onOpenInstance(id)
+        } else {
+            notice = context.getString(R.string.custom_home_instance_unavailable, id)
+        }
+    }
+
+    CustomHome(
+        account = accounts.firstOrNull { it.first == selectedAccount }?.second ?: accounts.firstOrNull()?.second,
+        instance = current?.name,
+        launchStage = launchStage,
+        launchProgress = launchProgress,
+        onLaunch = { name ->
+            val target = if (name.isBlank()) current else instances.firstOrNull { it.name == name }
+                ?: instances.firstOrNull { it.id == name }
+            if (name.isNotBlank() && target == null) notice = context.getString(R.string.custom_home_instance_unavailable, name)
+            else launch(target)
         },
-        onSwitchInstance = { onNavigate(NavDestination.Instances) },
-        onOpenInstance = { id ->
-            // 打开首页实例卡片对应的详情。
-            //
-            // ⚠️ 2026-10-17 修（用户报的 bug：首页点「最近实例」卡片毫无反应）。
-            //
-            // 原来这里**把回调参数丢了** —— 签名是 `onOpenInstance = { ... }`，
-            // 连形参都没有，函数体里又用 `instances.firstOrNull()` 自己另找一个
-            // 实例，于是：
-            //   1. 无论点哪张卡片，行为都一样（永远打开第一个实例）；
-            //   2. 最致命的是**从没设过 `selectedInstanceId`** ——
-            //      而 `NavDestination.InstanceDetail` 分支（见上方 `:405-408`）
-            //      在 `selectedInstanceId` 为空时会立刻
-            //      `onNavigate(NavDestination.Instances)` 把用户弹回实例列表。
-            //   两条一叠加，真机表现就是「点了卡片，什么都没发生」。
-            //
-            // 修法：用上形参 `id`，先把选中实例写进会话状态，再导航 ——
-            // 与实例列表页 `onOpen`（`:460-463`）完全同构。
-            if (id.isBlank()) {
-                notice = context.getString(R.string.no_instances)
-            } else {
-                notice = null
-                onOpenInstance(id)
-            }
-        },
-        onOpenNews = { onNavigate(NavDestination.News) },
-        onCancelTask = { taskId -> api.cancelInstall(taskId) { } },
-    )
+        onNavigate = onNavigate,
+        onOpenInstance = ::openInstance,
+    ) {
+        HomePage(
+            state = HomeUiState(
+                current = current,
+                recent = instances.drop(1).take(8),
+                pinned = instances.filter { it.id in pinnedIds },
+                tasks = tasks,
+                news = news,
+                launching = launchingId != null,
+                runningInstanceId = runningInstanceId,
+                playtimeSeconds = playtimeSeconds,
+            ),
+            onLaunch = { launch(current) },
+            onCreateInstance = { onNavigate(NavDestination.Instances) },
+            onSwitchInstance = { onNavigate(NavDestination.Instances) },
+            onOpenInstance = ::openInstance,
+            onOpenNews = { onNavigate(NavDestination.News) },
+            launchStage = launchStage,
+            launchProgress = launchProgress,
+            onCancelTask = { taskId -> api.cancelInstall(taskId) { } },
+        )
+    }
 
     // 提示对话框（统一出口：没有实例 / 没有账号 / 启动失败）
     notice?.let { msg ->

@@ -122,12 +122,6 @@ fun InstancesPage(
     // 真实分组（排除 all / __ungrouped__）的 key 列表，用于判断 SectionHeader 是否显示管理按钮
     val realGroupKeys = state.sections.map { it.key }.filter { it != "all" && it != "__ungrouped__" }
     Column(modifier = Modifier.fillMaxSize()) {
-        // 新建按钮：右对齐放在内容区顶部（与旧实现的位置语义一致）
-        // ⚠️ 2026-10-18 改：原来「新建实例」按钮占页面内容区一整行（横屏 384dp
-        // 高度里白吃掉约 56dp）。现在移到顶栏 actions 里，和标题、账号同一行 ——
-        // 用户要求「能不能把它放到标题那一块，这样能省一点位置」。
-        // 按钮的渲染在 ComposeMainActivity 的 LauncherShell(actions = ...)。
-
         if (state.sections.isEmpty()) {
             // 读不到 ≠ 没有：错误与重试的区分逻辑在 InstancesEmptyState 里
             InstancesEmptyState(error = error, onRetry = onRetry)

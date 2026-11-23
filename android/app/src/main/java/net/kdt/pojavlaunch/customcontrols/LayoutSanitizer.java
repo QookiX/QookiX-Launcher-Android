@@ -30,9 +30,9 @@ public class LayoutSanitizer {
      *   -1 键盘 / -2 控件 / -3 鼠标左键 / -4 鼠标右键 / -5 虚拟鼠标
      *   -6 中键 / -7 滚轮上 / -8 滚轮下 / -9 菜单
      * 一钳就全变成 0（= 未知键），用户看到的就是「这几个键全失灵」。
-     * 现在只钳到 -9..348 之外的值。
+     * 最小合法值跟随特殊按钮的编号。
      */
-    private static final int MIN_KEYCODE = -9;
+    private static final int MIN_KEYCODE = ControlData.SPECIALBTN_WHEEL_GESTURE;
 
     /** 把越界的键码钉回合法范围（原地修改），返回是否改动过。 */
     private static boolean clampKeycodes(ControlData controlData) {
@@ -40,7 +40,7 @@ public class LayoutSanitizer {
         if (codes == null) return false;
         boolean changed = false;
         for (int i = 0; i < codes.length; i++) {
-            // 负数不是「非法」：-1..-9 是特殊按键（见 MIN_KEYCODE 注释）
+            // 负数是启动器的特殊按键（见 MIN_KEYCODE 注释）。
             if (codes[i] < MIN_KEYCODE || codes[i] > MAX_KEYCODE) {
                 codes[i] = 0;
                 changed = true;
@@ -88,6 +88,11 @@ public class LayoutSanitizer {
     public static boolean sanitizeLayout(CustomControls controls) {
         boolean madeChanges = sanitizeList(controls.mControlDataList);
         if(sanitizeList(controls.mDrawerDataList)) madeChanges = true;
+        for (ControlDrawerData drawer : controls.mDrawerDataList) {
+            for (ControlData button : drawer.buttonProperties) {
+                if (clampKeycodes(button)) madeChanges = true;
+            }
+        }
         if(sanitizeList(controls.mJoystickDataList)) madeChanges = true;
         return madeChanges;
     }

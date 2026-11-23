@@ -48,7 +48,6 @@ import java.net.NetworkInterface
  * | `thermalStatus` | 永远「正常」 |
  * | `pickGameDir` | 点「选择目录」没反应 |
  * | `installApk` | 应用内更新装不了 |
- * | `preloadJreLibs` | JRE 库不预载 |
  * | … | 其余同理 |
  *
  * ── 设计：一个委托类，两个 Activity 共用 ────────────────────────────────
@@ -922,35 +921,7 @@ class HostCapabilities(private val activity: Activity) {
         }
     }
 
-    // ── 13. preloadJreLibs ────────────────────────────────────────────────
-
-    /**
-     * 预载 JRE 动态库。
-     *
-     * @param dir JRE 运行目录
-     * @return 加载成功的库数量（失败返回 0）
-     *
-     * 提前 dlopen 能让游戏启动快一些；失败不影响启动（游戏侧还会再加载）。
-     */
-    fun preloadJreLibs(dir: String): Int {
-        return try {
-            val libDir = File(dir, "lib")
-            if (!libDir.isDirectory) return 0
-            val sos = libDir.walkTopDown().filter { it.isFile && it.name.endsWith(".so") && it.name != "libjsig.so" }.toList()
-            val (jvms, rest) = sos.partition { it.name == "libjvm.so" || it.name == "libjli.so" }
-            var count = 0
-            for (f in jvms + rest) {
-                try { System.load(f.absolutePath); count++ } catch (_: Throwable) {}
-            }
-            Log.i(TAG, "预载 JRE 库: $count 个（$dir）")
-            count
-        } catch (e: Throwable) {
-            Log.w(TAG, "预载 JRE 库失败", e)
-            0
-        }
-    }
-
-    // ── 14. enableSdlIntegration ──────────────────────────────────────────
+    // ── 13. enableSdlIntegration ──────────────────────────────────────────
 
     /**
      * SDL 启动器侧整合。

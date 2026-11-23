@@ -3,27 +3,20 @@ package net.kdt.pojavlaunch.customcontrols;
 import static android.content.Context.INPUT_METHOD_SERVICE;
 import static net.kdt.pojavlaunch.Tools.currentDisplayMetrics;
 
-import static org.lwjgl.glfw.CallbackBridge.isGrabbing;
-
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.os.Build;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.Toast;
 
-import androidx.appcompat.app.AlertDialog;
 
 import com.google.gson.JsonSyntaxException;
-import com.kdt.pickafile.FileListView;
-import com.kdt.pickafile.FileSelectedListener;
 
 import net.kdt.pojavlaunch.MinecraftGLSurface;
+import net.kdt.pojavlaunch.GrabListener;
 import com.zhayi.qookix.R;
 import net.kdt.pojavlaunch.Tools;
 import net.kdt.pojavlaunch.customcontrols.buttons.ControlButton;
@@ -36,13 +29,13 @@ import net.kdt.pojavlaunch.customcontrols.handleview.ControlHandleView;
 import net.kdt.pojavlaunch.customcontrols.handleview.EditControlSideDialog;
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import org.lwjgl.glfw.CallbackBridge;
 
-public class ControlLayout extends FrameLayout {
+public class ControlLayout extends FrameLayout implements GrabListener {
 	protected CustomControls mLayout;
 	/* Accessible when inside the game by ControlInterface implementations, cached for perf. */
 	private MinecraftGLSurface mGameSurface = null;
@@ -52,6 +45,12 @@ public class ControlLayout extends FrameLayout {
 	private boolean mModifiable = false;
 	private boolean mIsModified;
 	private boolean mControlVisible = false;
+	private boolean mReadOnlyPreview;
+	private boolean mExternalInput;
+	private boolean mGrabbing;
+	private ControlScene mEditorScene = ControlScene.ALL;
+	private ControlScene mForcedScene;
+	private Runnable mVisibilityListener;
 
 	private EditControlSideDialog mControlDialog = null;
 	private ControlHandleView mHandleView;
@@ -124,7 +123,7 @@ public class ControlLayout extends FrameLayout {
 
 		setModified(sanitizedModified);
 		mButtons = null;
-		getButtonChildren(); // Force refresh
+		refreshControlVisibility();
 	} // loadLayout
 
 	//CONTROL BUTTON
@@ -220,6 +219,7 @@ public class ControlLayout extends FrameLayout {
 
 
 	private void removeAllButtons() {
+		releaseHeldControls();
 		for(ControlInterface button : getButtonChildren()){
 			removeView(button.getControlView());
 		}
@@ -248,25 +248,84 @@ public class ControlLayout extends FrameLayout {
 	}
 
 	public void setControlVisible(boolean isVisible) {
-		if (mModifiable) return; // Not using on custom controls activity
-
 		mControlVisible = isVisible;
-		for(ControlInterface button : getButtonChildren()){
-			button.setVisible(((button.getProperties().displayInGame && isGrabbing()) || (button.getProperties().displayInMenu && !isGrabbing())) && isVisible);
-		}
+		refreshControlVisibility();
 	}
 
 	public void setModifiable(boolean isModifiable) {
-		if(!isModifiable && mModifiable){
-			removeEditWindow();
-		}
+		if (!isModifiable && mModifiable) removeEditWindow();
+		if (isModifiable && !mModifiable) releaseHeldControls();
 		mModifiable = isModifiable;
-		if(isModifiable){
-			// In edit mode, all controls have to be shown
-			for(ControlInterface button : getButtonChildren()){
-				button.setVisible(true);
-			}
+		mEditorScene = ControlScene.ALL;
+		refreshControlVisibility();
+	}
+
+	public void setReadOnlyPreview(boolean preview) {
+		mReadOnlyPreview = preview;
+		refreshControlVisibility();
+	}
+
+	public boolean isReadOnlyPreview() { return mReadOnlyPreview; }
+
+	public ControlScene getEditorScene() { return mEditorScene; }
+
+	public void setEditorScene(ControlScene scene) {
+		removeEditWindow();
+		mEditorScene = scene;
+		refreshControlVisibility();
+	}
+
+	public void setExternalInput(boolean external) {
+		if (mModifiable || mExternalInput == external) return;
+		mExternalInput = external;
+		refreshControlVisibility();
+	}
+
+	/** 按钮里的「切到 GUI 层」：强制场景直到游戏重新抓住鼠标（见 onGrabState）。 */
+	public void forceScene(ControlScene scene) {
+		if (mModifiable || mForcedScene == scene) return;
+		mForcedScene = scene;
+		refreshControlVisibility();
+	}
+
+	public void setVisibilityListener(Runnable listener) { mVisibilityListener = listener; }
+
+	public void releaseHeldControls() {
+		for (ControlInterface button : getButtonChildren()) button.cancelControlInput();
+		mapTable.clear();
+	}
+
+	@Override protected void onAttachedToWindow() {
+		super.onAttachedToWindow();
+		CallbackBridge.addGrabListener(this);
+	}
+
+	@Override protected void onDetachedFromWindow() {
+		CallbackBridge.removeGrabListener(this);
+		releaseHeldControls();
+		super.onDetachedFromWindow();
+	}
+
+	@Override public void onGrabState(boolean grabbing) {
+		mGrabbing = grabbing;
+		// 游戏重新抓住鼠标说明已回到游玩态，解除按钮强制切过去的 GUI 层
+		if (grabbing) mForcedScene = null;
+		refreshControlVisibility();
+	}
+
+	public void refreshControlVisibility() {
+		if (mLayout == null) return;
+		boolean preview = mModifiable || mReadOnlyPreview;
+		ControlScene scene = preview ? mEditorScene
+				: (mForcedScene != null ? mForcedScene : (mGrabbing ? ControlScene.GAMEPLAY : ControlScene.MENU));
+		boolean hideForDevice = !preview && mExternalInput && mLayout.hideTouchControlsWithExternalInput;
+		for (ControlInterface button : getButtonChildren()) {
+			if (button instanceof ControlSubButton) continue;
+			ControlData data = button.getProperties();
+			boolean included = scene.shows(data.displayInGame, data.displayInMenu);
+			button.setVisible(preview ? included : !hideForDevice && (!data.isHideable || (mControlVisible && included)));
 		}
+		if (mVisibilityListener != null) mVisibilityListener.run();
 	}
 
 	public boolean getModifiable(){
@@ -298,8 +357,15 @@ public class ControlLayout extends FrameLayout {
 	}
 
     @Override
+    public void onViewAdded(View child) {
+        super.onViewAdded(child);
+        if (child instanceof ControlInterface) mButtons = null;
+    }
+
+    @Override
     public void onViewRemoved(View child) {
         super.onViewRemoved(child);
+        if (child instanceof ControlInterface) mButtons = null;
         if(child instanceof ControlInterface && mControlDialog != null){
 			mControlDialog.disappearColor();
             mControlDialog.disappear(false);
@@ -383,7 +449,7 @@ public class ControlLayout extends FrameLayout {
 
 		// Update the state of all swipeable buttons
 		for (ControlInterface button : getButtonChildren()) {
-			if (!button.getProperties().isSwipeable) continue;
+			if (!button.getProperties().isSwipeable || button.getControlView().getVisibility() != VISIBLE) continue;
 
 			if (ev.getX() > button.getControlView().getX()
 					&& ev.getX() < button.getControlView().getX() + button.getControlView().getWidth()
@@ -477,6 +543,7 @@ public class ControlLayout extends FrameLayout {
 
 	public boolean hasMenuButton() {
 		for(ControlInterface controlInterface : getButtonChildren()){
+			if (controlInterface.getControlView().getVisibility() != VISIBLE) continue;
 			for (int keycode : controlInterface.getProperties().keycodes) {
 				if (keycode == ControlData.SPECIALBTN_MENU) return true;
 			}
@@ -520,121 +587,10 @@ public class ControlLayout extends FrameLayout {
 		return jsonPath;
 	}
 
-	class OnClickExitListener implements View.OnClickListener {
-		private final AlertDialog mDialog;
-		private final EditText mEditText;
-		private final EditorExitable mListener;
+	private final ControlEditorDialogs dialogs = new ControlEditorDialogs(this);
 
-		public OnClickExitListener(AlertDialog mDialog, EditText mEditText, EditorExitable mListener) {
-			this.mDialog = mDialog;
-			this.mEditText = mEditText;
-			this.mListener = mListener;
-		}
-
-		@Override
-		public void onClick(View v) {
-			Context context = v.getContext();
-			if (mEditText.getText().toString().isEmpty()) {
-				mEditText.setError(context.getString(R.string.global_error_field_empty));
-				return;
-			}
-			try {
-				String jsonPath = saveToDirectory(mEditText.getText().toString());
-				Toast.makeText(context, context.getString(R.string.global_save) + ": " + jsonPath, Toast.LENGTH_SHORT).show();
-				mDialog.dismiss();
-				if(mListener != null) mListener.exitEditor();
-			} catch (Throwable th) {
-				Tools.showError(context, th, mListener != null);
-			}
-		}
-	}
-
-	public void openSaveDialog(EditorExitable editorExitable) {
-		final Context context = getContext();
-		final EditText edit = new EditText(context);
-		edit.setSingleLine();
-		edit.setText(mLayoutFileName);
-
-		AlertDialog.Builder builder = new AlertDialog.Builder(context);
-		builder.setTitle(R.string.global_save);
-		builder.setView(edit);
-		builder.setPositiveButton(android.R.string.ok, null);
-		builder.setNegativeButton(android.R.string.cancel, null);
-		if(editorExitable != null) builder.setNeutralButton(R.string.global_save_and_exit, null);
-		final AlertDialog dialog = builder.create();
-		dialog.setOnShowListener(dialogInterface -> {
-			dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-					.setOnClickListener(new OnClickExitListener(dialog, edit, null));
-			if(editorExitable != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-					.setOnClickListener(new OnClickExitListener(dialog, edit, editorExitable));
-		});
-		dialog.show();
-	}
-
-	public void openLoadDialog() {
-		AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
-		builder.setTitle(R.string.global_load);
-		builder.setPositiveButton(android.R.string.cancel, null);
-
-		final AlertDialog dialog = builder.create();
-		FileListView flv = new FileListView(dialog, "json");
-		// 不列导入中转文件：它们不是玩家的布局，App 内的布局列表也看不到它们，
-		// 在这里露出来只会让用户以为「多了一堆删不掉的文件」。
-		flv.skipFilePrefixes("TMP_IMPORT");
-		if(Build.VERSION.SDK_INT < 29)flv.listFileAt(new File(Tools.CTRLMAP_PATH));
-		else flv.lockPathAt(new File(Tools.CTRLMAP_PATH));
-		flv.setFileSelectedListener(new FileSelectedListener(){
-
-			@Override
-			public void onFileSelected(File file, String path) {
-				try {
-					loadLayout(path);
-				}catch (IOException e) {
-					Tools.showError(getContext(), e);
-				}
-				dialog.dismiss();
-			}
-		});
-		dialog.setView(flv);
-		dialog.show();
-	}
-
-	public void openSetDefaultDialog() {
-		AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
-		builder.setTitle(R.string.customctrl_selectdefault);
-		builder.setPositiveButton(android.R.string.cancel, null);
-
-		final AlertDialog dialog = builder.create();
-		FileListView flv = new FileListView(dialog, "json");
-		flv.skipFilePrefixes("TMP_IMPORT");
-		flv.lockPathAt(new File(Tools.CTRLMAP_PATH));
-		flv.setFileSelectedListener(new FileSelectedListener(){
-
-			@Override
-			public void onFileSelected(File file, String path) {
-				try {
-					LauncherPreferences.DEFAULT_PREF.edit().putString("defaultCtrl", path).apply();
-					LauncherPreferences.PREF_DEFAULTCTRL_PATH = path;loadLayout(path);
-				}catch (IOException|JsonSyntaxException e) {
-					Tools.showError(getContext(), e);
-				}
-				dialog.dismiss();
-			}
-		});
-		dialog.setView(flv);
-		dialog.show();
-	}
-
-	public void openExitDialog(EditorExitable exitListener) {
-		AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
-		builder.setTitle(R.string.customctrl_editor_exit_title);
-		builder.setMessage(R.string.customctrl_editor_exit_msg);
-		builder.setPositiveButton(R.string.global_yes, (d,w)->exitListener.exitEditor());
-		builder.setNegativeButton(R.string.global_no, (d,w)->{});
-		builder.show();
-	}
-
-	public boolean areControlVisible(){
-		return mControlVisible;
-	}
+	public void openSaveDialog(EditorExitable editor) { dialogs.openSaveDialog(editor); }
+	public void openLoadDialog() { dialogs.openLoadDialog(); }
+	public void openSetDefaultDialog() { dialogs.openSetDefaultDialog(); }
+	public void openExitDialog(EditorExitable editor) { dialogs.openExitDialog(editor); }
 }

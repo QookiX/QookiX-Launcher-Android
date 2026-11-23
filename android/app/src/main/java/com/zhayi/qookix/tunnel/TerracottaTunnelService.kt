@@ -257,7 +257,8 @@ class TerracottaTunnelService : Service() {
             try {
                 // 必须显式绑回环（B01）：`ServerSocket(0)` 绑 0.0.0.0，
                 // 同网段设备就能访问这个无鉴权接口（读状态 / 触发 host、guest）
-                val ss = ServerSocket(0, 16, java.net.InetAddress.getLoopbackAddress())
+                // 启动器的 HTTP 客户端使用 127.0.0.1；部分系统的默认回环地址是 ::1。
+                val ss = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
                 serverSocket = ss
                 // 端口写进共享数据目录，主进程（Rust）读文件即可，无需新增 JNI
                 java.io.File(filesDir, PORT_FILE).writeText(ss.localPort.toString())

@@ -2,10 +2,12 @@ package net.kdt.pojavlaunch.customcontrols;
 
 import static net.kdt.pojavlaunch.LwjglGlfwKeycode.GLFW_KEY_UNKNOWN;
 
+import android.content.Context;
 import android.util.ArrayMap;
 
 import androidx.annotation.Keep;
 
+import com.zhayi.qookix.R;
 import net.kdt.pojavlaunch.Tools;
 import net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface;
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
@@ -17,7 +19,6 @@ import org.lwjgl.glfw.CallbackBridge;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -33,9 +34,12 @@ public class ControlData {
     public static final int SPECIALBTN_SCROLLUP = -7;
     public static final int SPECIALBTN_SCROLLDOWN = -8;
     public static final int SPECIALBTN_MENU = -9;
+    public static final int SPECIALBTN_WHEEL_GESTURE = -10;
+    /** 强制切到游玩层 / GUI 层，供背包按钮一键换布局（ZL2 switch_layer 的轻量版）。 */
+    public static final int SPECIALBTN_FORCE_GAMEPLAY = -11;
+    public static final int SPECIALBTN_FORCE_MENU = -12;
 
     private static ControlData[] SPECIAL_BUTTONS;
-    private static List<String> SPECIAL_BUTTON_NAME_ARRAY;
     private static WeakReference<ExpressionBuilder> builder = new WeakReference<>(null);
     private static WeakReference<ArrayMap<String, String>> conversionMap = new WeakReference<>(null);
 
@@ -165,24 +169,31 @@ public class ControlData {
                     new ControlData("MID", new int[]{SPECIALBTN_MOUSEMID}, "${margin}", "${margin}"),
                     new ControlData("SCROLLUP", new int[]{SPECIALBTN_SCROLLUP}, "${margin}", "${margin}"),
                     new ControlData("SCROLLDOWN", new int[]{SPECIALBTN_SCROLLDOWN}, "${margin}", "${margin}"),
-                    new ControlData("MENU", new int[]{SPECIALBTN_MENU}, "${margin}", "${margin}")
+                    new ControlData("MENU", new int[]{SPECIALBTN_MENU}, "${margin}", "${margin}"),
+                    new ControlData("WHEEL_GESTURE", new int[]{SPECIALBTN_WHEEL_GESTURE}, "${margin}", "${margin}"),
+                    new ControlData("SCENE_GAMEPLAY", new int[]{SPECIALBTN_FORCE_GAMEPLAY}, "${margin}", "${margin}"),
+                    new ControlData("SCENE_MENU", new int[]{SPECIALBTN_FORCE_MENU}, "${margin}", "${margin}")
             };
         }
 
         return SPECIAL_BUTTONS;
     }
 
-    public static List<String> buildSpecialButtonArray() {
-        if (SPECIAL_BUTTON_NAME_ARRAY == null) {
-            List<String> nameList = new ArrayList<>();
-            for (ControlData btn : getSpecialButtons()) {
-                nameList.add("SPECIAL_" + btn.name);
+    public static List<String> buildSpecialButtonArray(Context context) {
+        ControlData[] buttons = getSpecialButtons();
+        List<String> labels = new ArrayList<>(buttons.length);
+        for (int index = buttons.length - 1; index >= 0; index--) {
+            ControlData button = buttons[index];
+            switch (button.keycodes[0]) {
+                case SPECIALBTN_WHEEL_GESTURE: labels.add(context.getString(R.string.customctrl_wheel_gesture)); break;
+                case SPECIALBTN_FORCE_GAMEPLAY: labels.add(context.getString(R.string.customctrl_scene_gameplay)); break;
+                case SPECIALBTN_FORCE_MENU: labels.add(context.getString(R.string.customctrl_scene_menu)); break;
+                case SPECIALBTN_SCROLLUP: labels.add(context.getString(R.string.customctrl_wheel_up)); break;
+                case SPECIALBTN_SCROLLDOWN: labels.add(context.getString(R.string.customctrl_wheel_down)); break;
+                default: labels.add("SPECIAL_" + button.name);
             }
-            SPECIAL_BUTTON_NAME_ARRAY = nameList;
-            Collections.reverse(SPECIAL_BUTTON_NAME_ARRAY);
         }
-
-        return SPECIAL_BUTTON_NAME_ARRAY;
+        return labels;
     }
 
     private static float calculate(String math) {

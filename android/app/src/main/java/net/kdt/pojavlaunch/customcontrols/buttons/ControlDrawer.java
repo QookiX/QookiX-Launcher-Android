@@ -42,18 +42,13 @@ public class ControlDrawer extends ControlButton {
     public void addButton(ControlSubButton button){
         buttons.add(button);
         syncButtons();
-        setControlButtonVisibility(button, areButtonsVisible);
-    }
-
-    private void setControlButtonVisibility(ControlButton button, boolean isVisible){
-        button.getControlView().setVisibility(isVisible ? VISIBLE : GONE);
+        button.setVisible(getVisibility() == VISIBLE && areButtonsVisible);
     }
 
     private void switchButtonVisibility(){
         areButtonsVisible = !areButtonsVisible;
-        int visibility = areButtonsVisible ? VISIBLE : GONE;
         for(ControlButton button : buttons){
-            button.getControlView().setVisibility(visibility);
+            button.setVisible(areButtonsVisible);
         }
     }
 
@@ -127,12 +122,9 @@ public class ControlDrawer extends ControlButton {
 
     @Override
     public void setVisible(boolean isVisible) {
-        int visibility = isVisible ? VISIBLE : GONE;
-        setVisibility(visibility);
-        if(visibility == GONE || areButtonsVisible) {
-            for(ControlSubButton button : buttons){
-                button.getControlView().setVisibility(isVisible ? VISIBLE : (!mProperties.isHideable && getVisibility() == GONE) ? VISIBLE : View.GONE);
-            }
+        super.setVisible(isVisible);
+        for (ControlSubButton button : buttons) {
+            button.setVisible(isVisible && (areButtonsVisible || parentLayout.isReadOnlyPreview()));
         }
     }
 

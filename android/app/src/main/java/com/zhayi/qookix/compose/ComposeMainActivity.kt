@@ -6,25 +6,10 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
@@ -38,7 +23,6 @@ import com.zhayi.qookix.R
 import com.zhayi.qookix.ServerDocsProvider
 import com.zhayi.qookix.compose.motion.NavTransitionKind
 import com.zhayi.qookix.compose.motion.QkMotionPolicy
-import com.zhayi.qookix.compose.motion.QookiX
 import com.zhayi.qookix.compose.motion.classifyNavTransition
 // ⚠️ 阶段 4（2026-10-25）：**不再继承 TauriActivity**。
 //
@@ -939,7 +923,6 @@ class ComposeMainActivity : ComponentActivity() {
     fun ensureTunnelService() = caps.ensureTunnelService()
     fun installApk(path: String): String = caps.installApk(path)
     fun setLogZoomCapture(enabled: Boolean) = caps.setLogZoomCapture(enabled)
-    fun preloadJreLibs(dir: String): Int = caps.preloadJreLibs(dir)
     fun enableSdlIntegration() = caps.enableSdlIntegration()
     fun openExternalUrl(url: String) = caps.openUrl(url)
     fun copyToClipboard(label: String, text: String) = caps.copyToClipboard(label, text)
@@ -1515,7 +1498,7 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 NavDestination.Frp, NavDestination.FrpRooms -> NavDestination.Multiplayer
                 NavDestination.Skins, NavDestination.News,
                 NavDestination.Playtime, NavDestination.Settings,
-                NavDestination.Downloads -> NavDestination.Account
+                NavDestination.Downloads, NavDestination.QookixAccount -> NavDestination.Account
                 NavDestination.Account -> NavDestination.Home
                 NavDestination.ContentDetail -> NavDestination.Browse
                 NavDestination.LanSync -> NavDestination.Account
@@ -1569,6 +1552,7 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 current = current,
                 onNavigate = { navigate(it) },
                 onOpenAccount = { navigate(NavDestination.Account) },
+                onCreateInstance = { navigate(NavDestination.CreateInstance) },
                 title = titleOverride,
                 titleContent = toolbarContent,
                 sidebarWidthDp = sidebarWidth,
@@ -1587,32 +1571,6 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 }).takeIf {
                     current !in NavDestination.bottomBar &&
                         (innerBack != null || backStack.isNotEmpty() || parentOf(current) != null)
-                },
-                actions = {
-                    AnimatedVisibility(
-                        visible = current == NavDestination.Instances,
-                        enter = fadeIn(QookiX.fastEffectsSpec()),
-                        exit = fadeOut(QookiX.fastEffectsSpec()),
-                    ) {
-                        FilledTonalButton(
-                            onClick = { navigate(NavDestination.CreateInstance) },
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                horizontal = 14.dp,
-                                vertical = 6.dp,
-                            ),
-                        ) {
-                            Icon(
-                                androidx.compose.material.icons.Icons.Filled.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                stringResource(R.string.instances_new),
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                        }
-                    }
                 },
             ) {
                 PageHost(

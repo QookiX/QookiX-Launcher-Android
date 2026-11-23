@@ -11,7 +11,7 @@ fn launch_game_blocking(instance_id: String, account_uuid: String) -> i32 {
         let account = if account_uuid.is_empty() {
             None
         } else {
-            crate::accounts::get_account_by_uuid(&account_uuid).await.ok()
+            Some(crate::accounts::get_account_by_uuid(&account_uuid).await?)
         };
 
         crate::launch::launch_game(&instance_id, account.as_ref()).await

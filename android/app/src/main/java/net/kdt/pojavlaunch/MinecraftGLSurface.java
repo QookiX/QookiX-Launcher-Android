@@ -113,10 +113,13 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
         CallbackBridge.setDirectGamepadEnableHandler(this);
     }
 
+    private Runnable mCapturedPointerInputListener = () -> {};
+    public void setCapturedPointerInputListener(Runnable listener) { mCapturedPointerInputListener = listener; }
+
     @RequiresApi(api = Build.VERSION_CODES.O)
     private void setUpPointerCapture(AbstractTouchpad touchpad) {
         if(mPointerCapture != null) mPointerCapture.detach();
-        mPointerCapture = new AndroidPointerCapture(touchpad, this);
+        mPointerCapture = new AndroidPointerCapture(touchpad, this, mCapturedPointerInputListener);
     }
 
     /** Initialize the view and all its settings
@@ -220,9 +223,7 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
         public void run() {
             final Handler handler = sWatchdogHandler;
             if (handler == null) return;
-            // 只有"快照文件确实存在"时才有可靠信号 —— 26.3 走 SDL 时原生侧没有换帧计数点
-            // （见 jni/perf_counters.c 注释），文件可能压根不存在；这种情况什么都不做，
-            // 免得健康时瞎重绑。26.3 的兜底走"Surface 重建后重试"那条路（scheduleRebindRetries）。
+            // 26.3/SDL 可能没有换帧计数快照（见 jni/perf_counters.c）；无信号时保持沉默，兜底走 Surface 重建重试
             final boolean known = sPerfFile != null && sPerfFile.isFile();
             long age = known ? System.currentTimeMillis() - sPerfFile.lastModified() : Long.MAX_VALUE;
             if (!known) {

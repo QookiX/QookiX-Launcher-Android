@@ -172,10 +172,10 @@ fun SettingsPage(
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             QkTabContent(
-                targetState = current,
-                order = { it.ordinal },
+                tabs = SettingsTab.entries,
+                selected = current,
+                onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
-                label = "settingsTab",
             ) { tab ->
                 content(tab)
             }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Newspaper
@@ -105,7 +106,7 @@ internal fun ProfileIdentityCard(
                     )
                     Text(
                         // 名字已经在上面一行了，这里只说账号类型，别重复名字
-                        text = if (current.online) {
+                        text = current.skinServerName ?: if (current.online) {
                             stringResource(R.string.profile_account_online)
                         } else {
                             stringResource(R.string.profile_account_offline)
@@ -145,7 +146,7 @@ internal fun ProfileIdentityCard(
                     DropdownMenu(expanded = switchOpen, onDismissRequest = { switchOpen = false }) {
                         accounts.forEach { a ->
                             DropdownMenuItem(
-                                text = { Text(a.name) },
+                                text = { Text(a.skinServerName?.let { "${a.name} · $it" } ?: a.name) },
                                 onClick = {
                                     switchOpen = false
                                     if (a.uuid != current.uuid) onSelectAccount(a.uuid)
@@ -202,6 +203,9 @@ internal fun ProfileTasksSection(tasks: List<TaskUi>, onCancelTask: (Long) -> Un
 internal fun ProfileEntryList(onNavigate: (NavDestination) -> Unit, modifier: Modifier = Modifier) {
     MoreEntryList(
         listOf(
+            MoreEntry("qookix-account", R.string.qookix_account_title, Icons.Filled.AccountCircle) {
+                onNavigate(NavDestination.QookixAccount)
+            },
             MoreEntry("downloads", R.string.profile_downloads, Icons.Filled.Download) {
                 onNavigate(NavDestination.Downloads)
             },

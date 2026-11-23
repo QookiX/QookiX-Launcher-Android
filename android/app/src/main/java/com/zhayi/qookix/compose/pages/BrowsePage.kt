@@ -2,8 +2,7 @@ package com.zhayi.qookix.compose.pages
 
 import com.zhayi.qookix.compose.theme.QkSpacing
 
-import com.zhayi.qookix.compose.theme.QkRadius
-
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.zhayi.qookix.compose.motion.pressScale
 import androidx.compose.foundation.clickable
@@ -20,8 +19,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -67,6 +64,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import com.zhayi.qookix.R
 import androidx.compose.ui.text.font.FontWeight
@@ -96,7 +95,7 @@ private enum class BrowsePaneState { Loading, Empty, Content }
  *
  * **为什么用网格而不是列表**：横屏宽度充裕（本机 ~1800px），
  * 列表会让每行拉得很长、信息密度反而低；网格能一屏看到更多项目，
- * 且每个项目有封面图（Coil 加载），视觉上更像「内容商店」。
+ * 固定尺寸的项目图标给标题和简介留出空间。
  *
  * 类型筛选用 MD3 的 `FilterChip`（横向一排），比旧界面的左侧竖栏
  * 更省横向空间，也更符合 MD3 规范。
@@ -105,9 +104,9 @@ private enum class BrowsePaneState { Loading, Empty, Content }
 @kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun BrowsePage(
     state: BrowseUiState,
-    onQueryChange: (String) -> Unit,
+    showingFavorites: Boolean = false,
+    @androidx.annotation.StringRes emptyMessage: Int? = null,
     onSearch: () -> Unit,
-
     onOpenProject: (ProjectUi) -> Unit,
     /** 打开安装对话框（装模组 / 资源包 / 光影 / 插件）。 */
     onInstall: (ProjectUi) -> Unit = {},
@@ -122,20 +121,6 @@ fun BrowsePage(
      *（BrowseRepo 只解析 hits，丢掉了 total），所以不能自己算。
      */
     hasMore: Boolean = true,
-    /** 排序方式变更（downloads / updated / newest / follows）。 */
-    onSortChange: (String) -> Unit = {},
-    /** 紧凑模式切换（2026-10-17 新增，用户要求「更紧凑的展示方式」）。 */
-    onCompactChange: (Boolean) -> Unit = {},
-    /**
-     * 整页翻译（B1）：把当前页所有项目的简介批量翻成中文。
-     *
-     * ⚠️ 2026-10-29：按钮已经从网格里**挪到顶栏**（见 [BrowseToolbar]）——
-     * 用户反馈「翻译本页」占着列表第一行、还只占右边一角很难点。
-     * 这个参数保留只为兼容旧调用点，实际不再渲染任何按钮。
-     */
-    onTranslatePage: () -> Unit = {},
-    /** 整页翻译进行中（按钮转圈 + 防重入）。 */
-    translatingPage: Boolean = false,
     /**
      * 网格滚动状态。
      *
@@ -170,8 +155,11 @@ fun BrowsePage(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = if (state.query.isBlank()) stringResource(R.string.browse_search_hint)
-                                else stringResource(R.string.browse_no_results),
+                                text = when {
+                                    emptyMessage != null -> stringResource(emptyMessage)
+                                    state.query.isBlank() -> stringResource(R.string.browse_search_hint)
+                                    else -> stringResource(R.string.browse_no_results)
+                                },
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -192,7 +180,7 @@ fun BrowsePage(
 
                 BrowsePaneState.Content -> {
                     // ── 触底加载下一页 ──────────────────────────────────
-                    val paging by remember {
+                    val paging by remember(gridState) {
                         derivedStateOf {
                             val total = gridState.layoutInfo.totalItemsCount
                             val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -216,14 +204,14 @@ fun BrowsePage(
                         horizontalArrangement = Arrangement.spacedBy(if (state.compact) 8.dp else 12.dp),
                         verticalArrangement = Arrangement.spacedBy(if (state.compact) 6.dp else 12.dp),
                     ) {
-                        items(state.items, key = { it.id }) { p ->
+                        items(state.items, key = { it.contentKey }) { p ->
                             if (state.compact) {
                                 ProjectRowCompact(p, onClick = { onOpenProject(p) }, onInstall = { onInstall(p) })
                             } else {
                                 ProjectCard(p, onClick = { onOpenProject(p) }, onInstall = { onInstall(p) })
                             }
                         }
-                        item(key = "__browse_tail__") {
+                        if (!showingFavorites) item(key = "__browse_tail__") {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -251,7 +239,18 @@ fun BrowsePage(
     }
 }
 
-/** 项目卡片：封面 + 标题 + 描述 + 下载量。 */
+@Composable
+internal fun ContentProjectIcon(iconUrl: String, modifier: Modifier) {
+    QkImageWithSkeleton(
+        model = iconUrl.takeIf { it.isNotBlank() },
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.shapes.small)
+            .padding(4.dp),
+        cornerRadius = 0.dp,
+        contentScale = ContentScale.Fit,
+    )
+}
+
 @Composable
 private fun ProjectCard(p: ProjectUi, onClick: () -> Unit, onInstall: () -> Unit) {
     val pressSource = remember { MutableInteractionSource() }
@@ -264,60 +263,53 @@ private fun ProjectCard(p: ProjectUi, onClick: () -> Unit, onInstall: () -> Unit
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Column {
-            // 封面（Coil 加载，带骨架）
-            QkImageWithSkeleton(
-                model = p.iconUrl.takeIf { it.isNotBlank() },
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(110.dp),
-                cornerRadius = 0.dp,
-            )
-
-            Column(modifier = Modifier.padding(QkSpacing.sm)) {
-                Text(
-                    text = p.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(QkSpacing.xxs))
-                Text(
-                    text = p.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(QkSpacing.xs))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.padding(QkSpacing.sm)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+            ) {
+                ContentProjectIcon(p.iconUrl, Modifier.size(48.dp))
+                Column {
                     Text(
-                        text = p.author,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.weight(1f),
+                        text = p.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = fmtCount(p.downloads),
+                        text = p.author,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.width(8.dp))
-                    // 「安装」—— 装模组的入口。
-                    // 整卡点击是「用浏览器打开项目页」，安装是独立按钮
-                    //（否则用户在浏览器里看一圈回来还得自己找）。
-                    Button(
-                        onClick = onInstall,
-                        modifier = Modifier.height(28.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                    ) {
-                        Text(stringResource(R.string.browse_install), style = MaterialTheme.typography.labelMedium)
-                    }
+                }
+            }
+            Spacer(Modifier.height(QkSpacing.xs))
+            Text(
+                text = p.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                minLines = 2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(QkSpacing.xs))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = fmtCount(p.downloads),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = onInstall,
+                    modifier = Modifier.height(28.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                ) {
+                    Text(stringResource(R.string.browse_install), style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -383,8 +375,8 @@ data class BrowseUiState(
     /**
      * 紧凑模式（2026-10-17 新增，用户要求）。
      *
-     * false = 卡片网格（封面 110dp + 标题 + 2 行描述 + 作者/下载量 + 安装按钮）
-     * true  = 紧凑列表（封面 40dp + 标题 + 1 行描述 + 右侧安装图标）
+     * false = 卡片网格（48dp 图标和两行简介）
+     * true  = 紧凑列表（40dp 图标和单行简介）
      *
      * 紧凑模式下同样面积能多看 3~4 倍的项目 —— 想快速扫一眼有什么可装的时很有用。
      */
@@ -437,48 +429,27 @@ fun BrowseToolbar(
     onTranslatePage: (() -> Unit)? = null,
     /** 整页翻译进行中：按钮位置换成转圈，同时禁止重复触发。 */
     translatingPage: Boolean = false,
+    translationEnabled: Boolean = true,
+    sortOptions: List<BrowseRepo.SortOption> = BrowseRepo.SORTS,
 ) {
+    val focusManager = LocalFocusManager.current
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(QkSpacing.xxs),
     ) {
-        // ── 标题（必须保留）────────────────────────────────────────
-        //
-        // 2026-10-17 用户明确要求：「内容这两个字当然要留下来啊，这个标题不能给它扣掉」。
-        //
-        // 取舍：搜索框宽度收窄约 90dp（正常人不会在这打很多字），
-        // 换来标题始终可见 —— 用户一眼知道自己在哪一页。
-        //
-        // ⚠️ 2026-10-28（真机逐页检查）：原来这里是 titleLarge(24sp 白) 的「内容」，
-        // 而实例/多人/我的页顶栏是「QookiX + 页面名(20sp 灰)」—— 同一层级两种排版，
-        // 一切到内容页观感就断。改成同样的「品牌 + 页面名」，标题本身仍然保留。
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Text(
+            text = title.ifBlank { stringResource(R.string.browse_title) },
             modifier = Modifier.padding(end = QkSpacing.sm),
-        ) {
-            Text(
-                text = "QookiX",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.width(QkSpacing.md))
-            Text(
-                text = title.ifBlank { stringResource(R.string.browse_title) },
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
 
-        // 搜索框：高度压到 40dp，塞进 56dp 的 TopAppBar 里不顶格
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
-            modifier = Modifier
-                .weight(1f)
-                .height(44.dp),
+            modifier = Modifier.weight(1f),
             placeholder = {
                 // maxLines = 1：窄屏 + 界面缩放放大时，也不让它折成两行被裁掉
                 Text(
@@ -498,7 +469,10 @@ fun BrowseToolbar(
             shape = MaterialTheme.shapes.extraLarge,
             textStyle = MaterialTheme.typography.bodySmall,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+            keyboardActions = KeyboardActions(onSearch = {
+                focusManager.clearFocus()
+                onSearch()
+            }),
         )
 
         // 筛选（有激活条件时显示数字徽标）
@@ -522,12 +496,11 @@ fun BrowseToolbar(
                     )
                 }
             } else {
-                IconButton(onClick = onTranslatePage, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onTranslatePage, enabled = translationEnabled, modifier = Modifier.size(40.dp)) {
                     Icon(
                         imageVector = Icons.Filled.Translate,
                         contentDescription = stringResource(R.string.browse_translate_page),
                         modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -544,7 +517,7 @@ fun BrowseToolbar(
                 )
             }
             DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
-                BrowseRepo.SORTS.forEach { s ->
+                sortOptions.forEach { s ->
                     DropdownMenuItem(
                         text = { Text(stringResource(s.labelRes)) },
                         onClick = {
@@ -582,15 +555,7 @@ fun BrowseToolbar(
 /**
  * 紧凑列表行（2026-10-17 新增，用户要求「加一个更紧凑的展示方式」）。
  *
- * 对比 [ProjectCard]（约 200dp 高：110dp 封面 + 标题 + 2 行描述 + 作者行 + 安装按钮）：
- * 这里只有 **72dp**：40dp 缩略图 + 标题 + 单行描述 + 右侧安装图标。
- *
- * 横屏 1080px 高度下：
- *   - 卡片模式：一屏约 2 行 × 2 列 = 4 个项目
- *   - 紧凑模式：一屏约 5~6 行 × 2 列 = 10~12 个项目
- *
- * 想「快速扫一眼有什么可装的」时紧凑模式明显更合适；
- * 想「看清封面和简介再决定」时用卡片模式。
+ * 每项高 72dp，显示 40dp 图标、单行简介和右侧安装按钮。
  */
 @Composable
 private fun ProjectRowCompact(p: ProjectUi, onClick: () -> Unit, onInstall: () -> Unit) {
@@ -613,15 +578,7 @@ private fun ProjectRowCompact(p: ProjectUi, onClick: () -> Unit, onInstall: () -
                 .padding(horizontal = QkSpacing.sm, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 40dp 缩略图（比卡片模式的 110dp 小得多，但还能认出是哪个项目）
-            QkImageWithSkeleton(
-                model = p.iconUrl.takeIf { it.isNotBlank() },
-                contentDescription = null,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(QkRadius.small)),
-                cornerRadius = 6.dp,
-            )
+            ContentProjectIcon(p.iconUrl, Modifier.size(40.dp))
 
             Spacer(Modifier.width(10.dp))
 

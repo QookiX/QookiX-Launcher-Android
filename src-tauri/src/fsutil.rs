@@ -302,6 +302,10 @@ pub fn write_text(path: &Path, rel: &str, content: String) -> Result<Value, Stri
 /// 把用户设置全部抹掉（详见 settings.rs 的长注释）。凡写 JSON 配置一律走这里。
 /// tmp 用唯一名：并发写互不干扰；失败时顺手删掉 tmp，不在目录里堆垃圾。
 pub fn write_text_atomic(path: &Path, content: &str) -> std::io::Result<()> {
+    write_bytes_atomic(path, content.as_bytes())
+}
+
+pub(crate) fn write_bytes_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -313,7 +317,7 @@ pub fn write_text_atomic(path: &Path, content: &str) -> std::io::Result<()> {
     let result = (|| -> std::io::Result<()> {
         use std::io::Write;
         let mut f = std::fs::File::create(&tmp_path)?;
-        f.write_all(content.as_bytes())?;
+        f.write_all(content)?;
         f.sync_all().ok();
         drop(f);
         std::fs::rename(&tmp_path, path)?;

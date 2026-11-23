@@ -304,7 +304,7 @@ public class EditControlSideDialog extends SideDialogView {
     private void loadAdapter() {
         //Initialize adapter for keycodes
         mAdapter = new ArrayAdapter<>(mDialogContent.getContext(), R.layout.item_centered_textview);
-        mSpecialArray = ControlData.buildSpecialButtonArray();
+        mSpecialArray = ControlData.buildSpecialButtonArray(mDialogContent.getContext());
 
         mAdapter.addAll(mSpecialArray);
         mAdapter.addAll(EfficientAndroidLWJGLKeycode.generateKeyName());
@@ -520,6 +520,7 @@ public class EditControlSideDialog extends SideDialogView {
             if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
                 mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().displayInGame = isChecked;
+            mCurrentlyEditedButton.getControlLayoutParent().refreshControlVisibility();
         });
 
         mDisplayInMenuCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -527,6 +528,7 @@ public class EditControlSideDialog extends SideDialogView {
             if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
                 mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().displayInMenu = isChecked;
+            mCurrentlyEditedButton.getControlLayoutParent().refreshControlVisibility();
         });
 
         mSelectStrokeColor.setOnClickListener(v -> {

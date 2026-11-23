@@ -26,6 +26,7 @@ mod gl_brand;
 mod download;
 mod java;
 mod accounts;
+mod yggdrasil;
 mod offline_uuid;
 mod native_cleanup;
 mod modpack;

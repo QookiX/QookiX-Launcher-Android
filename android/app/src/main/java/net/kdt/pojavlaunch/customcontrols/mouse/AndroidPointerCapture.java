@@ -19,6 +19,7 @@ public class AndroidPointerCapture implements ViewTreeObserver.OnWindowFocusChan
     private static final float TOUCHPAD_SCROLL_THRESHOLD = 1;
     private final AbstractTouchpad mTouchpad;
     private final View mHostView;
+    private final Runnable mOnPointerInput;
     private final float mMousePrescale = Tools.dpToPx(1);
     private final PointerTracker mPointerTracker = new PointerTracker();
     private final Scroller mScroller = new Scroller(TOUCHPAD_SCROLL_THRESHOLD);
@@ -27,9 +28,10 @@ public class AndroidPointerCapture implements ViewTreeObserver.OnWindowFocusChan
     private int mInputDeviceIdentifier;
     private boolean mDeviceSupportsRelativeAxis;
 
-    public AndroidPointerCapture(AbstractTouchpad touchpad, View hostView) {
+    public AndroidPointerCapture(AbstractTouchpad touchpad, View hostView, Runnable onPointerInput) {
         this.mTouchpad = touchpad;
         this.mHostView = hostView;
+        this.mOnPointerInput = onPointerInput;
         hostView.setOnCapturedPointerListener(this);
         hostView.getViewTreeObserver().addOnWindowFocusChangeListener(this);
     }
@@ -48,6 +50,7 @@ public class AndroidPointerCapture implements ViewTreeObserver.OnWindowFocusChan
 
     @Override
     public boolean onCapturedPointer(View view, MotionEvent event) {
+        mOnPointerInput.run();
         checkSameDevice(event.getDevice());
         // Yes, we actually not only receive relative mouse events here, but also absolute touchpad ones!
         // Therefore, we need to know when it's a touchpad and when it's a mouse.

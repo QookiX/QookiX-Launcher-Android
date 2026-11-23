@@ -41,7 +41,7 @@
 			android:paddingTop="4dp"
 			android:paddingRight="10dp"
 			android:paddingBottom="4dp"
-			android:text="@string/hint_control_mapping"
+			android:text="@string/qk_control_mapping_hint"
 			android:textColor="#FFFFFFFF"
 			android:textSize="11sp"
 			app:layout_constraintBottom_toBottomOf="parent"

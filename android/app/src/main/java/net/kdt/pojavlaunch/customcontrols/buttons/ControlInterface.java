@@ -1,22 +1,19 @@
 package net.kdt.pojavlaunch.customcontrols.buttons;
 
-import static android.view.View.GONE;
+import static android.view.View.INVISIBLE;
 import static android.view.View.VISIBLE;
 import static net.kdt.pojavlaunch.prefs.LauncherPreferences.PREF_BUTTONSIZE;
 
 import android.annotation.SuppressLint;
 import android.graphics.drawable.GradientDrawable;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import androidx.annotation.CallSuper;
-import androidx.annotation.NonNull;
 import androidx.core.math.MathUtils;
 
-import net.kdt.pojavlaunch.GrabListener;
 import net.kdt.pojavlaunch.Tools;
 import net.kdt.pojavlaunch.customcontrols.ControlData;
 import net.kdt.pojavlaunch.customcontrols.ControlLayout;
@@ -29,7 +26,7 @@ import org.lwjgl.glfw.CallbackBridge;
  * Most of the injected behavior is editing behavior,
  * sending keys has to be implemented by sub classes.
  */
-public interface ControlInterface extends View.OnLongClickListener, GrabListener {
+public interface ControlInterface extends View.OnLongClickListener {
     View getControlView();
 
     ControlData getProperties();
@@ -51,9 +48,11 @@ public interface ControlInterface extends View.OnLongClickListener, GrabListener
     void cloneButton();
 
     default void setVisible(boolean isVisible) {
-        if(getProperties().isHideable)
-            getControlView().setVisibility(isVisible ? VISIBLE : GONE);
+        if (!isVisible && getControlView().getVisibility() == VISIBLE) cancelControlInput();
+        getControlView().setVisibility(isVisible ? VISIBLE : INVISIBLE);
     }
+
+    default void cancelControlInput() {}
 
     void sendKeyPresses(boolean isDown);
 
@@ -61,12 +60,6 @@ public interface ControlInterface extends View.OnLongClickListener, GrabListener
      * Load the values and hide non useful forms
      */
     void loadEditValues(EditControlSideDialog editControlDialog);
-
-    @Override
-    default void onGrabState(boolean isGrabbing) {
-        if (getControlLayoutParent() != null && getControlLayoutParent().getModifiable()) return; // Disable when edited
-        setVisible(((getProperties().displayInGame && isGrabbing) || (getProperties().displayInMenu && !isGrabbing)) && getControlLayoutParent().areControlVisible());
-    }
 
     default ControlLayout getControlLayoutParent() {
         return (ControlLayout) getControlView().getParent();
@@ -300,33 +293,6 @@ public interface ControlInterface extends View.OnLongClickListener, GrabListener
         injectProperties();
         injectTouchEventBehavior();
         injectLayoutParamBehavior();
-        injectGrabListenerBehavior();
-    }
-
-    /**
-     * Inject the grab listener, remove it when the view is gone
-     */
-    default void injectGrabListenerBehavior() {
-        if (getControlView() == null) {
-            Log.e(ControlInterface.class.toString(), "Failed to inject grab listener behavior !");
-            return;
-        }
-
-
-        getControlView().addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-            @Override
-            public void onViewAttachedToWindow(@NonNull View v) {
-                CallbackBridge.addGrabListener(ControlInterface.this);
-            }
-
-            @Override
-            public void onViewDetachedFromWindow(@NonNull View v) {
-                getControlView().removeOnAttachStateChangeListener(this);
-                CallbackBridge.removeGrabListener(ControlInterface.this);
-            }
-        });
-
-
     }
 
     default void injectProperties() {
@@ -345,6 +311,7 @@ public interface ControlInterface extends View.OnLongClickListener, GrabListener
             @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View view, MotionEvent event) {
+                if (getControlLayoutParent().isReadOnlyPreview()) return true;
                 if (!getControlLayoutParent().getModifiable()) {
                     // Basically, editing behavior is forced while in game behavior is specific
                     view.onTouchEvent(event);

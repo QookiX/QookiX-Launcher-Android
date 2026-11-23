@@ -469,15 +469,7 @@ fun InstanceDetailPage(
 
         // ── 内容区 ────────────────────────────────────────────────────
         //
-        // ⚠️ tab 切换加转场（fade + 轻微上移）：
-        // 之前是硬切 —— 点 tab 的瞬间内容整个换掉，感觉"闪了一下"。
-        // 用短时长（MEDIUM_MS）避免拖慢频繁的 tab 往返。
-        // ⚠️ 用 Box 提供**稳定有界高度**，AnimatedContent 放在里面。
-        //
-        // 踩过的坑：直接把 `Modifier.weight(1f)` 给 AnimatedContent 时，
-        // 它内部的内容（各 tab 的 verticalScroll）拿不到正确约束 ——
-        // 表现为「设置 tab 内容超一屏但滑不动」。
-        // 外层先给一个明确尺寸的 Box，AnimatedContent 填满它，就稳定了。
+        // 给分页器和各标签的纵向滚动提供稳定的有界高度。
         Box(modifier = Modifier.weight(1f)) {
             // ⚠️ tab 内容等**图标落地**再组合：详情页首次组合要 100ms+（161 个模组
             // 的列表），Compose 单线程——这段时间一帧都画不出来。只在首帧挡一下的话，
@@ -493,10 +485,10 @@ fun InstanceDetailPage(
                 Spacer(Modifier.fillMaxSize())
             } else {
             QkTabContent(
-                targetState = state.tab,
-                order = { it.ordinal },
+                tabs = InstanceTab.entries,
+                selected = state.tab,
+                onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
-                label = "detailTab",
             ) { tab ->
             when (tab) {
                 InstanceTab.Saves -> SavesTab(

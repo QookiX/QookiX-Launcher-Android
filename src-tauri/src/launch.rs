@@ -335,6 +335,15 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         }
 
         let mut jvm_args = build_jvm_args(&instance, &runtime, &vendor);
+        let skin_session = match account {
+            Some(acc) if acc.account_type == crate::models::AccountType::Yggdrasil => {
+                crate::progress::emit_launch_progress("正在验证皮肤站账号并准备 authlib-injector", 18.0);
+                let session = crate::yggdrasil::prepare_launch(&acc.uuid, Path::new(&data_dir)).await?;
+                jvm_args.extend(session.jvm_args.iter().cloned());
+                Some(session)
+            }
+            _ => None,
+        };
 
         // 正版账号：启动前把 refresh_token 换成真正的 Minecraft access token。
         // 换不出来就明确失败 —— 不能拿 refresh token 冒充 access token 骗过启动流程
@@ -354,6 +363,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             &data_dir,
             &game_dir,
             ms_token.as_deref(),
+            skin_session.as_ref(),
         )?;
 
         normalize_options_txt(Path::new(&game_dir));
@@ -573,8 +583,8 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
 
         let jre_home = Path::new(&runtime.path);
 
-        // 必须先预加载 JRE 内部库，否则 JVM 走到 libnio.so 时必然
-        // `library "libnet.so" not found`（安卓 linker 不查 JRE 的 lib 目录）
+        // 用原生 dlopen 解析 JRE 内部依赖。System.load 会让 Android 的 ART 提前
+        // 执行 Java 8 libawt 的 JNI_OnLoad，此时 ART 找不到 java.awt 类并会终止进程。
         #[cfg(target_os = "android")]
         crate::android_env::preload_jre_libraries(jre_home);
 
@@ -739,14 +749,6 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
         // 游戏自己的日志/部分资源从此写不出来。
         // 只设 `-Duser.dir` 是不够的：那只是 Java 的一个属性，不改变 OS 层的 CWD。
         // JVM 与游戏都在本进程里，所以这里 chdir 一次就够；游戏退出后再切回去。
-        // JDK 8 的原生库必须提前用绝对路径加载（见 android_bridge::preload_jre_libs）。
-        // 只对 Java 8 及更早版本做 —— JDK 9+ 的库是扁平的，本来就能找到，不做无谓的事。
-        if runtime.java_version <= 8 {
-            match crate::android_bridge::preload_jre_libs(&runtime.path) {
-                Ok(n) => tracing::info!("[launcher] 预加载 JRE 原生库 {n} 个"),
-                Err(e) => tracing::warn!("[launcher] 预加载 JRE 原生库失败：{e}"),
-            }
-        }
         previous_dir = std::env::current_dir().ok();
         if let Err(e) = std::env::set_current_dir(&game_dir) {
             tracing::warn!("切换工作目录到实例目录失败（游戏内相对路径可能异常）：{e}");
@@ -1795,9 +1797,10 @@ fn build_android_jvm_args(
     args.push(format!("-Dglfwstub.windowHeight={height}"));
     args.push("-Dglfwstub.initEgl=false".to_string());
 
-    // 线程栈抓取 agent（诊断用，见 jni/thread_dump_agent.c）：优先查找随包 jniLibs / natives。
+    // 优先用 APK 抽取后的稳定目录。Android 的安装目录可能有 `=`，
+    // HotSpot 会将其视作 -agentpath 的选项分隔符。
     if let Some(agent_path) = crate::launch_compat::find_agent_path(
-        &[sys_native_dir.as_deref().unwrap_or(""), native_lib_dir, natives_dir],
+        &[native_lib_dir, sys_native_dir.as_deref().unwrap_or("")],
         "libthreaddump.so",
     ) {
         args.push(format!("-agentpath:{}", agent_path.display()));
@@ -1877,10 +1880,20 @@ fn build_game_args(
     data_dir: &str,
     game_dir: &str,
     ms_access_token: Option<&str>,
+    skin_session: Option<&crate::yggdrasil::LaunchSession>,
 ) -> Result<Vec<String>> {
     let mut args = Vec::new();
 
     let (username, uuid, access_token, user_type) = match account {
+        Some(acc) if acc.account_type == crate::models::AccountType::Yggdrasil => {
+            let session = skin_session.context("皮肤站会话缺失，请重新登录")?;
+            (
+                session.username.clone(),
+                session.profile_id.simple().to_string(),
+                session.access_token.clone(),
+                "mojang",
+            )
+        }
         Some(acc) => {
             let (token, kind) = match acc.account_type {
                 crate::models::AccountType::Microsoft => (

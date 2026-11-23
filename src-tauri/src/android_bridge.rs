@@ -484,16 +484,11 @@ pub fn system_proxy() -> Option<String> {
         .filter(|s| !s.trim().is_empty())
 }
 
-/// 预加载 JRE 自带的原生库（JDK 8 必需）。
-///
-/// 见 Kotlin 侧 `preloadJreLibs` 的说明：Android 的 linker 只按命名空间路径解析
-/// 裸文件名，JDK 8 的库之间靠裸名字互相依赖（libnio.so → libnet.so），
-/// 必须在 JVM 启动前用绝对路径先加载进来。
-#[cfg(target_os = "android")]
 /// 让启动器侧启用 SDL 整合（MC 26.3+ 的 SDL 窗口层必需）。
 ///
 /// 详情见 Kotlin 侧 `MainActivity.enableSdlIntegration()`：SDL3 在安卓上依赖
 /// `org.libsdl.app.SDL` 那套 Java 胶水拿 Surface，必须由启动器侧准备好。
+#[cfg(target_os = "android")]
 pub fn enable_sdl_integration() -> Result<(), String> {
     android::call_activity("enableSdlIntegration", "()V", None)
         .map(|_| ())
@@ -505,17 +500,7 @@ pub fn enable_sdl_integration() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "android")]
-pub fn preload_jre_libs(jre_home: &str) -> Result<i32, String> {
-    android::call_activity("preloadJreLibs", "(Ljava/lang/String;)I", Some(jre_home))
-        .and_then(|s| s.trim().parse::<i32>().ok())
-        .ok_or_else(|| "预加载 JRE 原生库失败（原生桥未就绪）".to_string())
-}
 
-#[cfg(not(target_os = "android"))]
-pub fn preload_jre_libs(_jre_home: &str) -> Result<i32, String> {
-    Ok(0)
-}
 /// 读取移植过来的 Pojav 控制层设置（整份 SharedPreferences，JSON 字符串）。
 ///
 /// 这些设置（分辨率缩放 / 按钮大小 / 鼠标速度 / 忽略刘海 / 长按判定 / 陀螺仪…）

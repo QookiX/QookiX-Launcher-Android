@@ -16,6 +16,9 @@ pub(crate) const HANDLED: &[&str] = &[
     "select_account",
     "login_ms_start",
     "login_ms_poll",
+    "yggdrasil_login",
+    "yggdrasil_select_profile",
+    "yggdrasil_cancel_login",
     "list_skins",
     "read_skin_data_url",
     "save_skin_from_data",
@@ -39,7 +42,17 @@ pub(crate) async fn dispatch(cmd: &str, p: &Value) -> Option<String> {
 async fn run(cmd: &str, p: &Value) -> String {
     match cmd {
         "list_accounts" => match list_accounts().await {
-            Ok(v) => ok(v),
+            Ok(accounts) => ok(accounts.into_iter().map(|account| {
+                serde_json::json!({
+                    "uuid": account.uuid,
+                    "username": account.username,
+                    "type": account.account_type.as_str(),
+                    "created": account.created,
+                    "skin_face_base64": account.skin_face_base64,
+                    "skin_server_name": account.yggdrasil.as_ref().map(|s| &s.server_name),
+                    "skin_server_url": account.yggdrasil.as_ref().and_then(|s| s.homepage()),
+                })
+            }).collect::<Vec<_>>()),
             Err(e) => err(e),
         },
         "list_skins" => match list_skins().await {
@@ -106,6 +119,32 @@ async fn run(cmd: &str, p: &Value) -> String {
             Ok(v) => ok(v),
             Err(e) => err(e),
         },
+        "yggdrasil_login" => {
+            let (Some(root), Some(login), Some(password)) = (
+                p["root"].as_str(), p["login"].as_str(), p["password"].as_str(),
+            ) else {
+                return err("缺少皮肤站登录信息");
+            };
+            match crate::yggdrasil::login(root, login, password).await {
+                Ok(v) => ok(v),
+                Err(e) => err(e.to_string()),
+            }
+        }
+        "yggdrasil_select_profile" => {
+            let (Some(login_id), Some(profile_id)) = (uuid_arg(p, "loginId"), uuid_arg(p, "profileId")) else {
+                return err("缺少有效的登录流程或角色标识");
+            };
+            match crate::yggdrasil::select_profile(login_id, profile_id).await {
+                Ok(v) => ok(v),
+                Err(e) => err(e.to_string()),
+            }
+        }
+        "yggdrasil_cancel_login" => {
+            if let Some(login_id) = uuid_arg(p, "loginId") {
+                crate::yggdrasil::cancel_login(login_id).await;
+            }
+            ok(())
+        }
         // 返回字符串的命令按 Tauri 形状再包一层
         "read_skin_data_url" => {
             let Some(fname) = sarg(p, &["filename"]) else {
@@ -189,4 +228,8 @@ async fn run(cmd: &str, p: &Value) -> String {
         }
         _ => unreachable!("HANDLED 与 match 不一致：{cmd}"),
     }
+}
+
+fn uuid_arg(p: &Value, key: &str) -> Option<uuid::Uuid> {
+    p[key].as_str().and_then(|value| uuid::Uuid::parse_str(value).ok())
 }

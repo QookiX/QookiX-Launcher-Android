@@ -190,7 +190,7 @@ pub async fn ms_poll() -> Result<Account> {
     Ok(account)
 }
 
-async fn add_account_to_disk(account: &Account) -> Result<()> {
+pub(crate) async fn add_account_to_disk(account: &Account) -> Result<()> {
     let data_dir = get_data_dir().await?;
     let accounts_dir = Path::new(&data_dir).join("accounts");
     fs::create_dir_all(&accounts_dir).await.context("创建账号目录失败")?;
@@ -243,12 +243,6 @@ pub async fn get_account_by_uuid(uuid: &str) -> Result<Account> {
 }
 
 pub async fn add_account(username: &str, account_type: &str, refresh_token: Option<String>) -> Result<Account> {
-    let data_dir = get_data_dir().await?;
-    let accounts_dir = Path::new(&data_dir).join("accounts");
-
-    fs::create_dir_all(&accounts_dir).await
-        .context("Failed to create accounts directory")?;
-
     let account = if account_type == "microsoft" {
         if let Some(token) = refresh_token {
             let client_id = effective_ms_client_id().await?;
@@ -274,18 +268,16 @@ pub async fn add_account(username: &str, account_type: &str, refresh_token: Opti
             xuid: None,
             expires_at: None,
             skin_face_base64: None,
+            yggdrasil: None,
         }
     };
 
-    let file_path = accounts_dir.join(format!("{}.json", account.uuid));
-    let content = serde_json::to_string_pretty(&account)?;
-    crate::fsutil::write_text_atomic(&file_path, &content)
-        .context("Failed to write account file")?;
-
+    add_account_to_disk(&account).await?;
     Ok(account)
 }
 
 pub async fn remove_account(account_id: &str) -> Result<()> {
+    let _guard = crate::yggdrasil::ACCOUNT_WRITE.lock().await;
     let data_dir = get_data_dir().await?;
     let file_path = Path::new(&data_dir)
         .join("accounts")
@@ -615,6 +607,7 @@ async fn perform_microsoft_login(refresh_token: &str, client_id: &str) -> Result
         username: username.to_string(),
         created: Utc::now().timestamp(),
         account_type: AccountType::Microsoft,
+        yggdrasil: None,
         msa_refresh_token: Some(refresh_token.to_string()),
         xuid: Some(uhs.to_string()),
         expires_at: Some(Utc::now().timestamp() + 3600), // 1 hour

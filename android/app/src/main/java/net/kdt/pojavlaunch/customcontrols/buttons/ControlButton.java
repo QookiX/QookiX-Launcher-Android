@@ -13,13 +13,16 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.TextView;
 
 import net.kdt.pojavlaunch.LwjglGlfwKeycode;
+import net.kdt.pojavlaunch.Tools;
 import com.zhayi.qookix.GameActivity;
 import com.zhayi.qookix.R;
 import net.kdt.pojavlaunch.customcontrols.ControlData;
 import net.kdt.pojavlaunch.customcontrols.ControlLayout;
+import net.kdt.pojavlaunch.customcontrols.ControlScene;
 import net.kdt.pojavlaunch.customcontrols.handleview.EditControlSideDialog;
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
 
@@ -38,6 +41,7 @@ public class ControlButton extends TextView implements ControlInterface {
 
     protected boolean mIsToggled = false;
     protected boolean mIsPointerOutOfBounds = false;
+    private MouseWheelGesture wheelGesture;
 
     public ControlButton(ControlLayout layout, ControlData properties) {
         super(layout.getContext());
@@ -114,7 +118,7 @@ public class ControlButton extends TextView implements ControlInterface {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (mIsToggled || (!mProperties.isToggle && isActivated()))
+        if (mIsToggled || (!mProperties.isToggle && isActivated()) || (wheelGesture != null && wheelGesture.pointer() != -1))
             canvas.drawRoundRect(0, 0, getWidth(), getHeight(), mComputedRadius, mComputedRadius, mRectPaint);
     }
 
@@ -144,6 +148,7 @@ public class ControlButton extends TextView implements ControlInterface {
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (mProperties.containsKeycode(ControlData.SPECIALBTN_WHEEL_GESTURE)) return onWheelTouch(event);
         switch (event.getActionMasked()){
             case MotionEvent.ACTION_MOVE:
                 //Send the event to be taken as a mouse action
@@ -194,7 +199,7 @@ public class ControlButton extends TextView implements ControlInterface {
                 if(mIsPointerOutOfBounds) getControlLayoutParent().onTouch(this, event);
                 mIsPointerOutOfBounds = false;
 
-                if(!triggerToggle()) {
+                if (event.getActionMasked() == MotionEvent.ACTION_CANCEL ? !mProperties.isToggle : !triggerToggle()) {
                     sendKeyPresses(false);
                 }
                 break;
@@ -206,6 +211,41 @@ public class ControlButton extends TextView implements ControlInterface {
         return super.onTouchEvent(event);
     }
 
+    private boolean onWheelTouch(MotionEvent event) {
+        if (wheelGesture == null) {
+            wheelGesture = new MouseWheelGesture(ViewConfiguration.get(getContext()).getScaledTouchSlop(), Tools.dpToPx(20));
+        }
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            wheelGesture.start(event.getPointerId(0), event.getX(), event.getY());
+            invalidate();
+        } else if (action == MotionEvent.ACTION_CANCEL) {
+            wheelGesture.cancel();
+            invalidate();
+        } else if (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
+            int index = event.findPointerIndex(wheelGesture.pointer());
+            if (index == -1 || (action != MotionEvent.ACTION_MOVE && index != event.getActionIndex())) return true;
+            int steps = wheelGesture.move(event.getX(index), event.getY(index));
+            if (steps != 0) CallbackBridge.sendScroll(0, steps);
+            if (action != MotionEvent.ACTION_MOVE) {
+                if (wheelGesture.finish()) {
+                    sendKeyPresses(true);
+                    sendKeyPresses(false);
+                }
+                invalidate();
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public void cancelControlInput() {
+        if (wheelGesture != null) wheelGesture.cancel();
+        if (isActivated()) sendKeyPresses(false);
+        mIsPointerOutOfBounds = false;
+        mIsToggled = false;
+        invalidate();
+    }
 
 
     @SuppressWarnings("BooleanMethodIsAlwaysInverted")
@@ -221,6 +261,7 @@ public class ControlButton extends TextView implements ControlInterface {
     }
 
     public void sendKeyPresses(boolean isDown){
+        boolean startsPress = isDown && !isActivated();
         setActivated(isDown);
         for(int keycode : mProperties.keycodes){
             if(keycode >= GLFW_KEY_UNKNOWN){
@@ -228,12 +269,12 @@ public class ControlButton extends TextView implements ControlInterface {
                 CallbackBridge.setModifiers(keycode, isDown);
             }else{
                 Log.i("punjabilauncher", "sendSpecialKey("+keycode+","+isDown+")");
-                sendSpecialKey(keycode, isDown);
+                sendSpecialKey(keycode, isDown, startsPress);
             }
         }
     }
 
-    private void sendSpecialKey(int keycode, boolean isDown){
+    private void sendSpecialKey(int keycode, boolean isDown, boolean startsPress){
         switch (keycode) {
             case ControlData.SPECIALBTN_KEYBOARD:
                 if(isDown) GameActivity.switchKeyboardState();
@@ -252,6 +293,7 @@ public class ControlButton extends TextView implements ControlInterface {
                 break;
 
             case ControlData.SPECIALBTN_MOUSEMID:
+            case ControlData.SPECIALBTN_WHEEL_GESTURE:
                 sendMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_MIDDLE, isDown);
                 break;
 
@@ -260,14 +302,22 @@ public class ControlButton extends TextView implements ControlInterface {
                 break;
 
             case ControlData.SPECIALBTN_SCROLLDOWN:
-                if (!isDown) CallbackBridge.sendScroll(0, 1d);
+                if (startsPress) CallbackBridge.sendScroll(0, -1d);
                 break;
 
             case ControlData.SPECIALBTN_SCROLLUP:
-                if (!isDown) CallbackBridge.sendScroll(0, -1d);
+                if (startsPress) CallbackBridge.sendScroll(0, 1d);
                 break;
             case ControlData.SPECIALBTN_MENU:
-                mControlLayout.notifyAppMenu();
+                if (startsPress) mControlLayout.notifyAppMenu();
+                break;
+
+            case ControlData.SPECIALBTN_FORCE_GAMEPLAY:
+                if (isDown) getControlLayoutParent().forceScene(ControlScene.GAMEPLAY);
+                break;
+
+            case ControlData.SPECIALBTN_FORCE_MENU:
+                if (isDown) getControlLayoutParent().forceScene(ControlScene.MENU);
                 break;
         }
     }

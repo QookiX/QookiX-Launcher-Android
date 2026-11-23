@@ -74,6 +74,7 @@ fun BrowseFilterSheet(
     onLoaderChange: (String) -> Unit,
     onReset: () -> Unit,
     hideLoader: Boolean,
+    includeAllTypes: Boolean = false,
 ) {
     QkBottomSheetDialog(visible = visible, onDismiss = onDismiss) {
         Box(
@@ -113,6 +114,13 @@ fun BrowseFilterSheet(
             horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
             verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
         ) {
+            if (includeAllTypes) {
+                FilterChip(
+                    selected = type.isEmpty(),
+                    onClick = { onTypeChange("") },
+                    label = { Text(stringResource(R.string.browse_type_all)) },
+                )
+            }
             BrowseType.entries.forEach { t ->
                 FilterChip(
                     selected = type == t.id,
