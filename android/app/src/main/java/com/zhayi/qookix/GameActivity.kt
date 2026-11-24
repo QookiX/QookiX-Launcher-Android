@@ -490,7 +490,9 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         mControlLayout.setVisibilityListener {
             if (!isInEditor && navDrawer.adapter === gameMenuAdapter) syncControlMenuHandle()
         }
-        minecraftGLView.setCapturedPointerInputListener { mControlLayout.setExternalInput(true) }
+        minecraftGLView.setCapturedPointerInputListener {
+            mControlLayout.setExternalInput(ControlInputSource.SOURCE_MOUSE)
+        }
         drawerLayout.closeDrawers()
 
         // ── Surface 就绪 → 启动 JVM ─────────────────────────────────────────
@@ -828,7 +830,11 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
     }
 
     private fun trackExternalMotion(event: MotionEvent) {
-        if (this::mControlLayout.isInitialized && ControlInputSource.isExternalMotion(event)) mControlLayout.setExternalInput(true)
+        if (this::mControlLayout.isInitialized) {
+            // 区分鼠标与手柄：手柄可以选择「不隐藏触控键」（ZL2 的 hideWhenGamepad）
+            val kind = ControlInputSource.motionKind(event)
+            if (kind != ControlInputSource.SOURCE_NONE) mControlLayout.setExternalInput(kind)
+        }
     }
 
     /**
@@ -852,7 +858,8 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
             }
             return super.dispatchKeyEvent(event)
         }
-        if (ControlInputSource.isExternalKey(event)) mControlLayout.setExternalInput(true)
+        if (ControlInputSource.isExternalKey(event))
+            mControlLayout.setExternalInput(ControlInputSource.SOURCE_MOUSE)
         val handleEvent = minecraftGLView.processKeyEvent(event)
         if (!handleEvent) {
             if (event.keyCode == KeyEvent.KEYCODE_BACK && touchCharInput?.isEnabled != true) {

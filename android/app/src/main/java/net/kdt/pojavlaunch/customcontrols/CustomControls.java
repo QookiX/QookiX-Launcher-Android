@@ -13,6 +13,8 @@ import net.kdt.pojavlaunch.*;
 public class CustomControls {
 	public int version = -1;
     public boolean hideTouchControlsWithExternalInput;
+    /** 接手柄时不隐藏触控键（ZL2 的 hideWhenGamepad 例外）；默认 false = 保持原行为。 */
+    public boolean keepTouchControlsWithGamepad;
     public float scaledAt;
 	public List<ControlData> mControlDataList;
 	public List<ControlDrawerData> mDrawerDataList;

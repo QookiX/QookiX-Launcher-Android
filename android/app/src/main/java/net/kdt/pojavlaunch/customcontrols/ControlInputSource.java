@@ -25,6 +25,21 @@ public final class ControlInputSource {
                 || device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC);
     }
 
+    /** 外设类型：用于「鼠标隐藏触控键 / 手柄不隐藏」这类分设备策略。 */
+    public static final int SOURCE_NONE = 0;
+    public static final int SOURCE_MOUSE = 1;
+    public static final int SOURCE_GAMEPAD = 2;
+
+    /** 判断这次 motion 事件来自鼠标、手柄还是触摸。 */
+    public static int motionKind(MotionEvent event) {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE)
+                || event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE)
+                || event.isFromSource(InputDevice.SOURCE_TRACKBALL)) {
+            return SOURCE_MOUSE;
+        }
+        return isExternalMotion(event) ? SOURCE_GAMEPAD : SOURCE_NONE;
+    }
+
     public static boolean isExternalMotion(MotionEvent event) {
         int action = event.getActionMasked();
         if (event.isFromSource(InputDevice.SOURCE_MOUSE) || event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE)) {

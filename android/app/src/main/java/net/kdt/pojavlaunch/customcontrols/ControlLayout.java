@@ -47,6 +47,7 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	private boolean mControlVisible = false;
 	private boolean mReadOnlyPreview;
 	private boolean mExternalInput;
+	private int mExternalSource = ControlInputSource.SOURCE_NONE;
 	private boolean mGrabbing;
 	private ControlScene mEditorScene = ControlScene.ALL;
 	private ControlScene mForcedScene;
@@ -251,23 +252,10 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 		setModified(false);
 	}
 
-	public void toggleControlVisible(){
-		mControlVisible = !mControlVisible;
-		setControlVisible(mControlVisible);
-	}
-
-	public float getLayoutScale(){
-		return mLayout.scaledAt;
-	}
-
-	public CustomControls getLayout(){
-		return mLayout;
-	}
-
-	public void setControlVisible(boolean isVisible) {
-		mControlVisible = isVisible;
-		refreshControlVisibility();
-	}
+	public void toggleControlVisible(){ mControlVisible = !mControlVisible; setControlVisible(mControlVisible); }
+	public float getLayoutScale(){ return mLayout.scaledAt; }
+	public CustomControls getLayout(){ return mLayout; }
+	public void setControlVisible(boolean isVisible) { mControlVisible = isVisible; refreshControlVisibility(); }
 
 	public void setModifiable(boolean isModifiable) {
 		if (!isModifiable && mModifiable) removeEditWindow();
@@ -293,10 +281,18 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	}
 
 	public void setExternalInput(boolean external) {
-		if (mModifiable || mExternalInput == external) return;
+		setExternalInput(external ? ControlInputSource.SOURCE_MOUSE : ControlInputSource.SOURCE_NONE);
+	}
+
+	/** 按设备类型切层：鼠标/手柄可用不同的隐藏策略（ZL2 hideWhenMouse/Gamepad）。 */
+	public void setExternalInput(int source) {
+		boolean external = source != ControlInputSource.SOURCE_NONE;
+		if (mModifiable || (mExternalInput == external && mExternalSource == source)) return;
 		mExternalInput = external;
+		mExternalSource = source;
 		refreshControlVisibility();
 	}
+	// 说明：`setExternalInput(boolean)` 等价于鼠标/键盘来源，保留给旧调用点。
 
 	/** 按钮里的「切到 GUI 层」：强制场景直到游戏重新抓住鼠标（见 onGrabState）。 */
 	public void forceScene(ControlScene scene) {
@@ -333,6 +329,9 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 		ControlScene scene = preview ? mEditorScene
 				: (mForcedScene != null ? mForcedScene : (mGrabbing ? ControlScene.GAMEPLAY : ControlScene.MENU));
 		boolean hideForDevice = !preview && mExternalInput && mLayout.hideTouchControlsWithExternalInput;
+		// 手柄例外（ZL2 的 hideWhenGamepad）：接了手柄但只想藏一半时仍保留触控键
+		if (hideForDevice && mExternalSource == ControlInputSource.SOURCE_GAMEPAD
+				&& mLayout.keepTouchControlsWithGamepad) hideForDevice = false;
 		for (ControlInterface button : getButtonChildren()) {
 			if (button instanceof ControlSubButton) continue;
 			ControlData data = button.getProperties();
