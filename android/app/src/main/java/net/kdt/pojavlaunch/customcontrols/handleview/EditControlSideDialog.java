@@ -68,7 +68,7 @@ public class EditControlSideDialog extends SideDialogView {
     private final TextView[] mKeycodeTextviews = new TextView[4];
     private SeekBar mStrokeWidthSeekbar, mCornerRadiusSeekbar, mAlphaSeekbar;
     private TextView mStrokePercentTextView, mCornerRadiusPercentTextView, mAlphaPercentTextView;
-    private TextView mSelectBackgroundColor, mSelectStrokeColor;
+    private TextView mSelectBackgroundColor, mSelectStrokeColor, mSelectPressedColor;
     private ArrayAdapter<String> mAdapter;
     private List<String> mSpecialArray;
     private CheckBox mDisplayInGameCheckbox, mDisplayInMenuCheckbox;
@@ -357,6 +357,7 @@ public class EditControlSideDialog extends SideDialogView {
         mAlphaSeekbar = mDialogContent.findViewById(R.id.editButtonOpacity_seekbar);
         mSelectBackgroundColor = mDialogContent.findViewById(R.id.editBackgroundColor_textView);
         mSelectStrokeColor = mDialogContent.findViewById(R.id.editStrokeColor_textView);
+        mSelectPressedColor = mDialogContent.findViewById(R.id.editPressedColor_textView);
         mStrokePercentTextView = mDialogContent.findViewById(R.id.editStrokeWidth_textView_percent);
         mAlphaPercentTextView = mDialogContent.findViewById(R.id.editButtonOpacity_textView_percent);
         mCornerRadiusPercentTextView = mDialogContent.findViewById(R.id.editCornerRadius_textView_percent);
@@ -558,6 +559,24 @@ public class EditControlSideDialog extends SideDialogView {
             mCurrentlyEditedButton.updateProperties();
             });
             appearColor(isAtRight(), mCurrentlyEditedButton.getProperties().bgColor);
+        });
+
+        mSelectPressedColor.setOnClickListener(v -> {
+            ControlData props = mCurrentlyEditedButton.getProperties();
+            ControlData.Appearance appearance = props.appearance;
+            if (appearance == null) appearance = props.appearance = new ControlData.Appearance();
+            if (appearance.pressed == null) {
+                ControlData.PaintStyle created = new ControlData.PaintStyle();
+                created.fill = appearance.normal != null ? appearance.normal.fill : props.bgColor;
+                appearance.pressed = created;
+            }
+            ControlData.PaintStyle pressed = appearance.pressed; mColorSelector.setAlphaEnabled(true);
+            mColorSelector.setColorSelectionListener(color -> {
+                pressed.fill = color;
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
+                mCurrentlyEditedButton.updateProperties();
+            });
+            appearColor(isAtRight(), pressed.fill);
         });
     }
 

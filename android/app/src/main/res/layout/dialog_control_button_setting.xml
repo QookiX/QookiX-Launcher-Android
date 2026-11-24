@@ -349,6 +349,20 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/checkboxAbsoluteFingerTracking" />
 
+    <!-- 按下态背景色：导入的 ZL2 / FCL 布局按下时会换色，这里能单独调 -->
+    <TextView
+        android:id="@+id/editPressedColor_textView"
+        android:layout_width="0dp"
+        android:layout_height="@dimen/_35sdp"
+        android:background="?attr/selectableItemBackground"
+        android:drawableEnd="@drawable/spinner_arrow_right"
+        android:gravity="center_vertical"
+        android:paddingEnd="5dp"
+        android:text="@string/customctrl_pressed_color"
+
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/editBackgroundColor_textView" />
 
     <!-- STROKE WIDTH -->
     <TextView
@@ -398,7 +412,7 @@
 
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/editBackgroundColor_textView" />
+        app:layout_constraintTop_toBottomOf="@+id/editPressedColor_textView" />
 
 
     <!-- CORNER RADIUS SECTION -->

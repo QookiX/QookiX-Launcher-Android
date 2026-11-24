@@ -37,4 +37,5 @@
     <string name="qk_control_groups">控件组</string>
     <string name="qk_control_groups_empty">当前布局没有控件组。导入的 FCL / ZL2 布局如果用了控件组，会出现在这里。</string>
     <string name="qk_dialog_done">完成</string>
+    <string name="customctrl_pressed_color">按下时的背景色</string>
 </resources>
