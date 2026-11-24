@@ -260,25 +260,14 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	public void setModifiable(boolean isModifiable) {
 		if (!isModifiable && mModifiable) removeEditWindow();
 		if (isModifiable && !mModifiable) releaseHeldControls();
-		mModifiable = isModifiable;
-		mEditorScene = ControlScene.ALL;
+		mModifiable = isModifiable; mEditorScene = ControlScene.ALL;
 		refreshControlVisibility();
 	}
 
-	public void setReadOnlyPreview(boolean preview) {
-		mReadOnlyPreview = preview;
-		refreshControlVisibility();
-	}
-
+	public void setReadOnlyPreview(boolean preview) { mReadOnlyPreview = preview; refreshControlVisibility(); }
 	public boolean isReadOnlyPreview() { return mReadOnlyPreview; }
-
 	public ControlScene getEditorScene() { return mEditorScene; }
-
-	public void setEditorScene(ControlScene scene) {
-		removeEditWindow();
-		mEditorScene = scene;
-		refreshControlVisibility();
-	}
+	public void setEditorScene(ControlScene scene) { removeEditWindow(); mEditorScene = scene; refreshControlVisibility(); }
 
 	public void setExternalInput(boolean external) {
 		setExternalInput(external ? ControlInputSource.SOURCE_MOUSE : ControlInputSource.SOURCE_NONE);
@@ -358,6 +347,31 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 			}
 		}
 		refreshControlVisibility();
+	}
+
+	private GuideOverlayView mGuideOverlay;
+
+	public boolean isGroupVisible(String id, boolean fallback) { return groupVisibility.getOrDefault(id, fallback); }
+
+	public void setGroupVisible(String id, boolean visible) {
+		groupVisibility.put(id, visible);
+		refreshControlVisibility();
+	}
+
+	/** 拖动吸附时显示对齐辅助线；-1 表示该方向不画。 */
+	public void showSnapGuides(float x, float y) {
+		if (mGuideOverlay == null) {
+			mGuideOverlay = new GuideOverlayView(getContext());
+			mGuideOverlay.setLayoutParams(new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+			addView(mGuideOverlay);
+		}
+		mGuideOverlay.setGuides(x, y);
+	}
+
+	public void hideSnapGuides() {
+		if (mGuideOverlay == null) return;
+		removeView(mGuideOverlay);
+		mGuideOverlay = null;
 	}
 
 	public boolean getModifiable(){
@@ -562,14 +576,8 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 
 	public void removeEditWindow() {
 		InputMethodManager imm = (InputMethodManager) getContext().getSystemService(INPUT_METHOD_SERVICE);
-
-		// When the input window cannot be hidden, it returns false
 		imm.hideSoftInputFromWindow(getWindowToken(), 0);
-		if(mControlDialog != null) {
-			mControlDialog.disappearColor();
-			mControlDialog.disappear(true);
-		}
-
+		if(mControlDialog != null) { mControlDialog.disappearColor(); mControlDialog.disappear(true); }
 		if(mActionRow != null) mActionRow.setFollowedButton(null);
 		if(mHandleView != null) mHandleView.hide();
 	}
@@ -577,8 +585,7 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	public void save(String path){
 		try {
 			mLayout.save(path);
-			// 2026-10-29（外部审计 B36）：保存成功后清脏 —— 否则界面一直认为
-			// 有未保存改动，退出时反复提示。
+			// 保存成功后清脏，否则退出时会反复提示「有未保存改动」
 			setModified(false);
 		} catch (IOException e) {Log.e("ControlLayout", "Failed to save the layout at:" + path);}
 	}
@@ -587,20 +594,13 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	public boolean hasMenuButton() {
 		for(ControlInterface controlInterface : getButtonChildren()){
 			if (controlInterface.getControlView().getVisibility() != VISIBLE) continue;
-			for (int keycode : controlInterface.getProperties().keycodes) {
-				if (keycode == ControlData.SPECIALBTN_MENU) return true;
-			}
+			for (int keycode : controlInterface.getProperties().keycodes) if (keycode == ControlData.SPECIALBTN_MENU) return true;
 		}
 		return false;
 	}
 
-	public void setMenuListener(ControlButtonMenuListener menuListener) {
-		this.mMenuListener = menuListener;
-	}
-
-	public void notifyAppMenu() {
-		if(mMenuListener != null) mMenuListener.onClickedMenu();
-	}
+	public void setMenuListener(ControlButtonMenuListener menuListener) { this.mMenuListener = menuListener; }
+	public void notifyAppMenu() { if(mMenuListener != null) mMenuListener.onClickedMenu(); }
 
 	/** Cached getter for perf purposes */
 	public MinecraftGLSurface getGameSurface(){

@@ -13,6 +13,7 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.activity.OnBackPressedCallback;
 
 import net.kdt.pojavlaunch.customcontrols.ControlData;
+import net.kdt.pojavlaunch.customcontrols.ControlGroupDialog;
 import net.kdt.pojavlaunch.customcontrols.ControlDrawerData;
 import net.kdt.pojavlaunch.customcontrols.ControlJoystickData;
 import net.kdt.pojavlaunch.customcontrols.ControlLayout;
@@ -55,6 +56,7 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 			R.drawable.ic_qk_sliders,  // 控件场景
 			R.drawable.ic_qk_plus,
 			R.drawable.ic_qk_plus,
+			R.drawable.ic_qk_sliders,  // 控件组
 	};
 	/** 预览模式菜单：0 = 就用这个，1 = 取消。 */
 	private static final int[] PREVIEW_MENU_ICONS = {
@@ -138,6 +140,7 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 						case 8: ControlSceneDialog.show(mControlLayout); break;
 						case 9: mControlLayout.addDirectionPad(); break;
 						case 10: mControlLayout.addTextLabel(); break;
+						case 11: ControlGroupDialog.show(mControlLayout); break;
 						case 7: // Saving the currently shown control
 					try {
 						// QookiX 没有 Pojav 的 scoped.FolderProvider，改用本项目已有的 FileProvider

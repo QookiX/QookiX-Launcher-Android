@@ -238,6 +238,7 @@ public interface ControlInterface extends View.OnLongClickListener {
         final float MIN_DISTANCE = getSnapDistance();
         String dynamicX = generateDynamicX(x);
         String dynamicY = generateDynamicY(y);
+        float guideX = -1, guideY = -1;
 
         getControlView().setX(x);
         getControlView().setY(y);
@@ -260,27 +261,35 @@ public interface ControlInterface extends View.OnLongClickListener {
             //Step 3: For each axis, we try to snap to the nearest
             if (Math.abs(top - button_bottom) < MIN_DISTANCE) { // Bottom snap
                 dynamicY = applySize(button.getProperties().dynamicY, button) + applySize(" + ${height}", button) + " + ${margin}";
+                guideY = button_bottom;
             } else if (Math.abs(button_top - bottom) < MIN_DISTANCE) { //Top snap
                 dynamicY = applySize(button.getProperties().dynamicY, button) + " - ${height} - ${margin}";
+                guideY = button_top;
             }
             if (!dynamicY.equals(generateDynamicY(getControlView().getY()))) { //If we snapped
                 if (Math.abs(button_left - left) < MIN_DISTANCE) { //Left align snap
                     dynamicX = applySize(button.getProperties().dynamicX, button);
+                    guideX = button_left;
                 } else if (Math.abs(button_right - right) < MIN_DISTANCE) { //Right align snap
                     dynamicX = applySize(button.getProperties().dynamicX, button) + applySize(" + ${width}", button) + " - ${width}";
+                    guideX = button_right;
                 }
             }
 
             if (Math.abs(button_left - right) < MIN_DISTANCE) { //Left snap
                 dynamicX = applySize(button.getProperties().dynamicX, button) + " - ${width} - ${margin}";
+                guideX = button_left;
             } else if (Math.abs(left - button_right) < MIN_DISTANCE) { //Right snap
                 dynamicX = applySize(button.getProperties().dynamicX, button) + applySize(" + ${width}", button) + " + ${margin}";
+                guideX = button_right;
             }
             if (!dynamicX.equals(generateDynamicX(getControlView().getX()))) { //If we snapped
                 if (Math.abs(button_top - top) < MIN_DISTANCE) { //Top align snap
                     dynamicY = applySize(button.getProperties().dynamicY, button);
+                    guideY = button_top;
                 } else if (Math.abs(button_bottom - bottom) < MIN_DISTANCE) { //Bottom align snap
                     dynamicY = applySize(button.getProperties().dynamicY, button) + applySize(" + ${height}", button) + " - ${height}";
+                    guideY = button_bottom;
                 }
             }
 
@@ -288,6 +297,9 @@ public interface ControlInterface extends View.OnLongClickListener {
 
         setDynamicX(dynamicX);
         setDynamicY(dynamicY);
+        ControlLayout parent = (ControlLayout) getControlView().getParent();
+        if (guideX >= 0 || guideY >= 0) parent.showSnapGuides(guideX, guideY);
+        else parent.hideSnapGuides();
     }
 
     /**
@@ -325,8 +337,11 @@ public interface ControlInterface extends View.OnLongClickListener {
                 /* If the button can be modified/moved */
                 //Instantiate the gesture detector only when needed
 
+                if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    // 抬手就撤掉对齐辅助线，别让它留在画面上
+                    getControlLayoutParent().hideSnapGuides();
+                }
                 if (event.getActionMasked() == MotionEvent.ACTION_UP && mCanTriggerLongClick) {
-                    //TODO change this.
                     onLongClick(view);
                 }
 

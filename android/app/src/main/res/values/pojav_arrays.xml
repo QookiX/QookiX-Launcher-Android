@@ -32,6 +32,7 @@
         <item>@string/qk_control_scene</item>
         <item>@string/qk_control_add_direction_pad</item>
         <item>@string/qk_control_add_text_label</item>
+        <item>@string/qk_control_groups</item>
     </string-array>
 
     <!-- 导入布局的预览模式菜单（只读，看一眼再决定要不要） -->
