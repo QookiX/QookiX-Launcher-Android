@@ -42,6 +42,12 @@ public class ControlButton extends TextView implements ControlInterface {
     /* Cache value from the ControlData radius for drawing purposes */
     private float mComputedRadius;
 
+    /* 导入样式的背景：复用同一个 drawable 才能做底色渐变 */
+    private GradientDrawable mBackgroundDrawable;
+    private android.animation.ValueAnimator mFillAnimator;
+    private int mCurrentFill = 0;
+    private boolean mAnimateNextFill = false;
+
     protected boolean mIsToggled = false;
     protected boolean mIsPointerOutOfBounds = false;
     private MouseWheelGesture wheelGesture;
@@ -149,7 +155,11 @@ public class ControlButton extends TextView implements ControlInterface {
     public void setActivated(boolean activated) {
         boolean changed = activated != isActivated();
         super.setActivated(activated);
-        if (changed) applyImportedAppearance();
+        if (!changed) return;
+        // 只有按下/抬起才渐变；换布局、改样式要即时生效
+        mAnimateNextFill = true;
+        applyImportedAppearance();
+        mAnimateNextFill = false;
     }
 
     private boolean applyImportedAppearance() {
@@ -160,8 +170,12 @@ public class ControlButton extends TextView implements ControlInterface {
         if (appearance == null || appearance.normal == null) return false;
         ControlData.PaintStyle style = (isActivated() || mIsToggled) && appearance.pressed != null
                 ? appearance.pressed : appearance.normal;
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(style.fill);
+        // 复用同一个 drawable：每帧重建会让底色渐变断掉
+        if (mBackgroundDrawable == null) {
+            mBackgroundDrawable = new GradientDrawable();
+            setBackground(mBackgroundDrawable);
+        }
+        GradientDrawable drawable = mBackgroundDrawable;
         drawable.setStroke(Math.round(Tools.dpToPx(Math.max(0f, Math.min(100f, style.strokeDp)))), style.outline);
         if (style.cornerPercent != null && style.cornerPercent.length == 4) {
             float minSide = Math.min(getWidth(), getHeight());
@@ -175,7 +189,10 @@ public class ControlButton extends TextView implements ControlInterface {
         } else {
             drawable.setCornerRadius(Tools.dpToPx(Math.max(0f, Math.min(400f, style.radiusDp))));
         }
-        setBackground(drawable);
+        // 底色渐变：ZL2 的按下/抬起是过渡，不是瞬间切换
+        if (mAnimateNextFill && mCurrentFill != 0 && mCurrentFill != style.fill) animateFill(mCurrentFill, style.fill);
+        else drawable.setColor(style.fill);
+        mCurrentFill = style.fill;
         setTextColor(style.text);
         setAllCaps(false);
         if (style.textSp > 0 && style.textSp <= 100) setTextSize(style.textSp);
@@ -427,6 +444,17 @@ public class ControlButton extends TextView implements ControlInterface {
             return true;
         }
         return false;
+    }
+
+    /** 底色渐变：ZL2 的按下/抬起是渐变，瞬间切换会觉得「生硬」。 */
+    private void animateFill(int from, int to) {
+        if (mFillAnimator != null) mFillAnimator.cancel();
+        mFillAnimator = android.animation.ValueAnimator.ofArgb(from, to);
+        mFillAnimator.setDuration(110);
+        mFillAnimator.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        mFillAnimator.addUpdateListener(
+                a -> { if (mBackgroundDrawable != null) mBackgroundDrawable.setColor((int) a.getAnimatedValue()); });
+        mFillAnimator.start();
     }
 
     /** 按下缩小、抬起回弹：FCL / ZL2 都有这个手感，缺了会觉得按钮「没反应」。 */
