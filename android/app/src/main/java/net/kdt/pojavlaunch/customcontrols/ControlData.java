@@ -75,6 +75,12 @@ public class ControlData {
     public int scrollWhileHeld;
     public boolean autoClick;
     public Appearance appearance, darkAppearance;
+    /**
+     * MC 的功能绑定名（如 `key.inventory`）。非空时运行时按玩家 options.txt 里的
+     * 当前按键解析，玩家改键后控件跟着走；解析失败回落到硬编码 keycodes。
+     * 导入的 FCL / ZL2 布局绑的是具体键，这个字段只给内置布局用。
+     */
+    public String binding;
     public float widthFraction, heightFraction;
     public boolean widthRelativeToHeight, heightRelativeToHeight;
     public Action pressAction, clickAction, longPressAction, doubleClickAction;

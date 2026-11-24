@@ -39,8 +39,8 @@ object ControlLayoutSeed {
     private const val TAG = "QookiXControl"
 
     /** 内置布局的皮肤版本，见类注释。 */
-    // 从 5 再升一格：上一版因 SHA 判断失效只写了 marker 没换布局，那些设备需要再触发一次覆盖。
-    private const val CONTROL_STYLE_VERSION = 6
+    // 7：内置布局的功能键补上 binding，玩家在游戏里改键后控件会跟着走。
+    private const val CONTROL_STYLE_VERSION = 7
     private const val STYLE_MARKER = ".qk-control-style"
     private const val USER_BACKUP = "default.user-backup.json"
 

@@ -22,6 +22,7 @@ import net.kdt.pojavlaunch.LwjglGlfwKeycode;
 import net.kdt.pojavlaunch.Tools;
 import com.zhayi.qookix.GameActivity;
 import com.zhayi.qookix.R;
+import com.zhayi.qookix.control.McBindingKeys;
 import net.kdt.pojavlaunch.customcontrols.ControlData;
 import net.kdt.pojavlaunch.customcontrols.ControlLayout;
 import net.kdt.pojavlaunch.customcontrols.ControlScene;
@@ -444,7 +445,17 @@ public class ControlButton extends TextView implements ControlInterface {
         }
         if (startsPress && mProperties.scrollWhileHeld != 0) repeatScroll.run();
         if (startsPress && mProperties.autoClick) repeatClick.run();
-        for (int keycode : mProperties.keycodes) {
+        int[] keys = mProperties.keycodes;
+        // 内置布局标了功能绑定（key.inventory 之类）：按玩家当前改键发。
+        // 只替换第一个普通键，解析失败（返回 0）时原样回落到硬编码键码。
+        if (keys.length > 0 && keys[0] >= 0) {
+            int resolved = McBindingKeys.resolve(mProperties.binding);
+            if (resolved > 0 && resolved != keys[0]) {
+                keys = keys.clone();
+                keys[0] = resolved;
+            }
+        }
+        for (int keycode : keys) {
             if (!mProperties.autoClick || !isRepeatableKey(keycode)) dispatchKey(keycode, isDown, startsPress);
         }
     }
