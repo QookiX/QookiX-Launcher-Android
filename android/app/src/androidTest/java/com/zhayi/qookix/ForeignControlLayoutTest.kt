@@ -1,5 +1,6 @@
 package com.zhayi.qookix
 
+import android.os.SystemClock
 import android.util.DisplayMetrics
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -12,6 +13,7 @@ import net.kdt.pojavlaunch.customcontrols.ControlStyleData
 import net.kdt.pojavlaunch.customcontrols.ControlStyleManager
 import net.kdt.pojavlaunch.customcontrols.CustomControls
 import net.kdt.pojavlaunch.customcontrols.LayoutConverter
+import net.kdt.pojavlaunch.customcontrols.mouse.MouseSwitchGuard
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -197,6 +199,17 @@ class ForeignControlLayoutTest {
         assertTrue(layer.getBoolean("hideWhenMouse"))
         assertTrue(layer.getBoolean("hideWhenGamepad"))
         assertEquals(0, fcl.changed)
+    }
+
+    @Test
+    fun mouseSwitchGuardUsesDeviceUptimeBoundary() {
+        MouseSwitchGuard.reset()
+        val now = SystemClock.uptimeMillis()
+        MouseSwitchGuard.markSwitched(now)
+        assertTrue(MouseSwitchGuard.shouldSuppressClick(now + 32))
+        assertFalse(MouseSwitchGuard.shouldSuppressClick(now + 33))
+        MouseSwitchGuard.reset()
+        assertFalse(MouseSwitchGuard.shouldSuppressClick(now))
     }
 
     @Test

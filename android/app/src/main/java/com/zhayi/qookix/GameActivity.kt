@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -56,6 +57,7 @@ import net.kdt.pojavlaunch.customcontrols.keyboard.LwjglCharSender
 import net.kdt.pojavlaunch.customcontrols.keyboard.TouchCharInput
 import net.kdt.pojavlaunch.customcontrols.mouse.GyroControl
 import net.kdt.pojavlaunch.customcontrols.mouse.HotbarView
+import net.kdt.pojavlaunch.customcontrols.mouse.MouseSwitchGuard
 import net.kdt.pojavlaunch.customcontrols.mouse.Touchpad
 import net.kdt.pojavlaunch.prefs.LauncherPreferences
 import net.kdt.pojavlaunch.prefs.QuickSettingSideDialog
@@ -163,7 +165,10 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
         fun toggleMouse(ctx: Context) {
             // 游戏抓着鼠标时虚拟鼠标没有意义（Pojav 同样直接 return）
             if (CallbackBridge.isGrabbing()) return
-            val showing = touchpad?.switchState() ?: false
+            val activeTouchpad = touchpad
+            val showing = activeTouchpad?.switchState() ?: false
+            // 切换那一下的触摸抬起来不及分辨，先吞掉 33ms 内的单击
+            if (activeTouchpad != null) MouseSwitchGuard.markSwitched(SystemClock.uptimeMillis())
             Toast.makeText(
                 ctx,
                 if (showing) R.string.control_mouseon else R.string.control_mouseoff,

@@ -1,5 +1,6 @@
 package net.kdt.pojavlaunch.customcontrols.mouse;
 
+import android.os.SystemClock;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 
@@ -68,7 +69,8 @@ public class InGUIEventProcessor implements TouchEventProcessor {
                 mTracker.cancelTracking();
 
                 // Handle single tap on gestures
-                if((!LauncherPreferences.PREF_DISABLE_GESTURES || touchpadDisplayed()) && !mIsMouseDown && singleTap) {
+                if((!LauncherPreferences.PREF_DISABLE_GESTURES || touchpadDisplayed()) && !mIsMouseDown && singleTap
+                        && !MouseSwitchGuard.shouldSuppressClick(SystemClock.uptimeMillis())) {
                     CallbackBridge.putMouseEventWithCoords(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT, CallbackBridge.mouseX, CallbackBridge.mouseY);
                 }
 
@@ -119,5 +121,6 @@ public class InGUIEventProcessor implements TouchEventProcessor {
     public void cancelPendingActions() {
         mScroller.resetScrollOvershoot();
         disableMouse();
+        MouseSwitchGuard.reset();
     }
 }
