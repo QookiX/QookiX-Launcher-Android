@@ -209,4 +209,28 @@ class ForeignControlLayoutTest {
             android.util.Log.i("LayoutCorpus", "${file.name}: ${result.format}, ${buttons.length()} converted, ${result.changed} adjusted")
         }
     }
+
+    /**
+     * 把语料里的每份样例转换成 QookiX 布局并落到 `files/controlmap/corpus-*.json`。
+     *
+     * 用途：转换断言只能证明「数据对」，还得能真进游戏看控件。这一步把产物准备好，
+     * 之后把偏好里的 `defaultCtrl` 指到对应文件即可在游戏里逐份验收。
+     */
+    @Test
+    fun exportCorpusLayoutsForInGameCheck() {
+        val arguments = InstrumentationRegistry.getArguments()
+        assumeTrue(arguments.getString("exportCorpusLayouts") == "true")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "layout-corpus")
+        val files = root.listFiles { file -> file.extension == "json" }.orEmpty()
+        val outDir = File(context.filesDir, "controlmap").apply { mkdirs() }
+        for (file in files) {
+            val source = JSONObject(file.readText().trimStart('\uFEFF'))
+            val result = converter.convert(source) ?: continue
+            val out = File(outDir, "corpus-${file.name}")
+            out.writeText(result.layout.toString())
+            android.util.Log.i("LayoutCorpus", "导出 ${out.name}")
+        }
+        assertTrue(outDir.listFiles { f -> f.name.startsWith("corpus-") }.orEmpty().size >= files.size)
+    }
 }
