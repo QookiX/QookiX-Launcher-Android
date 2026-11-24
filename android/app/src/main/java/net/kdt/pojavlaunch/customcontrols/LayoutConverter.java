@@ -40,6 +40,8 @@ public class LayoutConverter {
                 else if (version == 8 || version == 9) {
                     CustomControls layout = Tools.GLOBAL_GSON.fromJson(jsonLayoutData, CustomControls.class);
                     layout.ensureLayers();
+                    layout.ensureStyles();
+                    ControlStyleManager.applyAll(layout);
                     layout.version = 9;
                     return layout;
                 }
@@ -71,6 +73,8 @@ public class LayoutConverter {
         }
         layout.version = 9;
         layout.ensureLayers();
+        layout.ensureStyles();
+        ControlStyleManager.applyAll(layout);
         return layout;
     }
 

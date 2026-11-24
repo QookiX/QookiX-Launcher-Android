@@ -75,6 +75,8 @@ public class ControlData {
     public int scrollWhileHeld;
     public boolean autoClick;
     public Appearance appearance, darkAppearance;
+    /** FCL style 名 / ZL2 样式 uuid：非空时外观由布局级样式表统一维护。 */
+    public String styleId;
     /**
      * MC 的功能绑定名（如 `key.inventory`）。非空时运行时按玩家 options.txt 里的
      * 当前按键解析，玩家改键后控件跟着走；解析失败回落到硬编码 keycodes。
@@ -198,6 +200,7 @@ public class ControlData {
         autoClick = controlData.autoClick;
         appearance = controlData.appearance;
         darkAppearance = controlData.darkAppearance;
+        styleId = controlData.styleId;
         widthFraction = controlData.widthFraction;
         heightFraction = controlData.heightFraction;
         widthRelativeToHeight = controlData.widthRelativeToHeight;

@@ -28,6 +28,7 @@ import net.kdt.pojavlaunch.colorselector.ColorSelector;
 import net.kdt.pojavlaunch.customcontrols.ControlData;
 import net.kdt.pojavlaunch.customcontrols.ControlDrawerData;
 import net.kdt.pojavlaunch.customcontrols.ControlJoystickData;
+import net.kdt.pojavlaunch.customcontrols.ControlStyleManager;
 import net.kdt.pojavlaunch.customcontrols.buttons.ControlDrawer;
 import net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface;
 import net.kdt.pojavlaunch.utils.interfaces.SimpleItemSelectedListener;
@@ -462,7 +463,7 @@ public class EditControlSideDialog extends SideDialogView {
                 mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().strokeWidth = mStrokeWidthSeekbar.getProgress() / 10F;
             mCurrentlyEditedButton.getProperties().legacyToAppearance();
-            mCurrentlyEditedButton.updateProperties();
+            ControlStyleManager.syncButton(mCurrentlyEditedButton);
             setPercentageText(mStrokePercentTextView, progress);
         });
 
@@ -472,10 +473,9 @@ public class EditControlSideDialog extends SideDialogView {
                 mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().cornerRadius = mCornerRadiusSeekbar.getProgress();
             mCurrentlyEditedButton.getProperties().legacyToAppearance();
-            mCurrentlyEditedButton.updateProperties();
+            ControlStyleManager.syncButton(mCurrentlyEditedButton);
             setPercentageText(mCornerRadiusPercentTextView, progress);
         });
-
 
         for (int i = 0; i < mKeycodeSpinners.length; ++i) {
             int finalI = i;
@@ -495,7 +495,6 @@ public class EditControlSideDialog extends SideDialogView {
                 mKeycodeTextviews[finalI].setText((String) mKeycodeSpinners[finalI].getSelectedItem());
             });
         }
-
 
         mOrientationSpinner.setOnItemSelectedListener((SimpleItemSelectedListener) (parent, view, position, id) -> {
             // Side note, spinner listeners are fired later than all the other ones.
@@ -533,7 +532,7 @@ public class EditControlSideDialog extends SideDialogView {
                     mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 mCurrentlyEditedButton.getProperties().strokeColor = color;
                 mCurrentlyEditedButton.getProperties().legacyToAppearance();
-            mCurrentlyEditedButton.updateProperties();
+            ControlStyleManager.syncButton(mCurrentlyEditedButton);
             });
             appearColor(isAtRight(), mCurrentlyEditedButton.getProperties().strokeColor);
         });
@@ -545,7 +544,7 @@ public class EditControlSideDialog extends SideDialogView {
                     mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 mCurrentlyEditedButton.getProperties().bgColor = color;
                 mCurrentlyEditedButton.getProperties().legacyToAppearance();
-            mCurrentlyEditedButton.updateProperties();
+            ControlStyleManager.syncButton(mCurrentlyEditedButton);
             });
             appearColor(isAtRight(), mCurrentlyEditedButton.getProperties().bgColor);
         });
@@ -563,7 +562,7 @@ public class EditControlSideDialog extends SideDialogView {
             mColorSelector.setColorSelectionListener(color -> {
                 pressed.fill = color;
                 mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
-                mCurrentlyEditedButton.updateProperties();
+                ControlStyleManager.syncButton(mCurrentlyEditedButton);
             });
             appearColor(isAtRight(), pressed.fill);
         });
@@ -583,6 +582,7 @@ public class EditControlSideDialog extends SideDialogView {
                 mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 float r = mCurrentlyEditedButton.getProperties().cornerRadius;
                 mCornerRadiusSeekbar.setProgress((int) r); setPercentageText(mCornerRadiusPercentTextView, (int) r);
+                ControlStyleManager.syncButton(mCurrentlyEditedButton);
             });
         });
     }

@@ -19,6 +19,22 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
             .associateBy { it.optString(if (isZalith) "uuid" else "name") }
         val fclDirectionStyles = source.optJSONArray("directionStyles").objects()
             .associate { it.optString("name") to it.optString("styleType") }
+        val styleList = JSONArray()
+        for ((id, style) in styles) {
+            if (id.isBlank()) continue
+            val entry = JSONObject().put("id", id)
+            if (isZalith) {
+                style.optJSONObject("lightStyle")?.let { entry.put("appearance", zalithAppearance(it)) }
+                if (!style.optBoolean("commonStyle")) {
+                    style.optJSONObject("darkStyle")?.let { entry.put("darkAppearance", zalithAppearance(it)) }
+                }
+                entry.put("animateSwap", style.optBoolean("animateSwap"))
+            } else {
+                entry.put("appearance", JSONObject().put("normal", fclStyle(style, ""))
+                    .put("pressed", fclStyle(style, "Pressed")))
+            }
+            styleList.put(entry)
+        }
         var changed = 0
         for (group in groups.objects()) {
             val data = if (isZalith) group else group.optJSONObject("viewData") ?: continue
@@ -86,6 +102,7 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
                     putRelativeSize(button, axis.lowercase(), relative)
                 }
                 val styleId = item.optString(if (isZalith) "buttonStyle" else "style")
+                if (styleId.isNotBlank()) button.put("styleId", styleId)
                 styles[styleId]?.let { style ->
                     if (isZalith) {
                         style.optJSONObject("lightStyle")?.let { button.put("appearance", zalithAppearance(it)) }
@@ -104,7 +121,8 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
         }
         return Result(JSONObject().put("version", 9).put("scaledAt", 100)
             .put("mControlDataList", buttons).put("mDrawerDataList", JSONArray())
-            .put("mJoystickDataList", joysticks).put("mLayerDataList", layers),
+            .put("mJoystickDataList", joysticks).put("mLayerDataList", layers)
+            .put("mStyleDataList", styleList),
             if (isZalith) "ZL2" else "FCL", changed)
     }
 

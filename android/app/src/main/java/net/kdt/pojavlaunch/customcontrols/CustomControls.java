@@ -21,6 +21,8 @@ public class CustomControls {
     public List<ControlJoystickData> mJoystickDataList;
     /** v9 起落盘：FCL / ZL2 的层属性整层生效，旧布局按 groupId 补默认层。 */
     public List<ControlLayerData> mLayerDataList;
+    /** 共享样式表：同 styleId 的按钮外观由这里统一维护。 */
+    public List<ControlStyleData> mStyleDataList;
     public CustomControls() {
     	this(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
     }
@@ -32,6 +34,7 @@ public class CustomControls {
     	this.mDrawerDataList = mDrawerDataList;
     	this.mJoystickDataList = mJoystickDataList;
     	this.mLayerDataList = new ArrayList<>();
+    	this.mStyleDataList = new ArrayList<>();
     	this.scaledAt = 100f;
     }
 
@@ -55,7 +58,9 @@ public class CustomControls {
     	ids.add(id);
     	mLayerDataList.add(new ControlLayerData(id, "always", false, false, false));
     }
-	
+
+    public void ensureStyles() { if (mStyleDataList == null) mStyleDataList = new ArrayList<>(); }
+
 	// Generate default control
 	// Here for historical reasons
 	// Just admire it idk
@@ -92,6 +97,7 @@ public class CustomControls {
 
 	public void save(String path) throws IOException {
 		ensureLayers();
+		ensureStyles();
 		version = 9;
 
 		Tools.write(path, Tools.GLOBAL_GSON.toJson(this));

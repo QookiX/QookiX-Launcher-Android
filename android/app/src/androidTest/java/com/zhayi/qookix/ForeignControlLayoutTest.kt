@@ -7,6 +7,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.zhayi.qookix.control.ForeignControlLayout
 import com.zhayi.qookix.compose.ComposeMainActivity
 import net.kdt.pojavlaunch.Tools
+import net.kdt.pojavlaunch.customcontrols.ControlData
+import net.kdt.pojavlaunch.customcontrols.ControlStyleData
+import net.kdt.pojavlaunch.customcontrols.ControlStyleManager
+import net.kdt.pojavlaunch.customcontrols.CustomControls
 import net.kdt.pojavlaunch.customcontrols.LayoutConverter
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -193,6 +197,73 @@ class ForeignControlLayoutTest {
         assertTrue(layer.getBoolean("hideWhenMouse"))
         assertTrue(layer.getBoolean("hideWhenGamepad"))
         assertEquals(0, fcl.changed)
+    }
+
+    @Test
+    fun importsSharedStyleTableAndButtonStyleReferences() {
+        val zl2 = checkNotNull(converter.convert(JSONObject("""{
+            "styles":[{"uuid":"s1","lightStyle":{"backgroundColor":-1,"contentColor":-65536,"borderWidth":2},
+                "darkStyle":{"backgroundColor":-16777216},"commonStyle":false,"animateSwap":true}],
+            "layers":[{"normalButtons":[
+                {"text":"A","buttonStyle":"s1","clickEvents":[{"type":"key","key":"key.keyboard.a"}]},
+                {"text":"B","buttonStyle":"s1","clickEvents":[{"type":"key","key":"key.keyboard.b"}]}
+            ]}]
+        }""")))
+        val styles = zl2.layout.getJSONArray("mStyleDataList")
+        assertEquals(1, styles.length())
+        styles.getJSONObject(0).apply {
+            assertEquals("s1", getString("id"))
+            assertTrue(getBoolean("animateSwap"))
+            assertTrue(has("darkAppearance"))
+        }
+        val buttons = zl2.layout.getJSONArray("mControlDataList")
+        assertEquals(2, buttons.length())
+        assertEquals("s1", buttons.getJSONObject(0).getString("styleId"))
+        assertEquals("s1", buttons.getJSONObject(1).getString("styleId"))
+        assertEquals(buttons.getJSONObject(0).getJSONObject("appearance").toString(),
+            buttons.getJSONObject(1).getJSONObject("appearance").toString())
+
+        val fcl = checkNotNull(converter.convert(JSONObject("""{"buttonStyles":[{"name":"s2","fillColor":-1}],
+            "viewGroups":[{"viewData":{"buttonList":[{"text":"C","style":"s2",
+            "event":{"pressEvent":{"outputKeycodes":[42]}}}]}}]}""")))
+        assertEquals("s2", fcl.layout.getJSONArray("mStyleDataList").getJSONObject(0).getString("id"))
+        assertEquals("s2", fcl.layout.getJSONArray("mControlDataList").getJSONObject(0).getString("styleId"))
+    }
+
+    @Test
+    fun sharedStyleIsSingleSourceForLinkedButtons() {
+        val previousMetrics = Tools.currentDisplayMetrics
+        Tools.currentDisplayMetrics = DisplayMetrics().apply { density = 2f; widthPixels = 1600; heightPixels = 800 }
+        try {
+            val layout = CustomControls()
+            val style = ControlStyleData().apply {
+                id = "s1"
+                appearance = ControlData.Appearance().apply {
+                    normal = ControlData.PaintStyle().apply {
+                        fill = 0x112233
+                        cornerPercent = floatArrayOf(1f, 2f, 3f, 4f)
+                    }
+                }
+            }
+            layout.mStyleDataList.add(style)
+            val a = ControlData("A").apply { styleId = "s1" }
+            val b = ControlData("B").apply { styleId = "s1" }
+            layout.mControlDataList.add(a)
+            layout.mControlDataList.add(b)
+
+            ControlStyleManager.applyAll(layout)
+            assertEquals(0x112233, a.appearance.normal.fill)
+            assertNotSame(style.appearance, a.appearance)
+            a.appearance.normal.fill = 0x654321
+            a.appearance.normal.cornerPercent[0] = 9f
+            ControlStyleManager.syncFromButton(layout, a)
+            assertEquals(0x654321, style.appearance.normal.fill)
+            ControlStyleManager.applyAll(layout)
+            assertEquals(0x654321, b.appearance.normal.fill)
+            assertEquals(9f, b.appearance.normal.cornerPercent[0], 0f)
+        } finally {
+            Tools.currentDisplayMetrics = previousMetrics
+        }
     }
 
     @Test
