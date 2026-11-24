@@ -194,6 +194,9 @@ public class EditControlSideDialog extends SideDialogView {
      * Load values for basic control data
      */
     public void loadValues(ControlData data) {
+        // 导入的布局把颜色/圆角存在 appearance 里，先同步到旧字段，
+        // 否则属性面板显示的是默认黑底，用户看到的外观和实际按钮不一致。
+        data.appearanceToLegacy();
         setDefaultVisibilitySetting();
         mOrientationTextView.setVisibility(GONE);
         mOrientationSpinner.setVisibility(GONE);
@@ -468,7 +471,8 @@ public class EditControlSideDialog extends SideDialogView {
             if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
                 mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().strokeWidth = mStrokeWidthSeekbar.getProgress() / 10F;
-            mCurrentlyEditedButton.setBackground();
+            mCurrentlyEditedButton.getProperties().legacyToAppearance();
+            mCurrentlyEditedButton.updateProperties();
             setPercentageText(mStrokePercentTextView, progress);
         });
 
@@ -477,7 +481,8 @@ public class EditControlSideDialog extends SideDialogView {
             if (mCurrentlyEditedButton != null && mCurrentlyEditedButton.getControlLayoutParent() != null)
                 mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
             mCurrentlyEditedButton.getProperties().cornerRadius = mCornerRadiusSeekbar.getProgress();
-            mCurrentlyEditedButton.setBackground();
+            mCurrentlyEditedButton.getProperties().legacyToAppearance();
+            mCurrentlyEditedButton.updateProperties();
             setPercentageText(mCornerRadiusPercentTextView, progress);
         });
 
@@ -537,7 +542,8 @@ public class EditControlSideDialog extends SideDialogView {
                 if (mCurrentlyEditedButton.getProperties().strokeColor != color)
                     mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 mCurrentlyEditedButton.getProperties().strokeColor = color;
-                mCurrentlyEditedButton.setBackground();
+                mCurrentlyEditedButton.getProperties().legacyToAppearance();
+            mCurrentlyEditedButton.updateProperties();
             });
             appearColor(isAtRight(), mCurrentlyEditedButton.getProperties().strokeColor);
         });
@@ -548,7 +554,8 @@ public class EditControlSideDialog extends SideDialogView {
                 if (mCurrentlyEditedButton.getProperties().bgColor != color)
                     mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
                 mCurrentlyEditedButton.getProperties().bgColor = color;
-                mCurrentlyEditedButton.setBackground();
+                mCurrentlyEditedButton.getProperties().legacyToAppearance();
+            mCurrentlyEditedButton.updateProperties();
             });
             appearColor(isAtRight(), mCurrentlyEditedButton.getProperties().bgColor);
         });

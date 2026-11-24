@@ -320,6 +320,37 @@ public class ControlData {
         return false;
     }
 
+    // ── 导入样式与旧字段的双向同步 ─────────────────────────────────────────
+    // 编辑器只认 bgColor/strokeColor/cornerRadius，导入的布局用的是 appearance。
+    // 不同步的话：打开属性面板看到的是默认黑底，改完颜色又被 appearance 盖回去。
+
+    /** 导入样式 → 旧字段：让属性面板显示当前实际外观。 */
+    public void appearanceToLegacy() {
+        Appearance a = appearance != null ? appearance : darkAppearance;
+        if (a == null || a.normal == null) return;
+        bgColor = a.normal.fill;
+        strokeColor = a.normal.outline;
+        strokeWidth = a.normal.strokeDp;
+        float[] corners = a.normal.cornerPercent;
+        if (corners != null && corners.length == 4) {
+            cornerRadius = (corners[0] + corners[1] + corners[2] + corners[3]) / 4f;
+        }
+    }
+
+    /** 旧字段 → 导入样式：编辑器改完颜色/圆角后写回，两套绘制路径结果一致。 */
+    public void legacyToAppearance() {
+        for (Appearance a : new Appearance[]{appearance, darkAppearance}) {
+            if (a == null) continue;
+            for (PaintStyle s : new PaintStyle[]{a.normal, a.pressed}) {
+                if (s == null) continue;
+                s.fill = bgColor;
+                s.outline = strokeColor;
+                s.strokeDp = strokeWidth;
+                s.cornerPercent = new float[]{cornerRadius, cornerRadius, cornerRadius, cornerRadius};
+            }
+        }
+    }
+
     //Getters || setters (with conversion for ease of use)
     public float getWidth() {
         return resolveSize(width, widthFraction, widthRelativeToHeight);

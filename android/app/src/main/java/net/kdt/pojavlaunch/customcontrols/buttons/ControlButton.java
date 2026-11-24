@@ -258,6 +258,7 @@ public class ControlButton extends TextView implements ControlInterface {
 
             case MotionEvent.ACTION_DOWN: // 0
             case MotionEvent.ACTION_POINTER_DOWN: // 5
+                animatePressFeedback(true);
                 if(!getProperties().isToggle){
                     sendKeyPresses(true);
                 }
@@ -269,6 +270,7 @@ public class ControlButton extends TextView implements ControlInterface {
             case MotionEvent.ACTION_UP: // 1
             case MotionEvent.ACTION_CANCEL: // 3
             case MotionEvent.ACTION_POINTER_UP: // 6
+                animatePressFeedback(false);
                 if(getProperties().passThruEnabled){
                     View gameSurface = getControlLayoutParent().getGameSurface();
                     if(gameSurface != null) gameSurface.dispatchTouchEvent(event);
@@ -424,6 +426,13 @@ public class ControlButton extends TextView implements ControlInterface {
             return true;
         }
         return false;
+    }
+
+    /** 按下缩小、抬起回弹：FCL / ZL2 都有这个手感，缺了会觉得按钮「没反应」。 */
+    private void animatePressFeedback(boolean pressed) {
+        animate().cancel();
+        animate().scaleX(pressed ? 0.94f : 1f).scaleY(pressed ? 0.94f : 1f)
+                .setDuration(pressed ? 60 : 100).start();
     }
 
     public void sendKeyPresses(boolean isDown){
