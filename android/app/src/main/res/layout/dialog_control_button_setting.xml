@@ -364,6 +364,21 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/editBackgroundColor_textView" />
 
+    <!-- 手势切换：FCL 的按下时切换建造 / 战斗手感 -->
+    <TextView
+        android:id="@+id/editGestureMode_textView"
+        android:layout_width="0dp"
+        android:layout_height="@dimen/_35sdp"
+        android:background="?attr/selectableItemBackground"
+        android:drawableEnd="@drawable/spinner_arrow_right"
+        android:gravity="center_vertical"
+        android:paddingEnd="5dp"
+        android:text="@string/customctrl_gesture_switch"
+
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/editPressedColor_textView" />
+
     <!-- STROKE WIDTH -->
     <TextView
         android:id="@+id/editStrokeWidth_textView"
@@ -412,7 +427,7 @@
 
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/editPressedColor_textView" />
+        app:layout_constraintTop_toBottomOf="@+id/editGestureMode_textView" />
 
 
     <!-- CORNER RADIUS SECTION -->

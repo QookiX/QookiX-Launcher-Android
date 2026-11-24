@@ -12,6 +12,9 @@
     <string name="qk_control_label">文字</string>
     <string name="qk_control_gesture_fight">战斗手势</string>
     <string name="qk_control_gesture_build">建造手势</string>
+    <string name="customctrl_gesture_switch">按下时切换建造/战斗手势</string>
+    <string name="customctrl_gesture_switch_on">按下时切换建造/战斗手势（已开启）</string>
+    <string name="customctrl_gesture_switch_off">不切换</string>
     <string name="qk_control_load">加载控制布局</string>
     <string name="qk_control_save">保存</string>
     <string name="qk_control_save_title">保存控制布局</string>

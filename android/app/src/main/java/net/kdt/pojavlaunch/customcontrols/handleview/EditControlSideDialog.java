@@ -68,7 +68,7 @@ public class EditControlSideDialog extends SideDialogView {
     private final TextView[] mKeycodeTextviews = new TextView[4];
     private SeekBar mStrokeWidthSeekbar, mCornerRadiusSeekbar, mAlphaSeekbar;
     private TextView mStrokePercentTextView, mCornerRadiusPercentTextView, mAlphaPercentTextView;
-    private TextView mSelectBackgroundColor, mSelectStrokeColor, mSelectPressedColor;
+    private TextView mSelectBackgroundColor, mSelectStrokeColor, mSelectPressedColor, mGestureModeText;
     private ArrayAdapter<String> mAdapter;
     private List<String> mSpecialArray;
     private CheckBox mDisplayInGameCheckbox, mDisplayInMenuCheckbox;
@@ -194,14 +194,11 @@ public class EditControlSideDialog extends SideDialogView {
      * Load values for basic control data
      */
     public void loadValues(ControlData data) {
-        // 导入的布局把颜色/圆角存在 appearance 里，先同步到旧字段，
-        // 否则属性面板显示的是默认黑底，用户看到的外观和实际按钮不一致。
+        // 导入的颜色/圆角存在 appearance 里，先同步到旧字段，否则面板显示默认黑底
         data.appearanceToLegacy();
         setDefaultVisibilitySetting();
-        mOrientationTextView.setVisibility(GONE);
-        mOrientationSpinner.setVisibility(GONE);
-        mForwardLockSwitch.setVisibility(GONE);
-        mAbsoluteTrackingSwitch.setVisibility(GONE);
+        mOrientationTextView.setVisibility(GONE); mOrientationSpinner.setVisibility(GONE);
+        mForwardLockSwitch.setVisibility(GONE); mAbsoluteTrackingSwitch.setVisibility(GONE);
 
         mNameEditText.setText(data.name);
         mWidthEditText.setText(String.valueOf(data.getWidth()));
@@ -214,10 +211,9 @@ public class EditControlSideDialog extends SideDialogView {
         setPercentageText(mAlphaPercentTextView, (int) (data.opacity * 100));
         setPercentageText(mStrokePercentTextView, (int) data.strokeWidth * 10);
         setPercentageText(mCornerRadiusPercentTextView, (int) data.cornerRadius);
+        ControlActionExtras.update(mGestureModeText, mCurrentlyEditedButton);
 
-        mToggleSwitch.setChecked(data.isToggle);
-        mPassthroughSwitch.setChecked(data.passThruEnabled);
-        mSwipeableSwitch.setChecked(data.isSwipeable);
+        mToggleSwitch.setChecked(data.isToggle); mPassthroughSwitch.setChecked(data.passThruEnabled); mSwipeableSwitch.setChecked(data.isSwipeable);
 
         mDisplayInGameCheckbox.setChecked(data.displayInGame);
         mDisplayInMenuCheckbox.setChecked(data.displayInMenu);
@@ -358,6 +354,7 @@ public class EditControlSideDialog extends SideDialogView {
         mSelectBackgroundColor = mDialogContent.findViewById(R.id.editBackgroundColor_textView);
         mSelectStrokeColor = mDialogContent.findViewById(R.id.editStrokeColor_textView);
         mSelectPressedColor = mDialogContent.findViewById(R.id.editPressedColor_textView);
+        mGestureModeText = mDialogContent.findViewById(R.id.editGestureMode_textView);
         mStrokePercentTextView = mDialogContent.findViewById(R.id.editStrokeWidth_textView_percent);
         mAlphaPercentTextView = mDialogContent.findViewById(R.id.editButtonOpacity_textView_percent);
         mCornerRadiusPercentTextView = mDialogContent.findViewById(R.id.editCornerRadius_textView_percent);
@@ -578,21 +575,24 @@ public class EditControlSideDialog extends SideDialogView {
             });
             appearColor(isAtRight(), pressed.fill);
         });
+
+        mGestureModeText.setOnClickListener(v -> {
+            if (mCurrentlyEditedButton == null) return;
+            ControlActionExtras.show(mDialogContent.getContext(), mCurrentlyEditedButton, () -> {
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
+                ControlActionExtras.update(mGestureModeText, mCurrentlyEditedButton);
+            });
+        });
+
     }
 
     private float safeParseFloat(String string) {
-        float out = -1; // -1
-        try {
-            out = Float.parseFloat(string);
-        } catch (NumberFormatException e) {
-            Log.e("EditControlPopup", e.toString());
-        }
-        return out;
+        try { return Float.parseFloat(string); }
+        catch (NumberFormatException e) { Log.e("EditControlPopup", e.toString()); return -1; }
     }
 
     public void setCurrentlyEditedButton(ControlInterface button) {
-        if (mCurrentlyEditedButton != null)
-            mCurrentlyEditedButton.getControlView().removeOnLayoutChangeListener(mLayoutChangedListener);
+        if (mCurrentlyEditedButton != null) mCurrentlyEditedButton.getControlView().removeOnLayoutChangeListener(mLayoutChangedListener);
         mCurrentlyEditedButton = button;
         mCurrentlyEditedButton.getControlView().addOnLayoutChangeListener(mLayoutChangedListener);
     }
