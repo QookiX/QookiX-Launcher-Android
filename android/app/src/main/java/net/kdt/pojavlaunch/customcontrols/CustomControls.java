@@ -16,21 +16,45 @@ public class CustomControls {
     /** 接手柄时不隐藏触控键（ZL2 的 hideWhenGamepad 例外）；默认 false = 保持原行为。 */
     public boolean keepTouchControlsWithGamepad;
     public float scaledAt;
-	public List<ControlData> mControlDataList;
-	public List<ControlDrawerData> mDrawerDataList;
-	public List<ControlJoystickData> mJoystickDataList;
-	public CustomControls() {
-		this(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
-	}
+    public List<ControlData> mControlDataList;
+    public List<ControlDrawerData> mDrawerDataList;
+    public List<ControlJoystickData> mJoystickDataList;
+    /** v9 起落盘：FCL / ZL2 的层属性整层生效，旧布局按 groupId 补默认层。 */
+    public List<ControlLayerData> mLayerDataList;
+    public CustomControls() {
+    	this(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+    }
 
 
 
-	public CustomControls(List<ControlData> mControlDataList, List<ControlDrawerData> mDrawerDataList, List<ControlJoystickData> mJoystickDataList) {
-		this.mControlDataList = mControlDataList;
-		this.mDrawerDataList = mDrawerDataList;
-		this.mJoystickDataList = mJoystickDataList;
-		this.scaledAt = 100f;
-	}
+    public CustomControls(List<ControlData> mControlDataList, List<ControlDrawerData> mDrawerDataList, List<ControlJoystickData> mJoystickDataList) {
+    	this.mControlDataList = mControlDataList;
+    	this.mDrawerDataList = mDrawerDataList;
+    	this.mJoystickDataList = mJoystickDataList;
+    	this.mLayerDataList = new ArrayList<>();
+    	this.scaledAt = 100f;
+    }
+
+    /** 旧布局没有层元数据时，按按钮/摇杆上的 groupId 补默认层，不改变原有显隐行为。 */
+    public void ensureLayers() {
+    	if (mLayerDataList == null) mLayerDataList = new ArrayList<>();
+    	Set<String> ids = new HashSet<>();
+    	for (ControlLayerData layer : mLayerDataList) {
+    		if (layer != null && layer.id != null) ids.add(layer.id);
+    	}
+    	if (mControlDataList != null) {
+    		for (ControlData data : mControlDataList) addLayerId(data.groupId, ids);
+    	}
+    	if (mJoystickDataList != null) {
+    		for (ControlJoystickData data : mJoystickDataList) addLayerId(data.groupId, ids);
+    	}
+    }
+
+    private void addLayerId(String id, Set<String> ids) {
+    	if (id == null || id.isEmpty() || ids.contains(id)) return;
+    	ids.add(id);
+    	mLayerDataList.add(new ControlLayerData(id, "always", false, false, false));
+    }
 	
 	// Generate default control
 	// Here for historical reasons
@@ -61,14 +85,14 @@ public class CustomControls {
 		this.mControlDataList.add(shiftData);
 		this.mControlDataList.add(new ControlData(ctx, R.string.control_jump, new int[]{LwjglGlfwKeycode.GLFW_KEY_SPACE}, "${right} - ${margin} * 2 - ${width}", "${bottom} - ${margin} * 2 - ${height}", true));
 
-		//The default controls are conform to the V3
-		version = 8;
+		//The default controls carry layer metadata (v9)
+		version = 9;
 	}
 
-	
+
 	public void save(String path) throws IOException {
-		//Current version is the V3.2 so the version as to be marked as 8 !
-		version = 8;
+		ensureLayers();
+		version = 9;
 
 		Tools.write(path, Tools.GLOBAL_GSON.toJson(this));
 	}

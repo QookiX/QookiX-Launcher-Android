@@ -4,8 +4,13 @@ import android.content.Context;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -15,6 +20,7 @@ import com.zhayi.qookix.R;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -94,17 +100,97 @@ public final class ControlGroupDialog {
             if (!groupId.equals(data.groupId)) continue;
             column.addView(memberRow(layout, controls, data, groupId, column));
         }
+        addLayerSettings(layout, column, groupId);
 
         Button add = new Button(context);
         add.setText(R.string.qk_control_groups_add);
         add.setOnClickListener(v -> showAddButtons(layout, groupId));
         column.addView(add);
 
+        ScrollView scroll = new ScrollView(context);
+        scroll.addView(column);
         new AlertDialog.Builder(context, R.style.QookixAlertDialog)
                 .setTitle(R.string.qk_control_groups_edit)
-                .setView(column)
+                .setView(scroll)
                 .setPositiveButton(R.string.qk_dialog_done, null)
                 .show();
+    }
+
+    /** 整层属性：显示场景、默认隐藏、接鼠标/手柄时隐藏，直接写图层元数据。 */
+    private static void addLayerSettings(ControlLayout layout, LinearLayout column, String groupId) {
+        Context context = layout.getContext();
+        CustomControls controls = layout.getLayout();
+        ControlLayerData existing = findLayer(controls, groupId);
+
+        TextView title = new TextView(context);
+        title.setText(R.string.qk_control_layer_title);
+        column.addView(title);
+
+        CheckBox hidden = new CheckBox(context);
+        hidden.setText(R.string.qk_control_layer_hidden);
+        hidden.setChecked(existing != null && existing.hide);
+        hidden.setOnCheckedChangeListener((button, checked) -> {
+            layerOf(controls, groupId).hide = checked;
+            layout.setGroupVisible(groupId, !checked);
+            commit(layout);
+        });
+        column.addView(hidden);
+
+        CheckBox hideMouse = new CheckBox(context);
+        hideMouse.setText(R.string.qk_control_layer_hide_mouse);
+        hideMouse.setChecked(existing != null && existing.hideWhenMouse);
+        hideMouse.setOnCheckedChangeListener((button, checked) -> {
+            layerOf(controls, groupId).hideWhenMouse = checked;
+            commit(layout);
+        });
+        column.addView(hideMouse);
+
+        CheckBox hideGamepad = new CheckBox(context);
+        hideGamepad.setText(R.string.qk_control_layer_hide_gamepad);
+        hideGamepad.setChecked(existing != null && existing.hideWhenGamepad);
+        hideGamepad.setOnCheckedChangeListener((button, checked) -> {
+            layerOf(controls, groupId).hideWhenGamepad = checked;
+            commit(layout);
+        });
+        column.addView(hideGamepad);
+
+        Spinner scene = new Spinner(context);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item,
+                new String[]{
+                        context.getString(R.string.qk_control_scene_all),
+                        context.getString(R.string.qk_control_scene_gameplay),
+                        context.getString(R.string.qk_control_scene_menu)});
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        scene.setAdapter(adapter);
+        String type = existing == null || existing.visibilityType == null
+                ? "always" : existing.visibilityType.toLowerCase(Locale.ROOT);
+        scene.setSelection(type.equals("in_game") ? 1 : type.equals("in_menu") ? 2 : 0);
+        scene.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                layerOf(controls, groupId).visibilityType =
+                        position == 1 ? "in_game" : position == 2 ? "in_menu" : "always";
+                commit(layout);
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
+        });
+        column.addView(scene);
+    }
+
+    private static ControlLayerData findLayer(CustomControls controls, String groupId) {
+        if (controls == null || controls.mLayerDataList == null) return null;
+        for (ControlLayerData layer : controls.mLayerDataList) {
+            if (layer != null && groupId.equals(layer.id)) return layer;
+        }
+        return null;
+    }
+
+    private static ControlLayerData layerOf(CustomControls controls, String groupId) {
+        ControlLayerData layer = findLayer(controls, groupId);
+        if (layer != null) return layer;
+        if (controls.mLayerDataList == null) controls.mLayerDataList = new ArrayList<>();
+        layer = new ControlLayerData(groupId, "always", false, false, false);
+        controls.mLayerDataList.add(layer);
+        return layer;
     }
 
     /** 一行：按钮名 + 移出 + 上移 + 下移。 */

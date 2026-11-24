@@ -43,6 +43,10 @@
     <string name="qk_control_groups_add">添加按钮</string>
     <string name="qk_control_groups_remove">移出</string>
     <string name="qk_control_groups_none">没有可添加的按钮了。</string>
+    <string name="qk_control_layer_title">整层设置</string>
+    <string name="qk_control_layer_hidden">默认隐藏整层</string>
+    <string name="qk_control_layer_hide_mouse">接鼠标时隐藏整层</string>
+    <string name="qk_control_layer_hide_gamepad">接手柄时隐藏整层</string>
     <string name="qk_dialog_done">完成</string>
     <string name="customctrl_corner_radius_sides">逐角圆角</string>
     <string name="customctrl_pressed_color">按下时的背景色</string>

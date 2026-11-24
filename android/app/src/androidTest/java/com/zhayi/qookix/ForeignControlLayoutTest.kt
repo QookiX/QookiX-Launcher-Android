@@ -6,6 +6,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zhayi.qookix.control.ForeignControlLayout
 import com.zhayi.qookix.compose.ComposeMainActivity
+import net.kdt.pojavlaunch.Tools
+import net.kdt.pojavlaunch.customcontrols.LayoutConverter
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -154,6 +156,73 @@ class ForeignControlLayoutTest {
         ]}""")))
         assertEquals(0, result.layout.getJSONArray("mControlDataList").length())
         assertEquals(2, result.changed)
+    }
+
+    @Test
+    fun importsLayerVisibilityAttributesWithoutCountingThemAsAdjustments() {
+        val zl2 = checkNotNull(converter.convert(JSONObject("""{"layers":[
+            {"uuid":"hud","visibilityType":"IN_GAME","hideWhenMouse":true,"normalButtons":[
+                {"text":"Hud","clickEvents":[{"type":"key","key":"key.keyboard.f3"}]}]},
+            {"uuid":"menu","visibility":"GONE","hideWhenGamepad":true,"normalButtons":[
+                {"text":"Menu","clickEvents":[{"type":"key","key":"key.keyboard.e"}]}]}
+        ]}""")))
+        assertEquals("ZL2", zl2.format)
+        assertEquals(9, zl2.layout.getInt("version"))
+        val layers = zl2.layout.getJSONArray("mLayerDataList")
+        assertEquals(2, layers.length())
+        layers.getJSONObject(0).apply {
+            assertEquals("hud", getString("id"))
+            assertEquals("in_game", getString("visibilityType"))
+            assertFalse(getBoolean("hide"))
+            assertTrue(getBoolean("hideWhenMouse"))
+            assertFalse(getBoolean("hideWhenGamepad"))
+        }
+        layers.getJSONObject(1).apply {
+            assertEquals("menu", getString("id"))
+            assertTrue(getBoolean("hide"))
+            assertTrue(getBoolean("hideWhenGamepad"))
+        }
+        assertEquals(0, zl2.changed)
+
+        val fcl = checkNotNull(converter.convert(JSONObject("""{"viewGroups":[
+            {"id":"tools","hideWhenMouse":true,"hideWhenGamepad":true,"viewData":{"buttonList":[
+                {"event":{"pressEvent":{"outputKeycodes":[42]}}}]}}]}""")))
+        val layer = fcl.layout.getJSONArray("mLayerDataList").getJSONObject(0)
+        assertEquals("tools", layer.getString("id"))
+        assertEquals("always", layer.getString("visibilityType"))
+        assertTrue(layer.getBoolean("hideWhenMouse"))
+        assertTrue(layer.getBoolean("hideWhenGamepad"))
+        assertEquals(0, fcl.changed)
+    }
+
+    @Test
+    fun v8LayoutUpgradeAddsLayerDefaultsAndKeepsGroupMembership() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(context.cacheDir, "v8-layer-migration.json")
+        file.writeText("""{"version":8,"scaledAt":100,"mControlDataList":[
+            {"name":"Tools","groupId":"tools","groupInitiallyHidden":true,"keycodes":[17,0,0,0],
+             "dynamicX":"0.1 * ${'$'}{right}","dynamicY":"0.1 * ${'$'}{bottom}","width":50,"height":50}],
+            "mDrawerDataList":[],"mJoystickDataList":[]}""")
+        val previousMetrics = Tools.currentDisplayMetrics
+        Tools.currentDisplayMetrics = DisplayMetrics().apply {
+            density = 2f; widthPixels = 1600; heightPixels = 800
+        }
+        try {
+            val layout = LayoutConverter.loadAndConvertIfNecessary(file.path)
+            assertEquals(9, layout.version)
+            assertEquals(1, layout.mLayerDataList.size)
+            assertEquals("tools", layout.mLayerDataList[0].id)
+            assertEquals("always", layout.mLayerDataList[0].visibilityType)
+            assertFalse(layout.mLayerDataList[0].hide)
+            assertTrue(layout.mControlDataList[0].groupInitiallyHidden)
+            layout.save(file.path)
+            val saved = JSONObject(file.readText())
+            assertEquals(9, saved.getInt("version"))
+            assertEquals("tools", saved.getJSONArray("mLayerDataList").getJSONObject(0).getString("id"))
+        } finally {
+            Tools.currentDisplayMetrics = previousMetrics
+            file.delete()
+        }
     }
 
     @Test

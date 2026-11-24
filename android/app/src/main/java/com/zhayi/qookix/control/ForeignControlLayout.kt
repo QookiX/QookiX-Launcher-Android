@@ -14,6 +14,7 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
         val isZalith = zalith != null
         val buttons = JSONArray()
         val joysticks = JSONArray()
+        val layers = JSONArray()
         val styles = source.optJSONArray(if (isZalith) "styles" else "buttonStyles").objects()
             .associateBy { it.optString(if (isZalith) "uuid" else "name") }
         val fclDirectionStyles = source.optJSONArray("directionStyles").objects()
@@ -28,6 +29,14 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
             if (hidden && groupId.isBlank()) {
                 changed += (items?.length() ?: 0) + (directions?.length() ?: 0)
                 continue
+            }
+            if (groupId.isNotBlank()) {
+                layers.put(JSONObject()
+                    .put("id", groupId)
+                    .put("visibilityType", group.optString("visibilityType", "always").lowercase())
+                    .put("hide", hidden)
+                    .put("hideWhenMouse", group.optBoolean("hideWhenMouse"))
+                    .put("hideWhenGamepad", group.optBoolean("hideWhenGamepad")))
             }
             for (item in directions.objects()) {
                 val directionPad = !isZalith && fclDirectionStyles[item.optString("style")] == "BUTTON"
@@ -56,7 +65,7 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
                 val x = fraction(position.optDouble(if (isZalith) "x" else "xPosition", 0.0), scale)
                 val y = fraction(position.optDouble(if (isZalith) "y" else "yPosition", 0.0), scale)
                 val approximateSize = size.optString(if (isZalith) "type" else "sizeType").equals("wrap_content", ignoreCase = true)
-                if (output.adjusted || approximateSize || group.optBoolean("hideWhenMouse") || group.optBoolean("hideWhenGamepad")) changed++
+                if (output.adjusted || approximateSize) changed++
                 val button = JSONObject()
                     .put("name", label.take(80))
                     .put("keycodes", JSONArray(output.keys.toList().take(4) + List((4 - output.keys.size).coerceAtLeast(0)) { 0 }))
@@ -93,8 +102,9 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
                 buttons.put(button)
             }
         }
-        return Result(JSONObject().put("version", 8).put("scaledAt", 100)
-            .put("mControlDataList", buttons).put("mDrawerDataList", JSONArray()).put("mJoystickDataList", joysticks),
+        return Result(JSONObject().put("version", 9).put("scaledAt", 100)
+            .put("mControlDataList", buttons).put("mDrawerDataList", JSONArray())
+            .put("mJoystickDataList", joysticks).put("mLayerDataList", layers),
             if (isZalith) "ZL2" else "FCL", changed)
     }
 
@@ -164,7 +174,7 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
             putRelativeSize(joystick, "width", relative)
             putRelativeSize(joystick, "height", relative)
         }
-        var adjusted = group.optBoolean("hideWhenMouse") || group.optBoolean("hideWhenGamepad")
+        var adjusted = false
         if (zalith) {
             fun keys(events: JSONArray): JSONArray {
                 val codes = events.objects().mapNotNull { event ->

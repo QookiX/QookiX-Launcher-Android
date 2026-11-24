@@ -37,8 +37,11 @@ public class LayoutConverter {
                 if (version == 6 || version == 7) {
                     return convertV6_7Layout(layoutJobj);
                 }
-                else if (version == 8) {
-                    return Tools.GLOBAL_GSON.fromJson(jsonLayoutData, CustomControls.class);
+                else if (version == 8 || version == 9) {
+                    CustomControls layout = Tools.GLOBAL_GSON.fromJson(jsonLayoutData, CustomControls.class);
+                    layout.ensureLayers();
+                    layout.version = 9;
+                    return layout;
                 }
             }
             return null;
@@ -66,7 +69,8 @@ public class LayoutConverter {
                 data.setHeight(data.getWidth());
             }
         }
-        layout.version = 8;
+        layout.version = 9;
+        layout.ensureLayers();
         return layout;
     }
 

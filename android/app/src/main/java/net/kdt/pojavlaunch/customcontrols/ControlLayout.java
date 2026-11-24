@@ -102,9 +102,9 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 		// Cleanup buttons only when input layout is null
 		if (controlLayout == null) return;
 
+		controlLayout.ensureLayers();
 		mLayout = controlLayout;
 		groupVisibility.clear();
-		
 
 		// Joystick(s) first, to workaround the touch dispatch
 		for(ControlJoystickData joystick : mLayout.mJoystickDataList){
@@ -325,9 +325,10 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 			if (button instanceof ControlSubButton) continue;
 			ControlData data = button.getProperties();
 			boolean included = scene.shows(data.displayInGame, data.displayInMenu);
-			boolean groupVisible = data.groupId == null || groupVisibility.getOrDefault(data.groupId, !data.groupInitiallyHidden);
-			button.setVisible(preview ? included && (!mReadOnlyPreview || groupVisible)
-					: groupVisible && !hideForDevice && (!data.isHideable || (mControlVisible && included)));
+			boolean visible = ControlLayerVisibility.visible(mLayout, data.groupId, !data.groupInitiallyHidden,
+					groupVisibility, scene, !preview || mReadOnlyPreview, preview, mExternalInput, mExternalSource);
+			button.setVisible(preview ? included && (!mReadOnlyPreview || visible)
+					: visible && !hideForDevice && (!data.isHideable || (mControlVisible && included)));
 		}
 		if (mVisibilityListener != null) mVisibilityListener.run();
 	}
@@ -341,7 +342,7 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 			for (ControlInterface button : getButtonChildren()) {
 				ControlData data = button.getProperties();
 				if (!id.equals(data.groupId)) continue;
-				boolean visible = groupVisibility.getOrDefault(id, !data.groupInitiallyHidden);
+				boolean visible = groupVisibility.getOrDefault(id, ControlLayerVisibility.initialVisible(mLayout, id, !data.groupInitiallyHidden));
 				groupVisibility.put(id, operation.equals("show") || (!operation.equals("hide") && !visible));
 				break;
 			}
@@ -351,7 +352,7 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 
 	private GuideOverlayView mGuideOverlay;
 
-	public boolean isGroupVisible(String id, boolean fallback) { return groupVisibility.getOrDefault(id, fallback); }
+	public boolean isGroupVisible(String id, boolean fallback) { return groupVisibility.getOrDefault(id, ControlLayerVisibility.initialVisible(mLayout, id, fallback)); }
 
 	public void setGroupVisible(String id, boolean visible) {
 		groupVisibility.put(id, visible);
