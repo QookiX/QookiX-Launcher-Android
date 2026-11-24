@@ -70,8 +70,12 @@ public interface ControlInterface extends View.OnLongClickListener {
      */
     default ControlData preProcessProperties(ControlData properties, ControlLayout layout) {
         //Size
-        properties.setWidth(properties.getWidth() / layout.getLayoutScale() * PREF_BUTTONSIZE);
-        properties.setHeight(properties.getHeight() / layout.getLayoutScale() * PREF_BUTTONSIZE);
+        if (properties.widthFraction == 0) {
+            properties.setWidth(properties.getWidth() / layout.getLayoutScale() * PREF_BUTTONSIZE);
+        }
+        if (properties.heightFraction == 0) {
+            properties.setHeight(properties.getHeight() / layout.getLayoutScale() * PREF_BUTTONSIZE);
+        }
 
         //Visibility
         properties.isHideable = !properties.containsKeycode(ControlData.SPECIALBTN_TOGGLECTRL) && !properties.containsKeycode(ControlData.SPECIALBTN_VIRTUALMOUSE);
@@ -357,8 +361,10 @@ public interface ControlInterface extends View.OnLongClickListener {
 
     default void injectLayoutParamBehavior() {
         getControlView().addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            getProperties().setWidth(right - left);
-            getProperties().setHeight(bottom - top);
+            // 百分比尺寸的控件由 fraction 决定大小：`setWidth` 会把 fraction 清零，
+            // 一 layout 就把导入的百分比固化成当时的像素，保存后再开窗口就不缩放了。
+            if (getProperties().widthFraction == 0) getProperties().setWidth(right - left);
+            if (getProperties().heightFraction == 0) getProperties().setHeight(bottom - top);
             setBackground();
 
             // Re-calculate position

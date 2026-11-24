@@ -9,9 +9,14 @@ import org.lwjgl.glfw.CallbackBridge;
 public class RightClickGesture extends ValidatorGesture {
     private boolean mGestureEnabled = true;
     private boolean mGestureValid = true;
+    private int mouseButton = LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_RIGHT;
     private float mGestureStartX, mGestureStartY, mGestureEndX, mGestureEndY;
     public RightClickGesture(Handler mHandler) {
         super(mHandler);
+    }
+
+    void setMouseButton(int button) {
+        mouseButton = button;
     }
 
     public final void inputEvent() {
@@ -52,7 +57,7 @@ public class RightClickGesture extends ValidatorGesture {
         boolean fingerStill = LeftClickGesture.isFingerStill(mGestureStartX, mGestureStartY, mGestureEndX, mGestureEndY, LeftClickGesture.FINGER_STILL_THRESHOLD);
         System.out.println("Right click: " + fingerStill);
         if(!fingerStill) return;
-        CallbackBridge.sendMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_RIGHT, true);
-        CallbackBridge.sendMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_RIGHT, false);
+        CallbackBridge.sendMouseButton(mouseButton, true);
+        CallbackBridge.sendMouseButton(mouseButton, false);
     }
 }

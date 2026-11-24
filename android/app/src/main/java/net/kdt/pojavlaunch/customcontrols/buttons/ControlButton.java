@@ -8,9 +8,11 @@ import android.annotation.SuppressLint;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.util.Log;
+import android.graphics.drawable.GradientDrawable;
+import android.content.res.Configuration;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -42,6 +44,30 @@ public class ControlButton extends TextView implements ControlInterface {
     protected boolean mIsToggled = false;
     protected boolean mIsPointerOutOfBounds = false;
     private MouseWheelGesture wheelGesture;
+    private GestureDetector actionGestures;
+    private int[] heldLongPressKeys;
+    private int[] repeatingLongPressKeys;
+    private final Runnable repeatScroll = new Runnable() {
+        @Override public void run() {
+            if (!isActivated() || !isShown() || mProperties.scrollWhileHeld == 0) return;
+            CallbackBridge.sendScroll(0, Integer.signum(mProperties.scrollWhileHeld));
+            postDelayed(this, 50);
+        }
+    };
+    private final Runnable repeatClick = new Runnable() {
+        @Override public void run() {
+            if (!isActivated() || !isShown()) return;
+            pulseRepeatableKeys(mProperties.keycodes);
+            postDelayed(this, 20);
+        }
+    };
+    private final Runnable repeatLongPress = new Runnable() {
+        @Override public void run() {
+            if (repeatingLongPressKeys == null || !isShown()) return;
+            pulseRepeatableKeys(repeatingLongPressKeys);
+            postDelayed(this, 20);
+        }
+    };
 
     public ControlButton(ControlLayout layout, ControlData properties) {
         super(layout.getContext());
@@ -98,6 +124,7 @@ public class ControlButton extends TextView implements ControlInterface {
         }
 
         setText(properties.name);
+        applyImportedAppearance();
     }
     /**
      * 让标签随按钮尺寸缩放。
@@ -114,10 +141,49 @@ public class ControlButton extends TextView implements ControlInterface {
         float sizePx = minSide * 0.42f;
         sizePx = Math.max(11f * density, Math.min(sizePx, 17f * density));
         setTextSize(TypedValue.COMPLEX_UNIT_PX, sizePx);
+        applyImportedAppearance();
+    }
+
+    @Override
+    public void setActivated(boolean activated) {
+        boolean changed = activated != isActivated();
+        super.setActivated(activated);
+        if (changed) applyImportedAppearance();
+    }
+
+    private boolean applyImportedAppearance() {
+        if (mProperties == null) return false;
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        ControlData.Appearance appearance = dark && mProperties.darkAppearance != null
+                ? mProperties.darkAppearance : mProperties.appearance;
+        if (appearance == null || appearance.normal == null) return false;
+        ControlData.PaintStyle style = (isActivated() || mIsToggled) && appearance.pressed != null
+                ? appearance.pressed : appearance.normal;
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(style.fill);
+        drawable.setStroke(Math.round(Tools.dpToPx(Math.max(0f, Math.min(100f, style.strokeDp)))), style.outline);
+        if (style.cornerPercent != null && style.cornerPercent.length == 4) {
+            float minSide = Math.min(getWidth(), getHeight());
+            float[] radii = new float[8];
+            for (int i = 0; i < 4; i++) {
+                int corner = getLayoutDirection() == LAYOUT_DIRECTION_RTL ? i ^ 1 : i;
+                float radius = minSide * Math.max(0f, Math.min(100f, style.cornerPercent[corner])) / 100f;
+                radii[2 * i] = radii[2 * i + 1] = radius;
+            }
+            drawable.setCornerRadii(radii);
+        } else {
+            drawable.setCornerRadius(Tools.dpToPx(Math.max(0f, Math.min(400f, style.radiusDp))));
+        }
+        setBackground(drawable);
+        setTextColor(style.text);
+        setAllCaps(false);
+        if (style.textSp > 0 && style.textSp <= 100) setTextSize(style.textSp);
+        return true;
     }
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        if (mProperties.appearance != null || mProperties.darkAppearance != null) return;
         if (mIsToggled || (!mProperties.isToggle && isActivated()) || (wheelGesture != null && wheelGesture.pointer() != -1))
             canvas.drawRoundRect(0, 0, getWidth(), getHeight(), mComputedRadius, mComputedRadius, mRectPaint);
     }
@@ -147,8 +213,16 @@ public class ControlButton extends TextView implements ControlInterface {
 
     @SuppressLint("ClickableViewAccessibility")
     @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (mProperties.labelOnly && !mControlLayout.getModifiable()) return false;
+        return super.dispatchTouchEvent(event);
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (mProperties.containsKeycode(ControlData.SPECIALBTN_WHEEL_GESTURE)) return onWheelTouch(event);
+        dispatchActionGesture(event);
         switch (event.getActionMasked()){
             case MotionEvent.ACTION_MOVE:
                 //Send the event to be taken as a mouse action
@@ -187,6 +261,9 @@ public class ControlButton extends TextView implements ControlInterface {
                 if(!getProperties().isToggle){
                     sendKeyPresses(true);
                 }
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                    runActionExtras(mProperties.pressAction);
+                }
                 break;
 
             case MotionEvent.ACTION_UP: // 1
@@ -198,6 +275,7 @@ public class ControlButton extends TextView implements ControlInterface {
                 }
                 if(mIsPointerOutOfBounds) getControlLayoutParent().onTouch(this, event);
                 mIsPointerOutOfBounds = false;
+                releaseLongPressKeys();
 
                 if (event.getActionMasked() == MotionEvent.ACTION_CANCEL ? !mProperties.isToggle : !triggerToggle()) {
                     sendKeyPresses(false);
@@ -209,6 +287,86 @@ public class ControlButton extends TextView implements ControlInterface {
         }
 
         return super.onTouchEvent(event);
+    }
+
+    private void dispatchActionGesture(MotionEvent event) {
+        if (mProperties.clickAction == null && mProperties.longPressAction == null &&
+                mProperties.doubleClickAction == null) return;
+        if (actionGestures == null) {
+            GestureDetector.SimpleOnGestureListener listener = new GestureDetector.SimpleOnGestureListener() {
+                @Override public boolean onDown(MotionEvent e) { return true; }
+                @Override public boolean onSingleTapUp(MotionEvent e) {
+                    if (mProperties.doubleClickAction == null) runAction(mProperties.clickAction);
+                    return true;
+                }
+                @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                    runAction(mProperties.clickAction);
+                    return true;
+                }
+                @Override public void onLongPress(MotionEvent e) {
+                    ControlData.Action action = mProperties.longPressAction;
+                    if (action == null || !isShown() || mControlLayout.getModifiable()) return;
+                    if (action.autoClick) {
+                        repeatingLongPressKeys = action.keys;
+                        repeatLongPress.run();
+                    } else {
+                        heldLongPressKeys = action.keys;
+                    }
+                    if (heldLongPressKeys != null) {
+                        for (int key : heldLongPressKeys) dispatchKey(key, true, true);
+                    }
+                    if (repeatingLongPressKeys != null) {
+                        for (int key : repeatingLongPressKeys) {
+                            if (!isRepeatableKey(key)) dispatchKey(key, true, true);
+                        }
+                    }
+                    runActionExtras(action);
+                }
+                @Override public boolean onDoubleTapEvent(MotionEvent e) {
+                    if (e.getActionMasked() == MotionEvent.ACTION_UP) runAction(mProperties.doubleClickAction);
+                    return true;
+                }
+            };
+            actionGestures = new GestureDetector(getContext(), listener);
+            actionGestures.setIsLongpressEnabled(mProperties.longPressAction != null);
+            if (mProperties.doubleClickAction == null) actionGestures.setOnDoubleTapListener(null);
+        }
+        actionGestures.onTouchEvent(event);
+    }
+
+    private void runAction(ControlData.Action action) {
+        if (action == null || !isShown() || mControlLayout.getModifiable()) return;
+        if (action.keys != null) {
+            for (int key : action.keys) dispatchKey(key, true, true);
+            for (int i = action.keys.length - 1; i >= 0; i--) dispatchKey(action.keys[i], false, false);
+        }
+        runActionExtras(action);
+    }
+
+    private void runActionExtras(ControlData.Action action) {
+        if (action == null) return;
+        if (action.switchTouchMode) {
+            net.kdt.pojavlaunch.MinecraftGLSurface surface = mControlLayout.getGameSurface();
+            if (surface != null) {
+                int label = surface.toggleFightGestures() ? R.string.qk_control_gesture_fight : R.string.qk_control_gesture_build;
+                android.widget.Toast.makeText(getContext(), label, android.widget.Toast.LENGTH_SHORT).show();
+            }
+        }
+        if (action.text != null) {
+            for (int i = 0; i < action.text.length(); i++) {
+                CallbackBridge.sendChar(action.text.charAt(i), CallbackBridge.getCurrentMods());
+            }
+        }
+        if (action.groups != null) mControlLayout.applyGroupActions(action.groups);
+    }
+
+    private void releaseLongPressKeys() {
+        removeCallbacks(repeatLongPress);
+        repeatingLongPressKeys = null;
+        if (heldLongPressKeys == null) return;
+        int[] keys = heldLongPressKeys;
+        heldLongPressKeys = null;
+        for (int i = keys.length - 1; i >= 0; i--) dispatchKey(keys[i], false, false);
     }
 
     private boolean onWheelTouch(MotionEvent event) {
@@ -241,9 +399,17 @@ public class ControlButton extends TextView implements ControlInterface {
     @Override
     public void cancelControlInput() {
         if (wheelGesture != null) wheelGesture.cancel();
+        releaseLongPressKeys();
+        if (actionGestures != null) {
+            long now = android.os.SystemClock.uptimeMillis();
+            MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0, 0, 0);
+            actionGestures.onTouchEvent(cancel);
+            cancel.recycle();
+            actionGestures = null;
+        }
+        mIsToggled = false;
         if (isActivated()) sendKeyPresses(false);
         mIsPointerOutOfBounds = false;
-        mIsToggled = false;
         invalidate();
     }
 
@@ -263,14 +429,37 @@ public class ControlButton extends TextView implements ControlInterface {
     public void sendKeyPresses(boolean isDown){
         boolean startsPress = isDown && !isActivated();
         setActivated(isDown);
-        for(int keycode : mProperties.keycodes){
-            if(keycode >= GLFW_KEY_UNKNOWN){
-                sendKeyPress(keycode, CallbackBridge.getCurrentMods(), isDown);
-                CallbackBridge.setModifiers(keycode, isDown);
-            }else{
-                Log.i("punjabilauncher", "sendSpecialKey("+keycode+","+isDown+")");
-                sendSpecialKey(keycode, isDown, startsPress);
-            }
+        if (!isDown) {
+            removeCallbacks(repeatScroll);
+            removeCallbacks(repeatClick);
+        }
+        if (startsPress && mProperties.scrollWhileHeld != 0) repeatScroll.run();
+        if (startsPress && mProperties.autoClick) repeatClick.run();
+        for (int keycode : mProperties.keycodes) {
+            if (!mProperties.autoClick || !isRepeatableKey(keycode)) dispatchKey(keycode, isDown, startsPress);
+        }
+    }
+
+    private static boolean isRepeatableKey(int key) {
+        return key > 0 || key == ControlData.SPECIALBTN_MOUSEPRI || key == ControlData.SPECIALBTN_MOUSESEC ||
+                key == ControlData.SPECIALBTN_MOUSEMID || key == ControlData.SPECIALBTN_SCROLLUP ||
+                key == ControlData.SPECIALBTN_SCROLLDOWN;
+    }
+
+    private void pulseRepeatableKeys(int[] keys) {
+        for (int key : keys) if (isRepeatableKey(key)) dispatchKey(key, true, true);
+        for (int i = keys.length - 1; i >= 0; i--) {
+            if (isRepeatableKey(keys[i])) dispatchKey(keys[i], false, false);
+        }
+    }
+
+    private void dispatchKey(int keycode, boolean isDown, boolean startsPress) {
+        if (keycode == 0) return;
+        if (keycode >= GLFW_KEY_UNKNOWN) {
+            sendKeyPress(keycode, CallbackBridge.getCurrentMods(), isDown);
+            CallbackBridge.setModifiers(keycode, isDown);
+        } else {
+            sendSpecialKey(keycode, isDown, startsPress);
         }
     }
 

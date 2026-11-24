@@ -7,6 +7,11 @@
     <string name="qk_control_add_button">添加按键</string>
     <string name="qk_control_add_drawer">添加组合键</string>
     <string name="qk_control_add_joystick">添加摇杆</string>
+    <string name="qk_control_add_direction_pad">添加十字方向键</string>
+    <string name="qk_control_add_text_label">添加文字框</string>
+    <string name="qk_control_label">文字</string>
+    <string name="qk_control_gesture_fight">战斗手势</string>
+    <string name="qk_control_gesture_build">建造手势</string>
     <string name="qk_control_load">加载控制布局</string>
     <string name="qk_control_save">保存</string>
     <string name="qk_control_save_title">保存控制布局</string>

@@ -140,6 +140,8 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
             R.drawable.ic_qk_star,      // 选择默认控制布局
             R.drawable.ic_qk_close,     // 退出编辑器
             R.drawable.ic_qk_sliders,   // 控件场景
+            R.drawable.ic_qk_plus,
+            R.drawable.ic_qk_plus,
         )
 
         /** 控制层持有它（`MinecraftGLSurface.processKeyEvent` 转发软键盘事件用）。 */
@@ -366,6 +368,8 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
                 6 -> mControlLayout.openSetDefaultDialog()
                 7 -> mControlLayout.openExitDialog(this)
                 8 -> { drawerLayout.closeDrawers(); ControlSceneDialog.show(mControlLayout) }
+                9 -> mControlLayout.addDirectionPad()
+                10 -> mControlLayout.addTextLabel()
             }
         }
 

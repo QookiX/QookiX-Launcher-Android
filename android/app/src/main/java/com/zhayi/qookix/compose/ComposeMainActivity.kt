@@ -1,5 +1,7 @@
 package com.zhayi.qookix.compose
 
+import org.json.JSONObject
+
 import com.zhayi.qookix.nativebridge.PojavShim
 import net.kdt.pojavlaunch.prefs.LauncherPreferences
 import android.os.Bundle
@@ -833,14 +835,16 @@ class ComposeMainActivity : ComponentActivity() {
                 } else {
                     org.json.JSONObject().put("ok", false).put("error", "已取消").toString()
                 }
-                runCatching {
-                    java.io.File(filesDir, "control-import.json").writeText(json)
-                }.onFailure { Log.w("ComposeMain", "写 control-import.json 失败", it) }
-                // ⚠️ 2026-10-27 修（「导入选完文件还是没反应」）：
-                // 前端原来只轮询 40 次（1 次/秒）。用户在系统文件选择器里翻目录
-                // 普遍超过 40 秒 —— 轮询结束之后才选完文件，结果就永远没人读。
-                // 现在写完盘立刻发一个 tick，PageHost 按事件取走结果。
-                controlImportTick.value += 1
+                if (JSONObject(json).optBoolean("preview")) {
+                    startActivityForResult(Intent(this, CustomControlsActivity::class.java)
+                        .putExtra(CustomControlsActivity.EXTRA_LAYOUT, "TMP_IMPORT_FILE")
+                        .putExtra(CustomControlsActivity.EXTRA_PREVIEW, true)
+                        .putExtra(CustomControlsActivity.EXTRA_IMPORT_RESULT, json), controlImportPreviewRequest)
+                } else publishControlImport(json)
+            }
+            controlImportPreviewRequest -> {
+                if (resultCode == RESULT_OK) data?.getStringExtra(CustomControlsActivity.EXTRA_IMPORT_RESULT)?.let(::publishControlImport)
+                else java.io.File(filesDir, "controlmap/TMP_IMPORT_FILE.json").delete()
             }
             else -> caps.onPickFileResult(data?.data)
         }
@@ -970,6 +974,14 @@ class ComposeMainActivity : ComponentActivity() {
      * 40 秒的话轮询早已结束，选完文件没人处理，界面毫无反应）。
      */
     val controlImportTick = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    private val controlImportPreviewRequest = 4912
+
+    private fun publishControlImport(json: String) {
+        runCatching { java.io.File(filesDir, "control-import.json").writeText(json) }
+            .onFailure { Log.w("ComposeMain", "写 control-import.json 失败", it) }
+        controlImportTick.value += 1
+    }
 
     fun importControlLayout(): String? {
         caps.importControlLayout()
@@ -1239,6 +1251,35 @@ class ComposeMainActivity : ComponentActivity() {
         }.onFailure { Log.w(TAG, "写 Pojav 偏好失败", it) }
     }
 
+    private fun stageControlLayout(text: String, filename: String?): String {
+        val source = JSONObject(text.trimStart('\uFEFF'))
+        val converted = if (source.has("version") && source.optJSONArray("mControlDataList") != null) null
+            else com.zhayi.qookix.control.ForeignControlLayout(resources.displayMetrics).convert(source)
+                ?: throw java.io.IOException(getString(R.string.app_import_layout_invalid))
+        val layout = converted?.layout ?: source
+        val buttons = layout.optJSONArray("mControlDataList")?.length() ?: 0
+        val joysticks = layout.optJSONArray("mJoystickDataList")?.length() ?: 0
+        if (converted != null && buttons == 0 && joysticks == 0) {
+            throw java.io.IOException(getString(R.string.app_import_layout_no_supported_buttons))
+        }
+        val tmp = java.io.File(filesDir, "controlmap/TMP_IMPORT_FILE.json")
+        tmp.parentFile?.mkdirs()
+        tmp.parentFile?.listFiles()?.forEach { old ->
+            if (old.isFile && old.name.startsWith("TMP_IMPORT_FILE") &&
+                old.name.endsWith(".json") && old.absolutePath != tmp.absolutePath) old.delete()
+        }
+        tmp.writeText(converted?.layout?.toString() ?: text.trimStart('\uFEFF'))
+        if (converted != null && converted.changed > 0) runOnUiThread {
+            android.widget.Toast.makeText(this, getString(R.string.app_import_layout_adjusted, converted.format, converted.changed),
+                android.widget.Toast.LENGTH_LONG).show()
+        }
+        return JSONObject().put("ok", true).put("name", importLayoutName(filename))
+            .put("preview", converted != null)
+            .put("buttons", buttons)
+            .put("joysticks", joysticks)
+            .put("drawers", layout.optJSONArray("mDrawerDataList")?.length() ?: 0).toString()
+    }
+
     fun importControlLayoutFromPath(path: String): String {
         val p = path.trim()
         if (p.isEmpty()) return org.json.JSONObject()
@@ -1248,19 +1289,7 @@ class ComposeMainActivity : ComponentActivity() {
             if (!f.isFile) throw java.io.IOException(getString(R.string.app_import_layout_not_found))
             if (f.length() > 8 * 1024 * 1024) throw java.io.IOException(getString(R.string.app_import_layout_too_large))
             val text = f.readText(Charsets.UTF_8)
-            val j = org.json.JSONObject(text)
-            if (!j.has("version") || !j.has("mControlDataList")) throw java.io.IOException(getString(R.string.app_import_layout_invalid))
-            val tmp = java.io.File(filesDir, "controlmap/TMP_IMPORT_FILE.json")
-            tmp.parentFile?.mkdirs()
-            tmp.parentFile?.listFiles()?.forEach { old ->
-                if (old.isFile && old.name.startsWith("TMP_IMPORT_FILE") &&
-                    old.name.endsWith(".json") && old.absolutePath != tmp.absolutePath) old.delete()
-            }
-            tmp.writeText(text)
-            org.json.JSONObject().put("ok", true).put("name", importLayoutName(f.name))
-                .put("buttons", j.optJSONArray("mControlDataList")?.length() ?: 0)
-                .put("joysticks", j.optJSONArray("mJoystickDataList")?.length() ?: 0)
-                .put("drawers", j.optJSONArray("mDrawerDataList")?.length() ?: 0).toString()
+            stageControlLayout(text, f.name)
         }.getOrElse {
             Log.w(TAG, "从路径导入按键布局失败", it)
             org.json.JSONObject().put("ok", false)
@@ -1271,29 +1300,22 @@ class ComposeMainActivity : ComponentActivity() {
     /**
      * 从 SAF URI 读取按键布局并校验（结果 JSON 直接返回给 onActivityResult 写盘）。
      *
-     * 与 [importControlLayoutFromPath] 同一套校验（version + mControlDataList），
-     * 只是数据源从文件路径换成 contentResolver 流。
+     * 路径与系统文件选择器共用同一套布局识别和转换。
      */
     fun importControlLayoutFromUri(uri: android.net.Uri): String {
         return runCatching {
-            val text = contentResolver.openInputStream(uri)?.use {
-                it.readBytes().toString(java.nio.charset.StandardCharsets.UTF_8)
+            val text = contentResolver.openInputStream(uri)?.use { input ->
+                val bytes = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count == -1) break
+                    if (bytes.size() + count > 8 * 1024 * 1024) throw java.io.IOException(getString(R.string.app_import_layout_too_large))
+                    bytes.write(buffer, 0, count)
+                }
+                bytes.toString("UTF-8")
             } ?: throw java.io.IOException(getString(R.string.app_import_layout_failed))
-            val j = org.json.JSONObject(text)
-            if (!j.has("version") || !j.has("mControlDataList")) {
-                throw java.io.IOException(getString(R.string.app_import_layout_invalid))
-            }
-            val tmp = java.io.File(filesDir, "controlmap/TMP_IMPORT_FILE.json")
-            tmp.parentFile?.mkdirs()
-            tmp.parentFile?.listFiles()?.forEach { old ->
-                if (old.isFile && old.name.startsWith("TMP_IMPORT_FILE") &&
-                    old.name.endsWith(".json") && old.absolutePath != tmp.absolutePath) old.delete()
-            }
-            tmp.writeText(text)
-            org.json.JSONObject().put("ok", true).put("name", importLayoutName(queryDisplayName(uri)))
-                .put("buttons", j.optJSONArray("mControlDataList")?.length() ?: 0)
-                .put("joysticks", j.optJSONArray("mJoystickDataList")?.length() ?: 0)
-                .put("drawers", j.optJSONArray("mDrawerDataList")?.length() ?: 0).toString()
+            stageControlLayout(text, queryDisplayName(uri))
         }.getOrElse {
             Log.w(TAG, "从 URI 导入按键布局失败", it)
             org.json.JSONObject().put("ok", false)

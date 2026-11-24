@@ -308,9 +308,7 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
                     if(isCalled) {
                         JREUtils.setupBridgeWindow(mNativeSurface);
                         if (sdlEnabled) SDLSurface.setNativeSurface(mNativeSurface);
-                        // 26.3 黑屏修复：SDL 只有在「尺寸变化」时才会重建 EGLSurface。
-                        // 解锁后尺寸没变 → SDL 继续用已死的旧 EGL surface → 全黑。
-                        // 先报一个小一档的尺寸再报真实尺寸，逼 SDL 走重建。
+                        // 26.3 黑屏修复：解锁后尺寸没变时 SDL 会继续用旧的 EGL surface，先报小一档再报真实尺寸逼它重建。
                         if (sdlEnabled && SDLActivity.getSDLSurface() != null) {
                             int w = Tools.currentDisplayMetrics.widthPixels;
                             int h = Tools.currentDisplayMetrics.heightPixels;
@@ -329,8 +327,7 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
 
                 @Override
                 public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {
-                    // 给 SDL 的尺寸必须是**真实屏幕像素**，不能用缩放后的游戏分辨率 ——
-                    // 否则 SDL 会渲染到离屏（画面全黑）。
+                    // 给 SDL 的必须是真实屏幕像素，缩放后的游戏分辨率会渲染到离屏（全黑）。
                     if (sdlEnabled && SDLActivity.getSDLSurface() != null) {
                         SDLActivity.getSDLSurface().surfaceChanged(holder, format,
                                 Tools.currentDisplayMetrics.widthPixels,
@@ -362,12 +359,8 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
                 public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
                     mNativeSurface = new Surface(surface);
                     if(isCalled) {
-                        // 重建（锁屏/切后台回来）：SDL 胶水已经初始化过，**绝不能**再跑
-                        // setupSDL —— 那会再建一个 SDLSurface 塞进布局、重置 SDL 状态，
-                        // 游戏侧还持着旧的那套 → 画面全黑。这里只需把**新的 Surface**
-                        // 交给 SDL：setNativeSurface 内部会走 surfaceCreated，
-                        // 再补一个 surfaceChanged 让 SDL 用新 ANativeWindow 重建渲染目标
-                        // （尺寸没变时 onSurfaceTextureSizeChanged 不会回调，必须主动补）。
+                        // 重建（锁屏/切后台回来）：**绝不能**再跑 setupSDL（会重置 SDL 状态 → 黑屏），
+                        // 只需把新 Surface 交给 SDL，再主动补一次 surfaceChanged 让它重建渲染目标。
                         JREUtils.setupBridgeWindow(mNativeSurface);
                         if (sdlEnabled && SDLActivity.getSDLSurface() != null) {
                             SDLSurface.setNativeSurface(mNativeSurface);
@@ -670,6 +663,10 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
     @Override
     public void onGrabState(boolean isGrabbing) {
         post(()->updateGrabState(isGrabbing));
+    }
+
+    public boolean toggleFightGestures() {
+        return mIngameProcessor.toggleFightGestures();
     }
 
     private TouchEventProcessor pickEventProcessor(boolean isGrabbing) {

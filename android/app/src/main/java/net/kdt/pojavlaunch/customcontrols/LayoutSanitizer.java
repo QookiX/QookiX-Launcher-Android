@@ -32,16 +32,34 @@ public class LayoutSanitizer {
      * 一钳就全变成 0（= 未知键），用户看到的就是「这几个键全失灵」。
      * 最小合法值跟随特殊按钮的编号。
      */
-    private static final int MIN_KEYCODE = ControlData.SPECIALBTN_WHEEL_GESTURE;
+    private static final int MIN_KEYCODE = ControlData.SPECIALBTN_FORCE_MENU;
 
     /** 把越界的键码钉回合法范围（原地修改），返回是否改动过。 */
     private static boolean clampKeycodes(ControlData controlData) {
-        int[] codes = controlData.keycodes;
+        boolean changed = clampKeycodes(controlData.keycodes, MIN_KEYCODE);
+        for (ControlData.Action action : new ControlData.Action[]{controlData.pressAction, controlData.clickAction,
+                controlData.longPressAction, controlData.doubleClickAction}) {
+            if (action != null) changed |= clampKeycodes(action.keys, MIN_KEYCODE);
+        }
+        if (controlData instanceof ControlJoystickData) {
+            ControlJoystickData joystick = (ControlJoystickData) controlData;
+            for (int[] keys : new int[][]{joystick.forwardKeys, joystick.backwardKeys, joystick.leftKeys,
+                    joystick.rightKeys, joystick.forwardLockKeys}) {
+                changed |= clampKeycodes(keys, 0);
+            }
+            if (joystick.directionKeys != null) {
+                for (int[] keys : joystick.directionKeys) changed |= clampKeycodes(keys, 0);
+            }
+        }
+        return changed;
+    }
+
+    private static boolean clampKeycodes(int[] codes, int min) {
         if (codes == null) return false;
         boolean changed = false;
         for (int i = 0; i < codes.length; i++) {
             // 负数是启动器的特殊按键（见 MIN_KEYCODE 注释）。
-            if (codes[i] < MIN_KEYCODE || codes[i] > MAX_KEYCODE) {
+            if (codes[i] < min || codes[i] > MAX_KEYCODE) {
                 codes[i] = 0;
                 changed = true;
             }

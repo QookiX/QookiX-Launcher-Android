@@ -37,6 +37,7 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 	public static final String EXTRA_PREVIEW = "preview";
 	/** 预览确认后要另存成的布局名（仅预览模式用）。 */
 	public static final String EXTRA_SAVE_AS = "saveAs";
+	public static final String EXTRA_IMPORT_RESULT = "controlImportResult";
 
 	private boolean mPreviewMode;
 	private String mSaveAsName;
@@ -52,6 +53,8 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 			R.drawable.ic_qk_star,     // 选择默认控制布局
 			R.drawable.ic_qk_share,    // 导出
 			R.drawable.ic_qk_sliders,  // 控件场景
+			R.drawable.ic_qk_plus,
+			R.drawable.ic_qk_plus,
 	};
 	/** 预览模式菜单：0 = 就用这个，1 = 取消。 */
 	private static final int[] PREVIEW_MENU_ICONS = {
@@ -133,12 +136,12 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 						case 5: mControlLayout.openSaveDialog(this); break;
 						case 6: mControlLayout.openSetDefaultDialog(); break;
 						case 8: ControlSceneDialog.show(mControlLayout); break;
+						case 9: mControlLayout.addDirectionPad(); break;
+						case 10: mControlLayout.addTextLabel(); break;
 						case 7: // Saving the currently shown control
 					try {
-						// QookiX 没有 Pojav 的 scoped.FolderProvider（那个 DocumentsProvider 依赖
-			//  @string/storageProviderAuthorities，由 Gradle resValue 生成）。这里改用本项目
-			//  已有的 FileProvider（authorities = <applicationId>.fileprovider，
-			//  路径映射见 res/xml/file_paths.xml 的 controlmap）。
+						// QookiX 没有 Pojav 的 scoped.FolderProvider，改用本项目已有的 FileProvider
+			//  （authorities = <applicationId>.fileprovider，路径见 res/xml/file_paths.xml）。
 					String jsonPath = mControlLayout.saveToDirectory(mControlLayout.mLayoutFileName);
 					Uri contentUri = androidx.core.content.FileProvider.getUriForFile(
 							this, getPackageName() + ".fileprovider", new java.io.File(jsonPath));
@@ -194,6 +197,12 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 	 * 而且不该在他还没确认时就把游戏正在用的那份换掉。
 	 */
 	private void confirmImportedLayout() {
+		String importResult = getIntent().getStringExtra(EXTRA_IMPORT_RESULT);
+		if (importResult != null) {
+			setResult(RESULT_OK, new Intent().putExtra(EXTRA_IMPORT_RESULT, importResult));
+			finish();
+			return;
+		}
 		if (mSaveAsName == null || mSaveAsName.isBlank()) {
 			Tools.showError(this, new IOException("缺少要保存的布局名"));
 			finish();
@@ -233,17 +242,21 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 
 	@Override
 	public void onBackPressed() {
-		// 旧通路（`enableOnBackInvokedCallback` 下不会被调用），保留一份兜底，
-		// 逻辑与上面注册的 dispatcher 回调保持一致。详见那里和 GameActivity 的注释。
+		// 旧通路兜底（`enableOnBackInvokedCallback` 下不调用），逻辑与上面的 dispatcher 一致。
 		if (mControlLayout != null && mControlLayout.collapseEditLayers()) return;
 		mControlLayout.askToExit(this);
 	}
 
 	@Override
 	public void exitEditor() {
-		// **不能** `super.onBackPressed()`：那会绕回上面注册的 dispatcher 回调，
-		// 又走一次 `askToExit()`（重复弹框，甚至死循环）。
+		// **不能** `super.onBackPressed()`：会绕回 dispatcher 回调再走一次 `askToExit()`（重复弹框/死循环）。
 		// 这里就是「保存 / 退出」确认之后要真正离开编辑器。
 		finish();
+	}
+
+	@Override
+	public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+		super.onConfigurationChanged(newConfig);
+		if (mControlLayout != null) mControlLayout.onWindowSizeChanged();
 	}
 }

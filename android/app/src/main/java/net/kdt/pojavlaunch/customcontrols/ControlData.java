@@ -69,6 +69,36 @@ public class ControlData {
     public boolean isSwipeable;
     public boolean displayInGame;
     public boolean displayInMenu;
+    public String groupId;
+    public boolean groupInitiallyHidden;
+    public boolean labelOnly;
+    public int scrollWhileHeld;
+    public boolean autoClick;
+    public Appearance appearance, darkAppearance;
+    public float widthFraction, heightFraction;
+    public boolean widthRelativeToHeight, heightRelativeToHeight;
+    public Action pressAction, clickAction, longPressAction, doubleClickAction;
+
+    @Keep
+    public static class Action {
+        public int[] keys;
+        public String text;
+        public String[] groups;
+        public boolean autoClick;
+        public boolean switchTouchMode;
+    }
+
+    @Keep
+    public static class Appearance {
+        public PaintStyle normal, pressed;
+    }
+
+    @Keep
+    public static class PaintStyle {
+        public int fill, outline, text;
+        public float strokeDp, radiusDp, textSp;
+        public float[] cornerPercent;
+    }
     private float width;         //Dp instead of Px now
     private float height;        //Dp instead of Px now
 
@@ -155,6 +185,21 @@ public class ControlData {
                 controlData.isSwipeable,
                 controlData.passThruEnabled
         );
+        groupId = controlData.groupId;
+        groupInitiallyHidden = controlData.groupInitiallyHidden;
+        labelOnly = controlData.labelOnly;
+        scrollWhileHeld = controlData.scrollWhileHeld;
+        autoClick = controlData.autoClick;
+        appearance = controlData.appearance;
+        darkAppearance = controlData.darkAppearance;
+        widthFraction = controlData.widthFraction;
+        heightFraction = controlData.heightFraction;
+        widthRelativeToHeight = controlData.widthRelativeToHeight;
+        heightRelativeToHeight = controlData.heightRelativeToHeight;
+        pressAction = controlData.pressAction;
+        clickAction = controlData.clickAction;
+        longPressAction = controlData.longPressAction;
+        doubleClickAction = controlData.doubleClickAction;
     }
 
     public static ControlData[] getSpecialButtons() {
@@ -277,19 +322,27 @@ public class ControlData {
 
     //Getters || setters (with conversion for ease of use)
     public float getWidth() {
-        return Tools.dpToPx(width);
+        return resolveSize(width, widthFraction, widthRelativeToHeight);
     }
 
     public void setWidth(float widthInPx) {
         width = Tools.pxToDp(widthInPx);
+        widthFraction = 0;
     }
 
     public float getHeight() {
-        return Tools.dpToPx(height);
+        return resolveSize(height, heightFraction, heightRelativeToHeight);
     }
 
     public void setHeight(float heightInPx) {
         height = Tools.pxToDp(heightInPx);
+        heightFraction = 0;
+    }
+
+    private static float resolveSize(float dp, float fraction, boolean relativeToHeight) {
+        int reference = relativeToHeight ? CallbackBridge.physicalHeight : CallbackBridge.physicalWidth;
+        if (reference > 0 && fraction > 0 && fraction <= 1f) return Math.max(1f, reference * fraction);
+        return Tools.dpToPx(dp);
     }
 
     /**

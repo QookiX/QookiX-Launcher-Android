@@ -995,7 +995,9 @@
     <string name="app_import_layout_empty_path">路径为空</string>
     <string name="app_import_layout_not_found">找不到这个文件</string>
     <string name="app_import_layout_too_large">文件太大了（超过 8MB）</string>
-    <string name="app_import_layout_invalid">这不是有效的控制布局文件</string>
+    <string name="app_import_layout_invalid">请选择有效的 QookiX、ZL2 或 FCL 控制布局文件</string>
+    <string name="app_import_layout_no_supported_buttons">这份布局没有可转换的按键</string>
+    <string name="app_import_layout_adjusted">已转换 %1$s 布局。%2$d 个控件或动作已简化或跳过，请在预览中检查。</string>
     <string name="app_import_layout_failed">导入失败</string>
 
     <!-- ── RustBridge：桥未就绪错误（经 Activity 拿 Context）── -->

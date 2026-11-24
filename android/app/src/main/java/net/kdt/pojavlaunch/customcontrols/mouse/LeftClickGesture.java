@@ -15,9 +15,14 @@ public class LeftClickGesture extends ValidatorGesture {
     public static final int FINGER_STILL_THRESHOLD = (int) Tools.dpToPx(9);
     private float mGestureStartX, mGestureStartY, mGestureEndX, mGestureEndY;
     private boolean mMouseActivated;
+    private int mouseButton = LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT;
 
     public LeftClickGesture(Handler handler) {
         super(handler);
+    }
+
+    void setMouseButton(int button) {
+        mouseButton = button;
     }
 
     public final void inputEvent() {
@@ -37,7 +42,7 @@ public class LeftClickGesture extends ValidatorGesture {
         boolean fingerStill = LeftClickGesture.isFingerStill(mGestureStartX, mGestureStartY, mGestureEndX, mGestureEndY, FINGER_STILL_THRESHOLD);
         // If the finger is still, fire the gesture.
         if(fingerStill) {
-            sendMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT, true);
+            sendMouseButton(mouseButton, true);
             mMouseActivated = true;
         }
         // Otherwise, don't click but still keep it active
@@ -47,7 +52,7 @@ public class LeftClickGesture extends ValidatorGesture {
     @Override
     public void onGestureCancelled(boolean isSwitching) {
         if(mMouseActivated) {
-            sendMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT, false);
+            sendMouseButton(mouseButton, false);
             mMouseActivated = false;
         }
     }

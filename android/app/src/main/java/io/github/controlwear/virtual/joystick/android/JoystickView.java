@@ -62,6 +62,9 @@ public class JoystickView extends View {
 
     private int mDeadzone = DEFAULT_DEADZONE;
     private boolean mFixedCenter = false;
+    private boolean mCenterFollow;
+    private boolean mTriggerOnMove;
+    private float mForwardLockRatio = -1f;
     private boolean mAutoReCenterButton = true;
     private float mForwardLockDistance = 0f;
 
@@ -102,6 +105,12 @@ public class JoystickView extends View {
 
     public void setDeadzone(int deadzone) {
         mDeadzone = Math.max(0, Math.min(100, deadzone));
+    }
+
+    public void configureImportedTracking(boolean centerFollow, boolean triggerOnMove, float lockRatio) {
+        mCenterFollow = centerFollow;
+        mTriggerOnMove = triggerOnMove;
+        mForwardLockRatio = lockRatio;
     }
 
     public void setFixedCenter(boolean fixedCenter) {
@@ -223,7 +232,7 @@ public class JoystickView extends View {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 mTracking = true;
-                if (mFixedCenter) {
+                if (mFixedCenter || (mCenterFollow && !isCenterTouch(event))) {
                     mCenterX = getWidth() / 2f;
                     mCenterY = getHeight() / 2f;
                 } else {
@@ -231,7 +240,7 @@ public class JoystickView extends View {
                     mCenterX = event.getX();
                     mCenterY = event.getY();
                 }
-                moveButton(event.getX(), event.getY());
+                if (!mTriggerOnMove) moveButton(event.getX(), event.getY());
                 return true;
 
             case MotionEvent.ACTION_MOVE:
@@ -247,6 +256,12 @@ public class JoystickView extends View {
             default:
                 return super.onTouchEvent(event);
         }
+    }
+
+    protected boolean isCenterTouch(MotionEvent event) {
+        float radius = getRadius() * mButtonSizeRatio;
+        return Math.abs(event.getX() - getWidth() / 2f) <= radius &&
+                Math.abs(event.getY() - getHeight() / 2f) <= radius;
     }
 
     protected void resetJoystickInput() {
@@ -291,7 +306,9 @@ public class JoystickView extends View {
 
         // 前向锁定：向上推超过设定距离即锁定，直到松手
         if (mForwardLockDistance > 0 && mOnMoveListener != null) {
-            boolean shouldLock = mForwardLocked || -dy >= mForwardLockDistance;
+            boolean reachedLock = mForwardLockRatio >= 0 ? mCenterY - y > radius * mForwardLockRatio
+                    : -dy >= mForwardLockDistance;
+            boolean shouldLock = mForwardLocked || reachedLock;
             if (shouldLock != mForwardLocked) {
                 mForwardLocked = shouldLock;
                 mOnMoveListener.onForwardLock(shouldLock);

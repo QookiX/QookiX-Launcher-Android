@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.view.MotionEvent;
 
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
+import net.kdt.pojavlaunch.LwjglGlfwKeycode;
 
 import org.lwjgl.glfw.CallbackBridge;
 
@@ -13,6 +14,8 @@ public class InGameEventProcessor implements TouchEventProcessor {
     private final Handler mGestureHandler = new Handler(Looper.getMainLooper());
     private final double mSensitivity;
     private boolean mEventTransitioned = true;
+    private boolean fighting;
+    private boolean suppressUntilDown;
     private final PointerTracker mTracker = new PointerTracker();
     private final LeftClickGesture mLeftClickGesture = new LeftClickGesture(mGestureHandler);
     private final RightClickGesture mRightClickGesture = new RightClickGesture(mGestureHandler);
@@ -25,6 +28,7 @@ public class InGameEventProcessor implements TouchEventProcessor {
     public boolean processTouchEvent(MotionEvent motionEvent) {
         switch (motionEvent.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                suppressUntilDown = false;
                 mTracker.startTracking(motionEvent);
                 if(LauncherPreferences.PREF_DISABLE_GESTURES) break;
                 mEventTransitioned = false;
@@ -48,15 +52,24 @@ public class InGameEventProcessor implements TouchEventProcessor {
                 } catch (Throwable t) {
                     CallbackBridge.inputDebugLogPub("InGame MOVE EX: " + t);
                 }
-                if(LauncherPreferences.PREF_DISABLE_GESTURES) break;
+                if(LauncherPreferences.PREF_DISABLE_GESTURES || suppressUntilDown) break;
                 checkGestures();
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 mTracker.cancelTracking();
-                cancelGestures(false);
+                cancelGestures(motionEvent.getActionMasked() == MotionEvent.ACTION_CANCEL);
         }
         return true;
+    }
+
+    public boolean toggleFightGestures() {
+        cancelGestures(true);
+        suppressUntilDown = true;
+        fighting = !fighting;
+        mLeftClickGesture.setMouseButton(fighting ? LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_RIGHT : LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT);
+        mRightClickGesture.setMouseButton(fighting ? LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT : LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_RIGHT);
+        return fighting;
     }
 
     @Override

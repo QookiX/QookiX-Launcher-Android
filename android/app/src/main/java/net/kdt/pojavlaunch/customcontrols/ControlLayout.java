@@ -50,6 +50,7 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	private boolean mGrabbing;
 	private ControlScene mEditorScene = ControlScene.ALL;
 	private ControlScene mForcedScene;
+	private final java.util.Map<String, Boolean> groupVisibility = new java.util.HashMap<>();
 	private Runnable mVisibilityListener;
 
 	private EditControlSideDialog mControlDialog = null;
@@ -101,6 +102,7 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 		if (controlLayout == null) return;
 
 		mLayout = controlLayout;
+		groupVisibility.clear();
 		
 
 		// Joystick(s) first, to workaround the touch dispatch
@@ -203,6 +205,21 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	public void addJoystickButton(ControlJoystickData data){
 		mLayout.mJoystickDataList.add(data);
 		addJoystickView(data);
+		setModified(true);
+	}
+
+	public void addDirectionPad() {
+		ControlJoystickData pad = new ControlJoystickData();
+		pad.directionPad = true;
+		addJoystickButton(pad);
+	}
+
+	public void addTextLabel() {
+		ControlData label = new ControlData(getContext().getString(R.string.qk_control_label));
+		label.labelOnly = true;
+		label.bgColor = 0;
+		label.strokeWidth = 0;
+		addControlButton(label);
 	}
 
 	private void addJoystickView(ControlJoystickData data){
@@ -287,14 +304,11 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 		mForcedScene = scene;
 		refreshControlVisibility();
 	}
-
 	public void setVisibilityListener(Runnable listener) { mVisibilityListener = listener; }
-
 	public void releaseHeldControls() {
 		for (ControlInterface button : getButtonChildren()) button.cancelControlInput();
 		mapTable.clear();
 	}
-
 	@Override protected void onAttachedToWindow() {
 		super.onAttachedToWindow();
 		CallbackBridge.addGrabListener(this);
@@ -323,9 +337,28 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 			if (button instanceof ControlSubButton) continue;
 			ControlData data = button.getProperties();
 			boolean included = scene.shows(data.displayInGame, data.displayInMenu);
-			button.setVisible(preview ? included : !hideForDevice && (!data.isHideable || (mControlVisible && included)));
+			boolean groupVisible = data.groupId == null || groupVisibility.getOrDefault(data.groupId, !data.groupInitiallyHidden);
+			button.setVisible(preview ? included && (!mReadOnlyPreview || groupVisible)
+					: groupVisible && !hideForDevice && (!data.isHideable || (mControlVisible && included)));
 		}
 		if (mVisibilityListener != null) mVisibilityListener.run();
+	}
+
+	public void applyGroupActions(String[] actions) {
+		for (String action : actions) {
+			if (action == null) continue;
+			int separator = action.indexOf(':');
+			String id = separator < 0 ? action : action.substring(0, separator);
+			String operation = separator < 0 ? "" : action.substring(separator + 1);
+			for (ControlInterface button : getButtonChildren()) {
+				ControlData data = button.getProperties();
+				if (!id.equals(data.groupId)) continue;
+				boolean visible = groupVisibility.getOrDefault(id, !data.groupInitiallyHidden);
+				groupVisibility.put(id, operation.equals("show") || (!operation.equals("hide") && !visible));
+				break;
+			}
+		}
+		refreshControlVisibility();
 	}
 
 	public boolean getModifiable(){
@@ -349,10 +382,21 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 		return mButtons;
 	}
 
+	/** 窗口尺寸变化后重算百分比尺寸与 ${right}/${bottom} 定位。 */
+	public void onWindowSizeChanged() {
+		if (getContext() instanceof android.app.Activity) Tools.updateWindowSize((android.app.Activity) getContext());
+		post(this::refreshControlButtonPositions);
+	}
+
 	public void refreshControlButtonPositions(){
 		for(ControlInterface button : getButtonChildren()){
-			button.setDynamicX(button.getProperties().dynamicX);
-			button.setDynamicY(button.getProperties().dynamicY);
+			ControlData data = button.getProperties();
+			if (data.widthFraction > 0 || data.heightFraction > 0) {
+				button.updateProperties();
+			} else {
+				button.setDynamicX(data.dynamicX);
+				button.setDynamicY(data.dynamicY);
+			}
 		}
 	}
 
