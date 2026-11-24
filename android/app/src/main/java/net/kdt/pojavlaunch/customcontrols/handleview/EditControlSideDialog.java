@@ -245,14 +245,11 @@ public class EditControlSideDialog extends SideDialogView {
         mOrientationTextView.setVisibility(VISIBLE);
         mOrientationSpinner.setVisibility(VISIBLE);
 
-        mSwipeableSwitch.setVisibility(View.GONE);
-        mPassthroughSwitch.setVisibility(View.GONE);
+        mSwipeableSwitch.setVisibility(View.GONE); mPassthroughSwitch.setVisibility(View.GONE);
         mToggleSwitch.setVisibility(View.GONE);
     }
 
-    /**
-     * Load values for the joystick
-     */
+    /** Load values for the joystick */
     public void loadJoystickValues(ControlJoystickData data) {
         loadValues(data);
 
@@ -265,19 +262,14 @@ public class EditControlSideDialog extends SideDialogView {
         mNameTextView.setVisibility(GONE);
         mNameEditText.setVisibility(GONE);
 
-        mCornerRadiusTextView.setVisibility(GONE);
-        mCornerRadiusSeekbar.setVisibility(GONE);
+        mCornerRadiusTextView.setVisibility(GONE); mCornerRadiusSeekbar.setVisibility(GONE);
         mCornerRadiusPercentTextView.setVisibility(GONE);
 
-        mSwipeableSwitch.setVisibility(View.GONE);
-        mPassthroughSwitch.setVisibility(View.GONE);
+        mSwipeableSwitch.setVisibility(View.GONE); mPassthroughSwitch.setVisibility(View.GONE);
         mToggleSwitch.setVisibility(View.GONE);
 
-        mForwardLockSwitch.setVisibility(VISIBLE);
-        mForwardLockSwitch.setChecked(data.forwardLock);
-
-        mAbsoluteTrackingSwitch.setVisibility(VISIBLE);
-        mAbsoluteTrackingSwitch.setChecked(data.absolute);
+        mForwardLockSwitch.setVisibility(VISIBLE); mForwardLockSwitch.setChecked(data.forwardLock);
+        mAbsoluteTrackingSwitch.setVisibility(VISIBLE); mAbsoluteTrackingSwitch.setChecked(data.absolute);
     }
 
     /**
@@ -584,11 +576,19 @@ public class EditControlSideDialog extends SideDialogView {
             });
         });
 
+        // 点圆角标题进逐角编辑（ZL2 的四角不一致）
+        mCornerRadiusTextView.setOnClickListener(v -> {
+            if (mCurrentlyEditedButton == null) return;
+            CornerRadiusDialog.show(mDialogContent.getContext(), mCurrentlyEditedButton, () -> {
+                mCurrentlyEditedButton.getControlLayoutParent().setModified(true);
+                float r = mCurrentlyEditedButton.getProperties().cornerRadius;
+                mCornerRadiusSeekbar.setProgress((int) r); setPercentageText(mCornerRadiusPercentTextView, (int) r);
+            });
+        });
     }
 
     private float safeParseFloat(String string) {
-        try { return Float.parseFloat(string); }
-        catch (NumberFormatException e) { Log.e("EditControlPopup", e.toString()); return -1; }
+        try { return Float.parseFloat(string); } catch (NumberFormatException e) { Log.e("EditControlPopup", e.toString()); return -1; }
     }
 
     public void setCurrentlyEditedButton(ControlInterface button) {
