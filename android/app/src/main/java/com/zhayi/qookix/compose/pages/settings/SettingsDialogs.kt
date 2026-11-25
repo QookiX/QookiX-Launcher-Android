@@ -79,6 +79,9 @@ fun TextInputDialog(
     // remember(initial)：换目标时重置（同一个对话框复用不同字段时很重要）
     var value by remember(initial) { mutableStateOf(initial) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    val shortLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
+        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 360
 
     AlertDialog(
         // ⚠️ 有未保存的修改时，不允许点外部/返回键直接关掉（2026-10-17 修）。
@@ -99,7 +102,7 @@ fun TextInputDialog(
         },
         title = { Text(title) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },
@@ -110,7 +113,7 @@ fun TextInputDialog(
                         .then(
                             if (multiline) {
                                 Modifier
-                                    .heightIn(min = 120.dp, max = 260.dp)
+                                    .heightIn(min = if (shortLandscape) 72.dp else 120.dp, max = 260.dp)
                                     .verticalScroll(rememberScrollState())
                             } else Modifier
                         ),

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="task_loader_installing">正在安装加载器…</string>
+    <string name="task_loader_dependencies">依赖 %1$d / %2$d</string>
+    <string name="task_stage_with_progress">%1$s · %2$s</string>
+</resources>

@@ -405,10 +405,7 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
 
     }
 
-    /**
-     * The touch event for both grabbed an non-grabbed mouse state on the touch screen
-     * Does not cover the virtual mouse touchpad
-     */
+    /** Handles direct screen touches, excluding the virtual touchpad. */
     @Override
     @SuppressWarnings("accessibility")
     public boolean onTouchEvent(MotionEvent e) {
@@ -437,6 +434,12 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
         }
         if (mIngameProcessor == null || mInGUIProcessor == null) return true;
         return mCurrentTouchProcessor.processTouchEvent(e);
+    }
+
+    public void moveCameraFromControl(float dx, float dy) {
+        if (mCurrentTouchProcessor == mIngameProcessor && CallbackBridge.isGrabbing()) {
+            mIngameProcessor.moveFromControl(dx, dy);
+        }
     }
 
     /**

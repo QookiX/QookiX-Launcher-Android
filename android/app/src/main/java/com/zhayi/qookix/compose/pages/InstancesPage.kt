@@ -529,10 +529,11 @@ private fun InstanceCard(
                 if (activeTask != null) {
                     Spacer(Modifier.height(QkSpacing.xxs))
                     Text(
-                        text = stringResource(
-                            R.string.instances_preparing,
-                            activeTask.progressText.ifBlank { activeTask.message },
-                        ),
+                        text = if (isLoaderInstallStage(activeTask.stage)) {
+                            val stage = activeTask.message.ifBlank { stringResource(R.string.task_loader_installing) }
+                            if (activeTask.progressText.isBlank()) stage
+                            else stringResource(R.string.task_stage_with_progress, stage, activeTask.progressText)
+                        } else stringResource(R.string.instances_preparing, activeTask.progressText.ifBlank { activeTask.message }),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
@@ -543,9 +544,11 @@ private fun InstanceCard(
 
             if (activeTask != null) {
                 // 下载中收起启动按钮：点了也只会重复触发补全，还容易让用户以为能玩
-                androidx.compose.material3.CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
+                val loaderProgress = loaderDependencyProgress(activeTask.stage, activeTask.stepDone, activeTask.stepTotal)
+                if (loaderProgress == null) androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp), strokeWidth = 2.dp,
+                ) else androidx.compose.material3.CircularProgressIndicator(
+                    progress = { loaderProgress.fraction }, modifier = Modifier.size(20.dp), strokeWidth = 2.dp,
                 )
                 Spacer(Modifier.width(16.dp))
             } else if (busy) {

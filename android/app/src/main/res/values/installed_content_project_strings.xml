@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="instance_project_unidentified">未识别资源来源</string>
+    <string name="instance_project_identify_hint">这个文件没有可用的资源中心项目记录。可以先识别当前分类的内容，识别成功后再点它打开详情。</string>
+    <string name="instance_project_identify">识别内容</string>
+</resources>

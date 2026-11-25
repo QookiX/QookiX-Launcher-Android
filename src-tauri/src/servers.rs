@@ -138,12 +138,18 @@ pub fn create_hosted_server(
         running: false,
         address: None,
     };
-    std::fs::create_dir_all(server_dir(&s.id)?).map_err(|e| e.to_string())?;
-    save_server(&s)?;
-    ensure_server_files(&s.id, &s)?;
+    let dir = server_dir(&s.id)?;
+    std::fs::create_dir_all(dir.parent().ok_or("服务器目录无效")?).map_err(|e| e.to_string())?;
+    std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
+    // 列表以 server.json 为发现标志，基础文件齐全后才发布它。
+    if let Err(e) = prepare_server_files(&dir, &s).and_then(|()| save_server(&s)) {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(format!("初始化服务器文件失败: {e}"));
+    }
     Ok(s)
 }
 pub fn update_hosted_server(patch: serde_json::Value) -> Result<ServerConfig, String> {
+    let _operation = crate::server_state::try_host_operation()?;
     let id = patch
         .get("id")
         .and_then(|v| v.as_str())
@@ -216,6 +222,8 @@ pub fn update_hosted_server(patch: serde_json::Value) -> Result<ServerConfig, St
 }
 pub fn delete_hosted_server(id: String) -> Result<(), String> {
     validate_server_id(&id)?;
+    let _operation = crate::server_state::try_host_operation()?;
+    ensure_server_inactive(&id)?;
     // 先撤掉后台任务：休眠中的服务器有监听占着游戏端口，目录删了、监听还在，
     // 这个端口就被一台「已经不存在的服务器」永久占住，之后新建的服务器再也 bind 不上。
     crate::sleep::disarm(&id);
@@ -242,77 +250,73 @@ pub fn suggest_server_memory() -> serde_json::Value {
 pub fn ensure_server_files(id: &str, s: &ServerConfig) -> Result<(), String> {
     let dir = server_dir(id)?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-
-    let eula = dir.join("eula.txt");
-    if !eula.exists() {
-        let body = format!(
-            "# Minecraft EULA（运行服务端即表示你同意）\n# 由 QookiX 生成；请在「服务器设置」里勾选同意后改成 true\neula={}\n",
-            s.eula
-        );
-        let _ = crate::fsutil::write_text_atomic(&eula, &body);
-    } else if let Ok(cur) = std::fs::read_to_string(&eula) {
-        // 同步用户在界面上的同意状态
-        let want = if s.eula { "true" } else { "false" };
-        if !cur.contains(&format!("eula={want}")) {
-            let fixed = cur
-                .lines()
-                .map(|l| {
-                    if l.trim_start().starts_with("eula=") {
-                        format!("eula={want}")
-                    } else {
-                        l.to_string()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let _ = crate::fsutil::write_text_atomic(&eula, &fixed);
-        }
-    }
-    let props = dir.join("server.properties");
-    // RCON 是「优雅停服 + 控制台命令」的唯一通道，必须在 properties 里开启。
-    // 注意：Minecraft 只在**启动时**读这些项，所以改完要重启服才生效。
-    let rcon = crate::rcon::load_or_create_creds(&dir, s.port)?;
-    if !props.exists() {
-    let body = format!(
-  "# 由 QookiX 生成\nmotd={}\nserver-port={}\nmax-players=10\nonline-mode=true\ndifficulty=normal\ngamemode=survival\nlevel-name=world\nsync-chunk-writes=false\nview-distance=6\nsimulation-distance=4\n\n# RCON：QookiX 用它执行 stop（优雅停服，世界会存盘）与控制台命令。\n# 密码在同目录 rcon.json 里；请勿泄露（等同服务器后台权限）。\nenable-rcon=true\nrcon.password={}\nrcon.port={}\nbroadcast-rcon-to-ops=false\n",
-  s.motd, s.port, rcon.password, rcon.port
-  );
-  let _ = crate::fsutil::write_text_atomic(&props, &body);
-    } else {
-  // 已存在的 properties：把 RCON 三项补上（用户可能是手动删过或老版本生成的）
-  if let Ok(cur) = std::fs::read_to_string(&props) {
-    let mut need = false;
-    for k in ["enable-rcon", "rcon.password", "rcon.port"] {
-      if !cur.lines().any(|l| l.trim_start().starts_with(k)) {
-        need = true;
-      }
-    }
-    if need {
-      let mut lines: Vec<String> = cur
-      .lines()
-      .filter(|l| {
-        let t = l.trim_start();
-        !t.starts_with("enable-rcon")
-          && !t.starts_with("rcon.password")
-          && !t.starts_with("rcon.port")
-          && !t.starts_with("broadcast-rcon-to-ops")
-      })
-      .map(|l| l.to_string())
-      .collect();
-      lines.push(String::new());
-      lines.push("# 由 QookiX 补上：RCON（优雅停服 / 控制台命令）".into());
-      lines.push("enable-rcon=true".into());
-      lines.push(format!("rcon.password={}", rcon.password));
-      lines.push(format!("rcon.port={}", rcon.port));
-      lines.push("broadcast-rcon-to-ops=false".into());
-      let _ = crate::fsutil::write_text_atomic(&props, &(lines.join("\n") + "\n"));
-    }
-  }
-    }
-    Ok(())
+    prepare_server_files(&dir, s)
 }
 
-/// 写一个 `server.properties` 的键（给设置页用）
+fn prepare_server_files(dir: &Path, s: &ServerConfig) -> Result<(), String> {
+    // EULA 只有一个事实源：server.json。每次启动/安装都按它重写文件，
+    // 用户撤回同意后不会再被旧文件里的 true 覆盖回来。
+    crate::fsutil::write_text_atomic(&dir.join("eula.txt"), &format!("eula={}\n", s.eula))
+        .map_err(|e| format!("写入 EULA 失败: {e}"))?;
+
+    let rcon = crate::rcon::load_or_create_creds(&dir, s.port)?;
+    let props = dir.join("server.properties");
+    let fresh = !props.exists();
+    let mut changes: Vec<(&str, String)> = vec![
+        ("motd", s.motd.clone()),
+        ("server-port", s.port.to_string()),
+        ("enable-rcon", "true".to_string()),
+        ("rcon.password", rcon.password.clone()),
+        ("rcon.port", rcon.port.to_string()),
+        ("broadcast-rcon-to-ops", "false".to_string()),
+    ];
+    if fresh {
+        changes.push(("max-players", "10".to_string()));
+        changes.push(("online-mode", "true".to_string()));
+        changes.push(("difficulty", "normal".to_string()));
+        changes.push(("gamemode", "survival".to_string()));
+        changes.push(("level-name", "world".to_string()));
+        changes.push(("view-distance", "6".to_string()));
+        changes.push(("simulation-distance", "4".to_string()));
+        changes.push(("sync-chunk-writes", "false".to_string()));
+    }
+    merge_server_properties(&dir, &changes)
+}
+
+/// 一次读取、一次原子写回：批量改属性不会出现「前几个键生效、后面报错」的
+/// 半截状态，也避免两个并发写互相覆盖。
+fn merge_server_properties(dir: &Path, changes: &[(&str, String)]) -> Result<(), String> {
+    let path = dir.join("server.properties");
+    let mut lines: Vec<String> = match std::fs::read_to_string(&path) {
+        Ok(text) => text.lines().map(|l| l.to_string()).collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(format!("读取 server.properties 失败（未覆盖原文件）: {e}")),
+    };
+    for (key, value) in changes {
+        let mut replaced = false;
+        let mut out = Vec::with_capacity(lines.len() + 1);
+        for line in lines.drain(..) {
+            let is_key = line
+                .trim_start()
+                .split_once(|c| c == '=' || c == ':')
+                .is_some_and(|(k, _)| k.trim() == *key);
+            if is_key {
+                if !replaced {
+                    out.push(format!("{key}={value}"));
+                    replaced = true;
+                }
+            } else {
+                out.push(line);
+            }
+        }
+        if !replaced {
+            out.push(format!("{key}={value}"));
+        }
+        lines = out;
+    }
+    crate::fsutil::write_text_atomic(&path, &(lines.join("\n") + "\n"))
+        .map_err(|e| format!("写入 server.properties 失败: {e}"))
+}
 pub fn write_server_property(id: &str, key: &str, value: &str) -> Result<(), String> {
     let dir = server_dir(id)?;
     let path = dir.join("server.properties");
@@ -526,9 +530,7 @@ pub fn set_hosted_server_properties(
         };
         pending.push((spec.key, text));
     }
-    for (key, text) in pending {
-        write_server_property(&id, key, &text)?;
-    }
+    merge_server_properties(&server_dir(&id)?, &pending)?;
     get_hosted_server_properties(id)
 }
 
@@ -705,6 +707,14 @@ pub async fn list_paper_versions() -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+pub async fn list_fabric_server_versions() -> Result<Vec<String>, String> {
+    let client = meta_client().await?;
+    let list = get_json_retry(&client, "https://meta.fabricmc.net/v2/versions/game", 4).await?;
+    let versions = list.as_array().ok_or("Fabric 版本清单格式错误")?;
+    Ok(versions.iter().filter(|v| v["stable"].as_bool() == Some(true))
+        .filter_map(|v| v["version"].as_str().map(str::to_owned)).collect())
+}
+
 /// 版本号 → 可比较的数字段（`"1.21.11"` → `[1, 21, 11]`）。
 /// 直接比字符串会把 `1.9` 排在 `1.21` 后面。
 fn ver_key(v: &str) -> Vec<i64> {
@@ -830,42 +840,103 @@ fn file_sha1(path: &Path) -> std::io::Result<String> {
     Ok(format!("{:x}", h.finalize()))
 }
 
-async fn download_verified(
-    client: &reqwest::Client,
-    url: &str,
-    dest: &Path,
-    expect_sha: Option<&str>,
-) -> Result<u64, String> {
-    use tokio::io::AsyncWriteExt;
+#[derive(Clone, Copy)]
+enum CoreDigest<'a> {
+    None,
+    Sha1(&'a str),
+    Sha256(&'a str),
+}
 
+fn digest_matches(path: &Path, digest: CoreDigest<'_>) -> Result<bool, String> {
+    match digest {
+        CoreDigest::None => Ok(false),
+        CoreDigest::Sha1(want) => Ok(file_sha1(path).map_err(|e| e.to_string())?
+            .eq_ignore_ascii_case(want)),
+        CoreDigest::Sha256(want) => Ok(file_sha256(path).map_err(|e| e.to_string())?
+            .eq_ignore_ascii_case(want)),
+    }
+}
+
+fn publish_core_file(part: &Path, dest: &Path) -> Result<(), String> {
+    std::fs::rename(part, dest).map_err(|e| format!("发布核心文件失败: {e}"))
+}
+
+fn parse_core_range(header: &str, offset: u64) -> Option<(u64, u64)> {
+    let (range, total) = header.strip_prefix("bytes ")?.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    let (start, end, total) = (start.parse::<u64>().ok()?, end.parse::<u64>().ok()?, total.parse::<u64>().ok()?);
+    (start == offset && start <= end && end < total).then(|| (end - start + 1, total))
+}
+
+/// 下载核心：断点续传只在 `.part` 上发生，校验通过才原子替换正式文件。
+/// 失败时旧核心保持不动；200 响应（源不支持 Range）会在本轮内重置分片，
+/// 不会像旧实现那样每次重试都丢掉已经下到的一半。
+async fn download_core_file(
+    client: &reqwest::Client,
+    urls: &[String],
+    dest: &Path,
+    digest: CoreDigest<'_>,
+) -> Result<u64, String> {
     if let Some(p) = dest.parent() {
         std::fs::create_dir_all(p).map_err(|e| format!("创建下载目录失败: {e}"))?;
     }
-    let part = dest.with_extension("part");
+    // Bind persisted partial data to the requested artifact. An update or a
+    // different mirror without a trusted digest must not append foreign bytes.
+    let part = |url: &str| {
+        use sha2::{Digest, Sha256};
+        let key = match digest {
+            CoreDigest::Sha1(s) | CoreDigest::Sha256(s) => s,
+            CoreDigest::None => url,
+        };
+        dest.with_extension(format!("{:x}.part", Sha256::digest(key.as_bytes())))
+    };
 
-    // 已经下好且校验通过就不要再下一遍：用户点两次「安装核心」，或建服后台自动装完
-    // 用户又点一次，都不该重下几十 MB。顺手把可能残留的 .part 清掉。
-    if let Some(want) = expect_sha {
-        if let Ok(meta) = std::fs::metadata(dest) {
-            let ok = meta.len() > 0
-                && file_sha256(dest)
-                    .map(|h| h.eq_ignore_ascii_case(want))
-                    .unwrap_or(false);
-            if ok {
-                tracing::info!("[core] 目标已存在且 sha256 匹配（{} 字节），跳过下载", meta.len());
-                let _ = std::fs::remove_file(&part);
-                return Ok(meta.len());
-            }
+    if let Ok(meta) = std::fs::metadata(dest) {
+        if meta.len() > 0 && digest_matches(dest, digest)? {
+            tracing::info!("[core] 目标已存在且校验通过（{} 字节），跳过下载", meta.len());
+            if let Some(url) = urls.first() { let _ = std::fs::remove_file(part(url)); }
+            return Ok(meta.len());
         }
     }
 
-    // 最多 200 段：1.8MB × 200 ≈ 360MB，足够任何核心
+    let mut last_err = String::from("下载失败");
+    for url in urls {
+        let part = part(url);
+        match download_one_core(client, url, &part, digest).await {
+            Ok(n) => {
+                if let Some(problem) = validate_core_jar(&part) {
+                    let _ = std::fs::remove_file(&part);
+                    return Err(problem);
+                }
+                publish_core_file(&part, dest)?;
+                return Ok(n);
+            }
+            Err(e) => {
+                tracing::warn!("[core] 从 {url} 下载失败: {e}");
+                last_err = e;
+            }
+        }
+    }
+    Err(last_err)
+}
+
+async fn download_one_core(
+    client: &reqwest::Client,
+    url: &str,
+    part: &Path,
+    digest: CoreDigest<'_>,
+) -> Result<u64, String> {
+    use tokio::io::AsyncWriteExt;
     const MAX_CHUNKS: usize = 200;
 
     for attempt in 1..=MAX_CHUNKS {
-        let have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
-        let req = client.get(url).header("Range", format!("bytes={have}-"));
-        let resp = match req.send().await {
+        let have = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
+        let resp = match client
+            .get(url)
+            .header("Range", format!("bytes={have}-"))
+            .send()
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 if attempt == 1 {
@@ -876,61 +947,54 @@ async fn download_verified(
                 continue;
             }
         };
-
         let status = resp.status();
-        // 416 = 这个 Range 起点不合法（分片已经 ≥ 整个文件大小，通常意味着分片里的内容
-        // 是坏的重下过、或者被别的并发下载动过）。**不能当致命错误** ——
-        // 否则「重试」永远停在「HTTP 416 Range Not Satisfiable」上，用户再也装不成核心。
-        // 删掉分片、下一轮从 0 重下即可；have == 0 时已经是干净的起点，说明这个源
-        // 连 plain Range 都不接受，那才是真失败。
         if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
             if have == 0 {
                 return Err(format!("下载失败: HTTP {status}"));
             }
             tracing::warn!("[core] Range bytes={have}- 被拒（416），删掉分片从头重下");
-            let _ = std::fs::remove_file(&part);
+            let _ = std::fs::remove_file(part);
             continue;
         }
         if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
             return Err(format!("下载失败: HTTP {status}"));
         }
-
-        // 206 = 服务端支持续传；200 = 不支持，只能从头下（先清掉已有分片）
-        let append = status == reqwest::StatusCode::PARTIAL_CONTENT && have > 0;
-        if !append && have > 0 {
-            let _ = std::fs::remove_file(&part);
-        }
-
+        let partial = status == reqwest::StatusCode::PARTIAL_CONTENT;
+        let length = resp.content_length();
+        let (segment_len, expected_total) = if partial {
+            let (len, total) = resp.headers().get(reqwest::header::CONTENT_RANGE)
+                .and_then(|v| v.to_str().ok()).and_then(|v| parse_core_range(v, have))
+                .ok_or("服务器返回的续传范围不匹配")?;
+            if length.is_some_and(|n| n != len) { return Err("续传长度和范围不匹配".into()); }
+            (Some(len), Some(total))
+        } else if status == reqwest::StatusCode::OK {
+            (length, length)
+        } else {
+            return Err(format!("无效下载状态: HTTP {status}"));
+        };
+        let append = partial && have > 0;
         let mut f = tokio::fs::OpenOptions::new()
             .create(true)
+            .truncate(!append)
             .append(append)
             .write(true)
-            .open(&part)
+            .open(part)
             .await
             .map_err(|e| format!("打开分片失败: {e}"))?;
         let mut resp = resp;
         let mut got = 0u64;
-        // **关键**：连接中途断开（`error decoding response body`）是这里的常态，
-        // 不是致命错误 —— 已经写进 .part 的字节都算数，下一轮带 Range 接着下。
-        // 早先写成 `chunk().await?` 会让第一次断流就把整个下载判失败，
-        // 续传代码永远走不到，等于没有续传。
         let mut cut = false;
         loop {
-            // 单段最多 15 秒没有新数据就换下一段。
-            // 整体 timeout 是 600 秒，若不在读层面加超时，一个卡住的连接会
-            // 干等十分钟才断 —— 续传轮数有限，等不起（实测 240 秒只下了 391KB）。
-            let step = tokio::time::timeout(
-                std::time::Duration::from_secs(15),
-                resp.chunk(),
-            )
-            .await;
+            let step = tokio::time::timeout(std::time::Duration::from_secs(15), resp.chunk()).await;
             match step {
-                // step: Result<Result<Option<Bytes>, Error>, Elapsed>（三层，别写错）
                 Ok(Ok(Some(chunk))) => {
-                    if let Err(e) = f.write_all(&chunk).await {
-                        return Err(format!("写入失败: {e}"));
-                    }
                     got += chunk.len() as u64;
+                    if segment_len.is_some_and(|n| got > n) {
+                        drop(f);
+                        let _ = std::fs::remove_file(part);
+                        return Err("服务端发送的数据超过声明的续传范围".into());
+                    }
+                    f.write_all(&chunk).await.map_err(|e| format!("写入失败: {e}"))?;
                 }
                 Ok(Ok(None)) => break,
                 Ok(Err(e)) => {
@@ -945,73 +1009,87 @@ async fn download_verified(
                 }
             }
         }
+        f.flush().await.map_err(|e| format!("保存分片失败: {e}"))?;
         drop(f);
-        let _ = cut;
 
-        // ⚠️ 2026-10-19 真机修：没有 sha256 时，也不能「分片有内容就算下好了」。
-        //
-        // Fabric 的 `server/jar` 就是**没有 sha** 的那种。弱网下分段续传被
-        // 200 段上限截断（或者连接反复中断），`.part` 只下到一半就被 rename 成
-        // 正式文件 —— 于是出现「核心已就绪」但点启动就 `nativeStart 返回 -3`
-        // （jar 打不开 → 读不到 Main-Class）。真机实测 1.21.8 的
-        // fabric-server-launch.jar 只有 104KB（官方 164KB）。
-        //
-        // 这里用服务器声明的 Content-Length 做兜底校验：下完必须和它一致。
-        let expected_total: Option<u64> = resp
-            .headers()
-            .get(reqwest::header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
-            .map(|n| n.saturating_add(if append { have } else { 0 }));
-
-        let total = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+        let total = std::fs::metadata(part).map_err(|e| e.to_string())?.len();
+        if cut || segment_len.is_some_and(|n| n != got) || expected_total.is_some_and(|n| total < n) {
+            continue;
+        }
         tracing::info!("[core] 第 {attempt} 段 +{got} 字节，累计 {total}");
 
-        // 有 sha256 就以它为准判完成
-        if let Some(want) = expect_sha {
-            if total > 0 {
-                let got_sha = file_sha256(&part).map_err(|e| format!("校验分片失败: {e}"))?;
-                if got_sha.eq_ignore_ascii_case(want) {
-                    std::fs::rename(&part, dest).map_err(|e| format!("重命名分片失败: {e}"))?;
+        match digest {
+            CoreDigest::None => {
+                if let Some(want) = expected_total {
+                    if total < want {
+                        continue;
+                    }
+                    if total > want {
+                        tracing::warn!("[core] 分片比预期大（{total} > {want}），删掉重下");
+                        let _ = std::fs::remove_file(part);
+                        continue;
+                    }
+                } else if cut {
+                    continue;
+                }
+                if total == 0 {
+                    return Err("下载中断：服务器没有返回任何数据".into());
+                }
+                return Ok(total);
+            }
+            _ => {
+                if total > 0 && digest_matches(part, digest)? {
                     return Ok(total);
                 }
-                tracing::warn!(
-                    "[core] sha256 不符（{got_sha}…），续传中或需重下（已有 {total} 字节）"
-                );
-                // 校验不过：文件内容有问题（比如服务端忽略了 Range 从头重发），
-                // 删掉重来，别在坏文件上无限续传
-                if !append {
-                    let _ = std::fs::remove_file(&part);
+                let finished_response = !cut && got > 0
+                    && expected_total.is_some_and(|want| total >= want);
+                if finished_response {
+                    tracing::warn!("[core] 完整响应但摘要不符，删除分片并报错");
+                    let _ = std::fs::remove_file(part);
+                    return Err("下载文件校验失败（内容不完整或被源替换），请重试".into());
                 }
             }
-        } else if got == 0 {
-            return Err("下载中断：服务器没有返回任何数据".to_string());
-        } else if total > 0 && !append {
-            // 无 sha256 可校验时，用「本次读完了整个响应」作为完成判据 ——
-            // **但必须叠加 Content-Length 校验**（见上面的注释：Fabric 的
-            // server/jar 没有 sha，半截文件会被当成下好了）。
-            match expected_total {
-                Some(want) if total < want => {
-                    tracing::warn!(
-                        "[core] 只下到 {total}/{want} 字节，继续续传（第 {attempt} 段）"
-                    );
-                    continue;
-                }
-                Some(want) if total > want => {
-                    tracing::warn!("[core] 分片比预期大（{total} > {want}），删掉重下");
-                    let _ = std::fs::remove_file(&part);
-                    continue;
-                }
-                _ => {}
-            }
-            let _ = std::fs::rename(&part, dest).map_err(|e| format!("重命名分片失败: {e}"))?;
-            return Ok(total);
         }
     }
-
-    Err("下载未完成：超过最大重试次数".to_string())
+    Err("下载未完成：超过最大重试次数".into())
 }
 
+#[cfg(test)]
+mod download_tests {
+    use super::*;
+
+    #[test]
+    fn resume_checks_start_and_full_length() {
+        assert_eq!(parse_core_range("bytes 10-19/30", 10), Some((10, 30)));
+        assert_eq!(parse_core_range("bytes 0-19/30", 10), None);
+        assert_eq!(parse_core_range("bytes 10-30/30", 10), None);
+        assert_eq!(parse_core_range("bytes 10-19/*", 10), None);
+    }
+
+    #[test]
+    fn failed_publish_keeps_previous_core() {
+        let dir = std::env::temp_dir().join(format!("qk-core-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("server.jar");
+        std::fs::write(&dest, b"old").unwrap();
+        let missing_part = dir.join("missing.part");
+        assert!(publish_core_file(&missing_part, &dest).is_err());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"old");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sha256_digest_accepts_matching_file() {
+        let dir = std::env::temp_dir().join(format!("qk-digest-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("a.bin");
+        std::fs::write(&p, b"abc").unwrap();
+        let sha = file_sha256(&p).unwrap();
+        assert!(digest_matches(&p, CoreDigest::Sha256(&sha)).unwrap());
+        assert!(!digest_matches(&p, CoreDigest::Sha256("deadbeef")).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
 /**
  * 下载 Paper 核心。
  *
@@ -1099,7 +1177,11 @@ async fn download_paper(
     }
 
     let dest = server_dir(id)?.join("server.jar");
-    let bytes = download_verified(client, &dl, &dest, sha.as_deref()).await?;
+    let digest = match sha.as_deref() {
+        Some(want) => CoreDigest::Sha256(want),
+        None => CoreDigest::None,
+    };
+    let bytes = download_core_file(client, std::slice::from_ref(&dl), &dest, digest).await?;
     tracing::info!("[core] Paper 核心完成 {bytes} 字节");
     Ok(dl)
 }
@@ -1169,7 +1251,11 @@ async fn download_vanilla(
 
     let mut last_err = String::new();
     for u in urls {
-        match download_sha1(client, &u, &dest, sha1.as_deref()).await {
+        let digest = match sha1.as_deref() {
+            Some(want) => CoreDigest::Sha1(want),
+            None => CoreDigest::None,
+        };
+        match download_core_file(client, std::slice::from_ref(&u), &dest, digest).await {
             Ok(_) => return Ok(()),
             Err(e) => {
                 tracing::warn!("[core] 原版核心从 {u} 下载失败: {e}");
@@ -1178,102 +1264,6 @@ async fn download_vanilla(
         }
     }
     Err(format!("原版核心下载失败: {last_err}"))
-}
-
-/// sha1 校验版下载（官方原版核心只提供 sha1）
-async fn download_sha1(
-    client: &reqwest::Client,
-    url: &str,
-    dest: &Path,
-    want: Option<&str>,
-) -> Result<(), String> {
-    use tokio::io::AsyncWriteExt;
-
-    if let Some(p) = dest.parent() {
-        std::fs::create_dir_all(p).map_err(|e| format!("创建下载目录失败: {e}"))?;
-    }
-    let part = dest.with_extension("part");
-    // 已经下好且校验通过就跳过（同 download_verified：重复点「安装核心」不该重下几十 MB）
-    if let Some(w) = want {
-        if let Ok(meta) = std::fs::metadata(dest) {
-            let ok = meta.len() > 0
-                && file_sha1(dest)
-                    .map(|h| h.eq_ignore_ascii_case(w))
-                    .unwrap_or(false);
-            if ok {
-                tracing::info!("[core] 原版核心已存在且 sha1 匹配，跳过下载");
-                let _ = std::fs::remove_file(&part);
-                return Ok(());
-            }
-        }
-    }
-    for attempt in 1..=200u32 {
-        let have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
-        let resp = client
-            .get(url)
-            .header("Range", format!("bytes={have}-"))
-            .send()
-            .await
-            .map_err(|e| format!("下载失败: {e}"))?;
-        let status = resp.status();
-        // 416：分片起点不合法（分片 ≥ 整个文件）→ 删掉重下，别当致命错误（见 download_verified）
-        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
-            if have == 0 {
-                return Err(format!("HTTP {status}"));
-            }
-            tracing::warn!("[core] 原版 Range bytes={have}- 被拒（416），删掉分片从头重下");
-            let _ = std::fs::remove_file(&part);
-            continue;
-        }
-        if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
-            return Err(format!("HTTP {status}"));
-        }
-        let append = status == reqwest::StatusCode::PARTIAL_CONTENT && have > 0;
-        if !append && have > 0 {
-            let _ = std::fs::remove_file(&part);
-        }
-        let mut f = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(append)
-            .write(true)
-            .open(&part)
-            .await
-            .map_err(|e| format!("打开分片失败: {e}"))?;
-        let mut resp = resp;
-        let mut got = 0u64;
-        loop {
-            let step =
-                tokio::time::timeout(std::time::Duration::from_secs(15), resp.chunk()).await;
-            match step {
-                Ok(Ok(Some(c))) => {
-                    f.write_all(&c).await.map_err(|e| e.to_string())?;
-                    got += c.len() as u64;
-                }
-                Ok(Ok(None)) | Ok(Err(_)) | Err(_) => break,
-            }
-        }
-        drop(f);
-        let total = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
-        tracing::info!("[core] 原版第 {attempt} 段 +{got}，累计 {total}");
-        if got == 0 && total == 0 {
-            return Err("服务器没有返回数据".to_string());
-        }
-        if let Some(w) = want {
-            let got_sha = file_sha1(&part).map_err(|e| format!("校验分片失败: {e}"))?;
-            if got_sha.eq_ignore_ascii_case(w) {
-                std::fs::rename(&part, dest).map_err(|e| format!("重命名分片失败: {e}"))?;
-                return Ok(());
-            }
-            tracing::warn!("[core] 原版 sha1 不符，续传（{total} 字节）");
-            if !append {
-                let _ = std::fs::remove_file(&part);
-            }
-        } else {
-            std::fs::rename(&part, dest).map_err(|e| format!("重命名分片失败: {e}"))?;
-            return Ok(());
-        }
-    }
-    Err("下载未完成".to_string())
 }
 
 /**
@@ -1348,7 +1338,7 @@ async fn download_fabric(
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{mc_version}/{loader}/{installer}/server/jar"
     );
-    if let Err(e) = download_verified(client, &url, &dest, None).await {
+    if let Err(e) = download_core_file(client, std::slice::from_ref(&url), &dest, CoreDigest::None).await {
         // 404 = 这个 MC 版本还没有对应的 loader 组合，如实说清而不是甩一条 HTTP 码
         if e.contains("404") {
             return Err(format!(
@@ -1361,40 +1351,50 @@ async fn download_fabric(
 }
 
 /// 核心是否已就绪（能否启动）
+/// 核心是否真的可以启动：文件存在还不够，必须能读出 JAR 的 Main-Class。
+/// 判断失败时界面会重新显示「安装核心」，这就是损坏核心的修复入口。
 pub fn core_installed(id: &str) -> bool {
-    let Ok(dir) = server_dir(id) else {
-        return false;
+    core_problem(id).is_none()
+}
+
+fn core_problem(id: &str) -> Option<String> {
+    let dir = match server_dir(id) {
+        Ok(d) => d,
+        Err(e) => return Some(e),
     };
-    if dir.join("server.jar").exists() {
-        return true;
+    let server = dir.join("server.jar");
+    if server.exists() {
+        return validate_core_jar(&server);
     }
-    // ⚠️ 2026-10-19 真机修：`fabric-server-launch.jar` 存在**不等于**核心装好了。
-    //
-    // 它只是 Fabric 的薄启动器（约 100KB），真正跑起来还需要同目录的
-    // `libraries/` 与原版 server jar。原来只判文件存在，于是：
-    //   · 界面认为「核心已就绪」→ 跳过下载
-    //   · 点启动 → `read_main_class` 读不到 Main-Class → nativeStart 返回 -3
-    //   · 界面上只看到「启动失败（-3）」，没有任何可操作的提示
-    //
-    // 现在要求启动器 jar 真的带 Main-Class 才算数。
     match fabric_launcher_jar(&dir) {
-        Some(name) => {
-            let path = dir.join(&name);
-            let mc = crate::server_process::read_main_class(&path);
-            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            // 落盘诊断：这个判定直接决定界面显示「下载核心」还是「启动」，
-            // 判错就会出现「显示已就绪但一点启动就 -3」的死锁。
-            crate::util::log_line(&format!(
-                "[core] core_installed 检查：{} 存在=true 大小={size} mainClass={:?}",
-                path.display(),
-                mc
-            ));
-            mc.is_some()
-        }
-        None => false,
+        Some(name) => validate_core_jar(&dir.join(name)),
+        None => Some("还没下载服务端核心".into()),
     }
 }
 
+fn validate_core_jar(path: &Path) -> Option<String> {
+    let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if len == 0 {
+        return Some("服务端核心是空文件，需要重新安装".into());
+    }
+    if crate::server_process::read_main_class(path).is_none() {
+        return Some("服务端核心已损坏（读不到主类），需要重新安装".into());
+    }
+    None
+}
+
+#[cfg(test)]
+#[test]
+fn invalid_core_jar_is_not_considered_installed() {
+    let dir = std::env::temp_dir().join(format!("qk-core-bad-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let jar = dir.join("server.jar");
+    std::fs::write(&jar, b"not a zip").unwrap();
+    assert!(validate_core_jar(&jar).is_some());
+    std::fs::remove_file(&jar).unwrap();
+    assert!(validate_core_jar(&jar).is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
 fn fabric_launcher_jar(dir: &Path) -> Option<String> {
     let rd = std::fs::read_dir(dir).ok()?;
     for e in rd.flatten() {
@@ -1408,20 +1408,10 @@ fn fabric_launcher_jar(dir: &Path) -> Option<String> {
 
 // ── Tauri 命令：核心安装 ───────────────────────────────────────────────
 
-lazy_static::lazy_static! {
-    /// 核心安装**串行化**（同一时间只跑一个）。
-    ///
-    /// 两条并发的安装会抢同一个 `server.part`：A 下完把分片 rename 成 `server.jar` 之后，
-    /// B 再去 rename 同一个分片就拿到「No such file or directory (os error 2)」。
-    /// 真机上很好触发 —— 建服时前端会**后台自动装**一次（`void servers.installCore()`，
-    /// 不 await、失败也不提示），用户进服务器详情页看到「安装核心」按钮又会点第二次。
-    /// 后进来的这次会等前一次结束，再靠「已经下好就跳过」瞬间返回。
-    static ref INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
-}
-
 /// 下载/安装服务端核心。Paper 与原版是单文件；Fabric 下组装好的 launcher jar。
 pub async fn install_hosted_server_core(id: String) -> Result<String, String> {
-    let _guard = INSTALL_LOCK.lock().await;
+    let _operation = crate::server_state::try_host_operation()?;
+    ensure_server_inactive(&id)?;
     let s = get_server(&id)?;
     let client = http_client().await?;
     let res = match s.core {
@@ -1547,115 +1537,109 @@ async fn ensure_server_jre(id: &str, mc_version: &str) -> Result<String, String>
 }
 
 
-/// 停止运行中的服务器。
-///
-/// 顺序很重要：**先 RCON `stop`（服务端自己存盘关世界）**，只有在 RCON 不可用
-/// 或超时后才退回 IPC `System.exit(0)`。后者实测不会触发 `Saving worlds`，
-/// 等于直接杀进程 —— 玩家建筑会回档。
+/// 手动停服；撤销休眠意图，即使另一个操作尚未返回。
 pub async fn stop_hosted_server(id: String) -> Result<String, String> {
-    // 手动停服就不再巡检了：用户要的是「停下来」，而空闲巡检的目标是「没人才停」，
-    // 两者目的相反。留着巡检还会让一台停着的服务器被写进 sleep.json（显示成休眠）。
-    crate::sleep::cancel_supervisor(&id);
-    let rt = server_runtime(&id).ok_or_else(|| "这个服务器没有运行记录".to_string())?;
-    // 休眠中：JVM 停了（running=false）但唤醒监听仍占着端口 —— 不 disarm 的话，
-    // 用户点「停止」只会得到「本来就没在运行」，下次启动还会 bind 失败。
-    if rt.sleeping {
-        crate::sleep::disarm(&id);
-        return Ok("已停止（这台原先在休眠，唤醒监听已撤）".to_string());
-    }
-    if !rt.running {
-        return Ok("服务器本来就没在运行".to_string());
-    }
-    // 拿 RCON 凭据
-    let dir = server_dir(&id)?;
-    let creds = crate::rcon::load_or_create_creds(&dir, get_server(&id)?.port)?;
-
-    // runtime.json 里有 IPC 端口与 token（用来确认 JVM 真的退出了）。
-    // **必须原样传 Option，不能 `unwrap_or` 成 0**：端口为 0 时 `ipc_alive` 恒为 false，
-    // graceful_stop 会立刻谎报「已优雅停服（世界已存盘）」（详见那边的注释）。
-    let runtime_io = read_runtime_io(&id);
-    let ipc_port = runtime_io.as_ref().map(|(p, _)| *p);
-    let token = runtime_io.as_ref().map(|(_, t)| t.as_str()).unwrap_or("");
-
-    match crate::rcon::graceful_stop(ipc_port, token, &creds, 20) {
-        Ok(msg) => {
-            // ⚠️ 2026-10-19 真机修：**必须真的把 `:server` 进程结束掉**。
-            //
-            // 原来的假设是「JVM 优雅退出后，`:server` 进程会随之结束」——
-            // 实测不成立：JVM 退出后 `ServerService` 仍然活着（还挂着一堆
-            // 僵尸子进程），进程一直不退。
-            // 后果就是用户报的「服务端只能启动一次」：第二次启动复用同一进程，
-            // 而 `JLI_Launch` 在同一个进程里**只能成功创建一次 JVM**，
-            // 于是第二次必然失败且什么都不打印。
-            //
-            // `notify_server_stopped` 只负责撤通知（走广播），这里再补一刀
-            // 真正的 stopService —— 它会触发 `onDestroy` → `killProcessAfterStop`。
-            let _ = crate::android_bridge::notify_server_stopped(&id);
-            let _ = crate::android_bridge::force_stop_server(&id);
-            // ⚠️ 2026-10-20 修：**停服必须把 stage 清掉**。
-            //
-            // `emit_server_stage` 有 6 处会写入阶段文案，但停止路径一处都不清。
-            // 于是停服后前端仍显示最后一条「正在启动服务端进程…」——
-            // 用户看到按钮写着「正在启动服务端进程」，以为没停成功（真机反馈）。
-            // 空串表示「没有进行中的阶段」，前端据此回落到「未运行」。
-            crate::progress::emit_server_stage(&id, "");
-            crate::util::log_line("[server] 停服完成，已请求结束 :server 进程");
-            Ok(msg)
-        }
-        Err(e) => {
-            tracing::warn!("[server] 优雅停服失败（{e}），退回强制停止");
-            // 兜底：直接让 :server 进程里的 JVM 退出
-            let forced = crate::android_bridge::force_stop_server(&id);
-            // 同上：无论成功与否都清掉阶段文案，否则界面会一直卡在
-            // 「正在启动服务端进程…」/「正在停止…」这种过时状态上。
-            crate::progress::emit_server_stage(&id, "");
-            match forced {
-                Ok(()) => Ok(format!("{e}；已强制停止（世界可能未存盘）")),
-                Err(e2) => Err(format!("{e}；强制停止也失败：{e2}")),
-            }
-        }
+    get_server(&id)?;
+    crate::sleep::disarm(&id);
+    let _operation = crate::server_state::host_operation().await;
+    crate::sleep::disarm(&id);
+    match stop_server_under_lock(&id).await? {
+        true => Ok("服务端已正常退出".into()),
+        false => Ok("服务器当前没有运行".into()),
     }
 }
 
-/// 确保 `server.properties` 里的 RCON 三项是「开」的。
-///
-/// ## 为什么每次启动前都要重写
-///
-/// Minecraft **首次启动时会自己生成一份完整的 server.properties**，
-/// 并把 `enable-rcon` 写成 `false`、`rcon.password` 留空。
-/// 我们在「装核心」时写好的配置会被这一次覆盖掉 ——
-/// 表现就是「代码里明明 enable-rcon=true，RCON 端口却连不上（Connection refused）」。
-///
-/// server.properties 只在服务端**启动时**读取，所以启动前改是安全且立刻生效的。
-pub fn ensure_rcon_props(dir: &Path, game_port: u16) -> Result<crate::rcon::RconCreds, String> {
-    let creds = crate::rcon::load_or_create_creds(dir, game_port)?;
-    let props = dir.join("server.properties");
-    let mut lines: Vec<String> = match std::fs::read_to_string(&props) {
-        Ok(cur) => cur
-            .lines()
-            .filter(|l| {
-                let t = l.trim_start();
-                // 先剔掉旧的 RCON 行，下面统一重写（可能有多行重复）
-                !t.starts_with("enable-rcon")
-                    && !t.starts_with("rcon.password")
-                    && !t.starts_with("rcon.port")
-            })
-            .map(|l| l.to_string())
-            .collect(),
-        Err(_) => vec![
-            "# 由 QookiX 生成".into(),
-            format!("server-port={game_port}"),
-            String::new(),
-        ],
+// Callers must hold the lifecycle lock. true requires a clean exit record
+// from the same run, not merely a dropped connection or a dead process.
+pub(crate) async fn stop_server_under_lock(id: &str) -> Result<bool, String> {
+    let Some(run) = read_runtime(id) else {
+        ensure_server_inactive(id)?;
+        return Ok(false);
     };
-    lines.push(String::new());
-    lines.push("# RCON：由 QookiX 启用（优雅停服 / 控制台命令）".into());
-    lines.push("enable-rcon=true".into());
-    lines.push(format!("rcon.password={}", creds.password));
-    lines.push(format!("rcon.port={}", creds.port));
-    lines.push("broadcast-rcon-to-ops=false".into());
-    crate::fsutil::write_text_atomic(&props, &(lines.join("\n") + "\n")).map_err(|e| e.to_string())?;
-    Ok(creds)
+    if !runtime_busy(&run) {
+        ensure_server_inactive(id)?;
+        return Ok(false);
+    }
+    if !run.clean_exit {
+        if run.exit.is_some() || !active_ipc(&run) {
+            return Err("尚未确认当前 JVM 正在运行，未发送停服，也不会强制结束".into());
+        }
+        // 优先走 IPC /stop：它让 :server 进程执行 System.exit(0)，
+        // atexit 能补写 cleanExit；RCON 停服没有这个进程内信号。
+        let ipc_port = run.ipc_port;
+        let token = run.token.clone();
+        let ipc = tokio::task::spawn_blocking(move || ipc_request_stop(ipc_port, &token))
+            .await
+            .map_err(|e| e.to_string())?;
+        if ipc.is_err() {
+            let creds = crate::rcon::load_or_create_creds(&server_dir(id)?, get_server(id)?.port)?;
+            tokio::task::spawn_blocking(move || crate::rcon::request_stop(&creds)).await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| format!("未能发送正常停服命令，不会强制结束：{e}"))?;
+        }
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(25);
+    while tokio::time::Instant::now() < deadline {
+        if let Some(current) = read_runtime(id).filter(|current| same_run(&run, current)) {
+            if current.exit.is_some() && !current.clean_exit {
+                return Err("服务端异常退出，无法确认世界已正常保存".into());
+            }
+            if confirmed_server_exit(&run, &current, crate::server_state::process_may_be_alive(run.pid)) {
+                crate::progress::emit_server_stage(id, "");
+                return Ok(true);
+            }
+        }
+        if !crate::server_state::process_may_be_alive(run.pid) {
+            return Err("服务进程已退出，但没有正常退出记录，无法确认存档状态".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+    }
+    Err("已请求正常停服，但尚未确认退出；没有强制结束，请等待并查看控制台".into())
+}
+
+fn same_run(a: &crate::server_process::RuntimeInfo, b: &crate::server_process::RuntimeInfo) -> bool {
+    !a.token.is_empty() && a.token == b.token && a.pid == b.pid
+}
+
+fn confirmed_server_exit(
+    expected: &crate::server_process::RuntimeInfo,
+    actual: &crate::server_process::RuntimeInfo,
+    process_alive: bool,
+) -> bool {
+    same_run(expected, actual) && actual.clean_exit && actual.exit.is_some() && !process_alive
+}
+
+#[cfg(test)]
+#[test]
+fn stop_requires_this_runs_clean_exit_and_process_death() {
+    use crate::server_process::RuntimeInfo;
+    let run = RuntimeInfo { pid: 1, token: "current".into(), ..RuntimeInfo::default() };
+    assert!(!confirmed_server_exit(&run, &run, false));
+    let mut ended = RuntimeInfo { clean_exit: true, exit: Some("exit 0".into()), ..run.clone() };
+    assert!(!confirmed_server_exit(&run, &ended, true));
+    assert!(confirmed_server_exit(&run, &ended, false));
+    ended.token = "previous".into();
+    assert!(!confirmed_server_exit(&run, &ended, false));
+}
+
+fn runtime_busy(run: &crate::server_process::RuntimeInfo) -> bool {
+    crate::server_state::process_may_be_alive(run.pid)
+}
+
+pub(crate) fn ensure_server_inactive(id: &str) -> Result<(), String> {
+    let path = server_dir(id)?.join("runtime.json");
+    match std::fs::read_to_string(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("无法读取运行记录，不能确认服务器已停止：{e}")),
+        Ok(text) => {
+            let run: crate::server_process::RuntimeInfo = serde_json::from_str(&text)
+                .map_err(|e| format!("运行记录损坏，不能确认服务器已停止：{e}"))?;
+            if run.pid <= 0 || runtime_busy(&run) {
+                return Err("服务器进程尚未确认退出，请先停止并等待退出完成".into());
+            }
+            Ok(())
+        }
+    }
 }
 
 /// 执行一条服务端控制台命令（RCON）。
@@ -1669,17 +1653,13 @@ pub fn server_console_command(id: String, command: String) -> Result<String, Str
     crate::rcon::exec(creds.port, &creds.password, &cmd)
 }
 
-/// 读 runtime.json 里的 (ipc_port, token)
-fn read_runtime_io(id: &str) -> Option<(u16, String)> {
-    let dir = server_dir(id).ok()?;
-    let text = std::fs::read_to_string(dir.join("runtime.json")).ok()?;
-    let info: crate::server_process::RuntimeInfo = serde_json::from_str(&text).ok()?;
-    Some((info.ipc_port, info.token))
+fn read_runtime(id: &str) -> Option<crate::server_process::RuntimeInfo> {
+    let text = std::fs::read_to_string(server_dir(id).ok()?.join("runtime.json")).ok()?;
+    serde_json::from_str(&text).ok()
 }
 
-/// IPC 探活（rcon.rs 与 UI 都用）
-pub fn ipc_alive(port: u16, token: &str) -> bool {
-    ipc_status(port, token).is_some()
+fn active_ipc(info: &crate::server_process::RuntimeInfo) -> bool {
+    ipc_status(info.ipc_port, &info.token).is_some_and(|status| status.pid == info.pid && status.jvm_active())
 }
 
 /// 服务器运行态（UI 轮询用）。
@@ -1704,6 +1684,13 @@ pub struct ServerRuntime {
     /// 最近一次自动休眠 / 唤醒失败的原因（界面直接显示，否则「点了没反应」没法查）
     #[serde(rename = "wakeError")]
     pub wake_error: Option<String>,
+    #[serde(rename = "maxMemoryMb")]
+    pub max_memory_mb: u32,
+    #[serde(rename = "minMemoryMb")]
+    pub min_memory_mb: u32,
+    /// 启动时按设备可用内存再次钳制后的实际堆上限（与配置值区分）。
+    #[serde(rename = "effectiveMaxMemoryMb")]
+    pub effective_max_memory_mb: Option<u32>,
 }
 
 /// 服务端此刻是否真的在跑（IPC 探活通）。休眠中的服务器返回 false。
@@ -1713,28 +1700,27 @@ pub fn is_server_up(id: &str) -> bool {
 
 /// 读 runtime.json 并探活（IPC /status 通了才算真在跑）。
 pub fn server_runtime(id: &str) -> Option<ServerRuntime> {
-    let dir = server_dir(id).ok()?;
+    let cfg = get_server(id).ok();
     let state = crate::sleep::read_state(id);
     let sleeping = state.as_ref().map(|s| s.sleeping).unwrap_or(false);
     let sleep_since = state.as_ref().map(|s| s.since).unwrap_or(0);
     let wake_error = state.as_ref().and_then(|s| s.error.clone());
 
-    let info = std::fs::read_to_string(dir.join("runtime.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<crate::server_process::RuntimeInfo>(&t).ok());
-
-    match info {
+    match read_runtime(id) {
         Some(info) => {
-            // 探活：连 IPC 端口问一句。进程死了连不上。
-            let alive = ipc_status(info.ipc_port, &info.token).is_some();
+            let alive = info.exit.is_none() && active_ipc(&info);
+            let listening = alive && get_server(id).is_ok_and(|s| local_game_listener(s.port));
             Some(ServerRuntime {
-                running: alive,
+                running: listening,
                 started_at: info.started_at,
                 jvm_up: alive,
                 exit_note: info.exit,
                 sleeping,
                 sleep_since,
                 wake_error,
+                max_memory_mb: cfg.as_ref().map(|c| c.max_memory_mb).unwrap_or(0),
+                min_memory_mb: cfg.as_ref().map(|c| c.min_memory_mb).unwrap_or(0),
+                effective_max_memory_mb: info.effective_max_memory_mb.filter(|_| alive),
             })
         }
         // 没有 runtime.json = JVM 已经停了。**休眠时也必须返回 Some**：
@@ -1748,13 +1734,16 @@ pub fn server_runtime(id: &str) -> Option<ServerRuntime> {
             sleeping: true,
             sleep_since,
             wake_error,
+            max_memory_mb: cfg.as_ref().map(|c| c.max_memory_mb).unwrap_or(0),
+            min_memory_mb: cfg.as_ref().map(|c| c.min_memory_mb).unwrap_or(0),
+            effective_max_memory_mb: None,
         }),
         None => None,
     }
 }
 
 /// GET http://127.0.0.1:{port}/status，返回 Some 表示进程活着且鉴权通过
-fn ipc_status(port: u16, token: &str) -> Option<String> {
+fn ipc_status(port: u16, token: &str) -> Option<crate::server_state::IpcStatus> {
     use std::io::{Read, Write};
     use std::net::TcpStream;
     if port == 0 {
@@ -1772,48 +1761,64 @@ fn ipc_status(port: u16, token: &str) -> Option<String> {
     .ok()?;
     let mut buf = String::new();
     s.read_to_string(&mut buf).ok()?;
-    // 必须确认是 200：鉴权失败/路径不对时服务端会回 404，
-    // 那不代表「进程活着」，只代表「端口有人在听」。
-    if !buf.starts_with("HTTP/1.1 200") {
-        tracing::warn!("[server] IPC 探活返回异常: {}", &buf.lines().next().unwrap_or(""));
-        return None;
+    crate::server_state::IpcStatus::from_http(&buf)
+}
+
+/// POST /stop：让 :server 进程走 `JvmLauncher::shutdown()`（System.exit(0)）。
+/// 这条路径会置 STOP 标志，atexit 才能在 JVM 退出时补写 cleanExit。
+fn ipc_request_stop(port: u16, token: &str) -> Result<(), String> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    if port == 0 {
+        return Err("IPC 端口为 0".into());
     }
-    Some(buf)
+    let addr = format!("127.0.0.1:{port}");
+    let mut s = TcpStream::connect(&addr).map_err(|e| format!("连不上 IPC（{addr}）：{e}"))?;
+    s.set_read_timeout(Some(std::time::Duration::from_millis(3000)))
+        .map_err(|e| e.to_string())?;
+    s.set_write_timeout(Some(std::time::Duration::from_millis(3000)))
+        .map_err(|e| e.to_string())?;
+    s.write_all(
+        format!("POST /stop HTTP/1.1\r\nX-Token: {token}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .as_bytes(),
+    )
+    .map_err(|e| format!("发送 IPC 停服请求失败：{e}"))?;
+    // JVM 的 System.exit 可能先于响应把进程带走；请求已写出就算送达，
+    // 后面统一由 runtime.json 的 cleanExit + 进程存活判断确认结果。
+    let mut buf = String::new();
+    let _ = s.read_to_string(&mut buf);
+    if buf.contains("\"ok\":false") {
+        Err(format!("IPC 停服被拒绝：{}", buf.lines().next().unwrap_or("空响应")))
+    } else {
+        Ok(())
+    }
 }
 
 /// 读服务端日志尾部（Paper 写自己的 logs/latest.log，这里只取最后 n 行）。
 pub fn hosted_server_log(id: String, lines: Option<usize>) -> Result<Vec<String>, String> {
     let dir = server_dir(&id)?;
-    // Paper 1.17+ 的日志布局
-    let paper = dir.join("logs").join("latest.log");
-    let paper = if paper.exists() { paper } else { dir.join("latest.log") };
-    // Paper 自己的日志**只有服务端真正跑起来才会有**。核心缺少 `-javaagent`、
-    // JRE 不兼容这类「JVM 起来就死」的情况它一行都不写，唯一有内容的是
-    // `server_process.rs` 把 stdout/stderr 重定向出来的 `jvm-stdout.log`。
-    // 不回退到它，用户看到的就是「提示已启动、日志却一片空白」，完全查不到原因。
-    let jvm_out = dir.join("jvm-stdout.log");
-    let has_paper_log = paper.metadata().map(|m| m.len() > 0).unwrap_or(false);
-    let path = if has_paper_log {
-        paper
-    } else if jvm_out.exists() {
-        jvm_out
-    } else {
-        paper
-    };
-    // ⚠️ 2026-10-22 补：Paper **按日期归档** —— `logs/latest.log` 只是软链/副本，
-    // 真正常驻的是 `logs/2026-10-22-1.log.gz`（或未压缩的 .log）。
-    // 有些版本压根不生成 latest.log，于是这里「文件存在但读不到内容」。
-    // 兜底：扫 logs/ 下最新的 .log 文件（按修改时间），用它当日志源。
-    let path = if path.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-        path
-    } else {
-        match newest_log_in(&dir.join("logs")) {
-            Some(p) => p,
-            None => path,
+    // 不能只看 latest.log：上一轮留下的旧日志比本轮的 jvm-stdout.log 还新时，
+    // 控制台会一直显示上一轮内容。按修改时间挑最新且非空的日志源。
+    let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
+    let mut consider = |p: PathBuf| {
+        if let Ok(meta) = std::fs::metadata(&p) {
+            if meta.len() > 0 {
+                let t = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                if best.as_ref().is_none_or(|(_, bt)| t > *bt) {
+                    best = Some((p, t));
+                }
+            }
         }
     };
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("读日志失败（{}）: {e}", path.display()))?;
+    consider(dir.join("logs").join("latest.log"));
+    consider(dir.join("latest.log"));
+    consider(dir.join("jvm-stdout.log"));
+    if let Some(p) = newest_log_in(&dir.join("logs")) {
+        consider(p);
+    }
+    let Some((path, _)) = best else { return Ok(Vec::new()) };
+    // 只读文件尾部：几十 MB 的日志不必整份读进内存。
+    let text = read_tail_text(&path, 2 * 1024 * 1024)?;
     let n = lines.unwrap_or(200).min(2000);
     let all: Vec<&str> = text.lines().collect();
     Ok(all[all.len().saturating_sub(n)..]
@@ -1822,6 +1827,26 @@ pub fn hosted_server_log(id: String, lines: Option<usize>) -> Result<Vec<String>
         .collect())
 }
 
+fn read_tail_text(path: &Path, max_bytes: u64) -> Result<String, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).map_err(|e| format!("打开日志失败: {e}"))?;
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(max_bytes);
+    f.seek(SeekFrom::Start(start)).map_err(|e| format!("定位日志尾部失败: {e}"))?;
+    let mut buf = Vec::new();
+    f.take(max_bytes).read_to_end(&mut buf).map_err(|e| format!("读取日志失败: {e}"))?;
+    let begin = if start == 0 { 0 } else { buf.iter().position(|&b| b == b'\n').map(|i| i + 1).unwrap_or(buf.len()) };
+    Ok(String::from_utf8_lossy(&buf[begin..]).into_owned())
+}
+
+#[cfg(test)]
+#[test]
+fn missing_log_is_an_error_not_empty_output() {
+    let dir = std::env::temp_dir().join(format!("qk-log-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(read_tail_text(&dir.join("nope.log"), 1024).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
 /// 在 `logs/` 目录里找**修改时间最新**的 .log 文件（不看 .gz）。
 ///
 /// 为什么要这个兜底：Paper 每天一个日志文件（`2026-10-22-1.log`），
@@ -1927,10 +1952,17 @@ pub fn hosted_server_addresses() -> Vec<String> {
 
 /// 启动服务器（UI 契约：返回 `{ pid }`）
 pub async fn start_hosted_server(id: String) -> Result<serde_json::Value, String> {
-    // 复用已实现的启动流程
+    let _operation = crate::server_state::try_host_operation()?;
+    start_server_under_lock(id).await
+}
+
+pub(crate) async fn start_server_under_lock(id: String) -> Result<serde_json::Value, String> {
     let s = get_server(&id)?;
     if !core_installed(&id) {
         return Err("还没下载服务端核心".to_string());
+    }
+    for server in list_servers()? {
+        ensure_server_inactive(&server.id).map_err(|e| format!("{}：{e}", server.name))?;
     }
     // 这台服务器可能正处休眠：唤醒监听占着游戏端口。**必须先把监听让出来**，
     // 否则服务端起来时 bind 会撞在监听上，报的还是「启动后立刻退出」这种看不懂的话。
@@ -1938,23 +1970,10 @@ pub async fn start_hosted_server(id: String) -> Result<serde_json::Value, String
     crate::sleep::cancel_wake_listener(&id);
     crate::sleep::clear_state(&id);
     let dir = server_dir(&id)?;
-    if s.eula {
-        let _ = crate::fsutil::write_text_atomic(
-            &dir.join("eula.txt"),
-            "# Minecraft EULA（运行服务端即表示你同意）\n# 由 QookiX 生成；请在「服务器设置」里勾选同意后改成 true\neula=true\n",
-        );
-    }
-    let eula = std::fs::read_to_string(dir.join("eula.txt")).unwrap_or_default();
-    if !eula.lines().any(|l| l.trim() == "eula=true") {
-        return Err("请先在「服务器设置」里勾选同意 Minecraft EULA".to_string());
-    }
-    // 启动的唯一判据是 eula.txt（Paper 也只认它），而界面开关读的是 server.json.eula。
-    // 两者可能不一致（手改过 eula.txt、或早期版本写下的），于是出现
-    // 「详情页提示未同意、服务器却正常在跑」这种自相矛盾。以 eula.txt 为准同步回去。
+    crate::fsutil::write_text_atomic(&dir.join("eula.txt"), &format!("eula={}\n", s.eula))
+        .map_err(|e| format!("无法写入 Minecraft EULA 状态：{e}"))?;
     if !s.eula {
-        let mut fixed = s.clone();
-        fixed.eula = true;
-        let _ = save_server(&fixed);
+        return Err("请先在「服务器设置」里勾选同意 Minecraft EULA".into());
     }
     if server_runtime(&id).map(|r| r.running) == Some(true) {
         return Err("这个服务器已经在运行了".to_string());
@@ -1995,7 +2014,7 @@ pub async fn start_hosted_server(id: String) -> Result<serde_json::Value, String
             s.port
         ));
     }
-    ensure_rcon_props(&dir, s.port)?;
+    ensure_server_files(&id, &s)?;
     // 从这一刻起把「正在干什么」报给界面（按钮上直接显示），别让用户对着转圈白等
     crate::progress::emit_server_stage(&id, "正在检查服务端配置…");
     // 缺 JRE 会自动下载（原来只报一句指向「设置 → 运行环境」的错，而那个入口并不存在）
@@ -2016,7 +2035,7 @@ pub async fn start_hosted_server(id: String) -> Result<serde_json::Value, String
             })
             .ok_or_else(|| "找不到服务端核心 jar".to_string())?
     };
-    let mem = s.max_memory_mb.clamp(512, 2048);
+    let mem = crate::server_process::clamp_server_heap_mb(s.max_memory_mb);
 
     // **旧版** paperclip 包装器（主类 `io.papermc.paperclip.Paperclip`，1.8.x~1.16 那批）
     // 不能直接当服务端跑：它要把「补丁后的服务端 jar」用 Instrumentation 挂进 classpath，
@@ -2059,8 +2078,13 @@ pub async fn start_hosted_server(id: String) -> Result<serde_json::Value, String
         }
         tracing::info!("[core] 补丁 jar 已生成");
         // 这一轮的进程即使还活着也不再有用（paperclip 自己起不了服），先停掉再重新拉起。
-        let _ = crate::android_bridge::stop_server_process(&id);
-        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        let bootstrap = read_runtime(&id).ok_or("缺少补丁进程的运行记录")?;
+        // Let the bootstrap finish naturally. Never retire a process still writing a jar.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+        while runtime_busy(&bootstrap) && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        ensure_server_inactive(&id)?;
     }
 
     // 旧版 paperclip 用补丁 jar 启动；其余核心（原版 / Fabric / 新版 paperclip）直接用原 jar。
@@ -2075,15 +2099,7 @@ pub async fn start_hosted_server(id: String) -> Result<serde_json::Value, String
     crate::android_bridge::start_server_process(&id)?;
     // 「进程拉起来了」不等于「服能跑」：核心/JRE 不匹配、内存参数非法都会让它几秒内就死。
     // 原来这里直接返回 pid，前端就弹「服务器已启动」而日志还是空的 —— 用户完全不知道出了什么事。
-    if !wait_server_alive(&id, log_mark.as_deref()).await {
-        return Err(start_failed_hint(&id, "服务端启动后立刻退出了"));
-    }
-    // uuid 与 pid 都从 runtime.json 读（Kotlin 写的）
-    let pid = std::fs::read_to_string(dir.join("runtime.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<crate::server_process::RuntimeInfo>(&t).ok())
-        .map(|i| i.pid)
-        .unwrap_or(0);
+    let pid = wait_server_alive(&id, s.port, log_mark.as_deref()).await?;
     // 确认起来了才开始巡检。放在这里（而不是启动前）有两个原因：
     // ① 没起来时 RCON 问不到人数，巡检白跑；② 更要紧的是「停着的服务器」
     // 不该被写进 sleep.json —— 界面上的「停止」与「休眠」必须是两回事。
@@ -2180,31 +2196,36 @@ fn write_launch_spec(
     Ok(())
 }
 
-/// 等本次拉起的 JVM 真的活着。
-///
-/// **不能只看 IPC 通不通**：`:server` 的 IPC 线程在 JVM 之前就起来了（见 server_process.rs），
-/// 所以「端口有响应」只说明进程在，JVM 可能已经崩了。`/status` 里的 `jvm` 字段才是真信号
-/// （0 = JVM 还活着/在启动，1 = 已退出）。最多等约 6 秒 —— 快速崩溃（JRE 不兼容等）
-/// 会在这一窗口里被抓到；慢速崩溃由界面轮询与日志兜住。
-/// `mark`：启动**之前**日志的最后一行。重启一台有历史的服务器时，日志里最新的那行
-/// 其实是上一轮留下的（比如停服时的 "Saving chunks…"），不能当成本次的进展报出去。
-async fn wait_server_alive(id: &str, mark: Option<&str>) -> bool {
+fn local_game_listener(port: u16) -> bool {
+    use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(400)).is_ok()
+}
+
+/// Require both the current JVM and its game listener; IPC alone starts too early.
+async fn wait_server_alive(id: &str, game_port: u16, mark: Option<&str>) -> Result<i32, String> {
+    use std::time::Duration;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
     let mut last = mark.unwrap_or("").to_string();
-    for _ in 0..15 {
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        if read_runtime_io(id).map(|(p, t)| ipc_jvm_alive(p, &t)) == Some(true) {
-            return true;
-        }
-        // 顺便把日志里最新一行当作「正在做什么」报出去（"Downloading mojang_26.3.jar"、
-        // "Applying patches"、"Preparing spawn area: 61%"……），比一句「启动中」有信息量得多
-        if let Some(line) = last_log_line(id) {
-            if line != last {
-                last = line.clone();
-                crate::progress::emit_server_stage(id, &format!("启动中：{line}"));
+    while tokio::time::Instant::now() < deadline {
+        if let Some(info) = read_runtime(id) {
+            if let Some(note) = info.exit {
+                return Err(start_failed_hint(id, &note));
+            }
+            if !runtime_busy(&info) {
+                return Err(start_failed_hint(id, "服务端进程已退出"));
+            }
+            if local_game_listener(game_port) && active_ipc(&info) {
+                return Ok(info.pid);
             }
         }
+        if let Some(line) = last_log_line(id).filter(|line| line != &last) {
+            last = line;
+            crate::progress::emit_server_stage(id, &format!("启动中：{last}"));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    false
+    Err(start_failed_hint(id, "等待服务端端口就绪超时，未强制结束进程"))
 }
 
 /// 日志里最后一行有内容的话（跳过空行与分隔线），用于「正在做什么」的实时反馈。
@@ -2216,14 +2237,6 @@ fn last_log_line(id: &str) -> Option<String> {
         .map(|l| l.trim())
         .find(|l| !l.is_empty() && !l.starts_with("==="))
         .map(|l| l.chars().take(80).collect())
-}
-
-/// `/status` 里的 `jvm` 字段：0 = JVM 还活着/启动中，1 = 已退出（含优雅停服）。
-fn ipc_jvm_alive(port: u16, token: &str) -> bool {
-    match ipc_status(port, token) {
-        Some(body) => body.contains("\"jvm\":0"),
-        None => false,
-    }
 }
 
 /// paperclip 打好的补丁 jar（`cache/patched_*.jar`）——真正可直接启动的服务端。
@@ -2253,18 +2266,6 @@ pub fn is_hosted_server_running(id: String) -> bool {
 }
 
 /// 读服务器日志（UI 契约：string[]）
-pub fn read_hosted_server_log(id: String) -> Vec<String> {
-    let sid = id.clone();
-    match hosted_server_log(id, Some(300)) {
-        Ok(lines) => lines,
-        Err(err) => {
-            // 诊断（2026-10-22）：之前用 unwrap_or_default() 把错误吞了 ——
-            // 「日志文件不存在」和「日志是空的」在界面上长得一模一样，
-            // 用户只能看到一片空白，完全不知道该去看哪。
-            crate::util::log_line(&format!("[servers] 读日志失败（{}）: {}", sid, err));
-            Vec::new()
-        }
-    }
+pub fn read_hosted_server_log(id: String) -> Result<Vec<String>, String> {
+    hosted_server_log(id, Some(300))
 }
-
-

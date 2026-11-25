@@ -48,6 +48,7 @@ import com.zhayi.qookix.tauri.TauriBridge
 import android.content.Intent
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.kdt.pojavlaunch.CustomControlsActivity
+import net.kdt.pojavlaunch.customcontrols.LayoutConverter
 
 /**
  * 启动器主入口（LAUNCHER）。
@@ -776,6 +777,16 @@ class ComposeMainActivity : ComponentActivity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == controlEditorRequest) {
+            controlEditorReturnTick.value++
+            return
+        }
+        if (requestCode == HostCapabilities.REQ_PICK_CONTROL_LAYOUT) caps.clearPickerInFlight()
+        if (requestCode == controlImportPreviewRequest) {
+            if (resultCode == RESULT_OK) data?.getStringExtra(CustomControlsActivity.EXTRA_IMPORT_RESULT)?.let(::publishControlImport)
+            else java.io.File(filesDir, "controlmap/TMP_IMPORT_FILE.json").delete()
+            return
+        }
         if (resultCode != android.app.Activity.RESULT_OK) {
             // 用户取消了选择：把「另存为」的回调丢掉，否则它会一直
             // 持有那个页面的 lambda（页面早就不在了）。
@@ -841,10 +852,6 @@ class ComposeMainActivity : ComponentActivity() {
                         .putExtra(CustomControlsActivity.EXTRA_PREVIEW, true)
                         .putExtra(CustomControlsActivity.EXTRA_IMPORT_RESULT, json), controlImportPreviewRequest)
                 } else publishControlImport(json)
-            }
-            controlImportPreviewRequest -> {
-                if (resultCode == RESULT_OK) data?.getStringExtra(CustomControlsActivity.EXTRA_IMPORT_RESULT)?.let(::publishControlImport)
-                else java.io.File(filesDir, "controlmap/TMP_IMPORT_FILE.json").delete()
             }
             else -> caps.onPickFileResult(data?.data)
         }
@@ -955,8 +962,7 @@ class ComposeMainActivity : ComponentActivity() {
                 if (!layout.isNullOrBlank()) i.putExtra("layout", layout)
                 i.putExtra("preview", preview)
                 if (!saveAs.isNullOrBlank()) i.putExtra("saveAs", saveAs)
-                i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                self.startActivity(i)
+                self.startActivityForResult(i, controlEditorRequest)
             }.onFailure { e ->
                 android.util.Log.w("ComposeMain", "打开控制布局编辑器失败", e)
                 android.widget.Toast.makeText(self, "无法打开编辑器", android.widget.Toast.LENGTH_SHORT).show()
@@ -975,6 +981,8 @@ class ComposeMainActivity : ComponentActivity() {
      */
     val controlImportTick = kotlinx.coroutines.flow.MutableStateFlow(0)
 
+    val controlEditorReturnTick = kotlinx.coroutines.flow.MutableStateFlow(0)
+    private val controlEditorRequest = 4913
     private val controlImportPreviewRequest = 4912
 
     private fun publishControlImport(json: String) {
@@ -1257,6 +1265,9 @@ class ComposeMainActivity : ComponentActivity() {
             else com.zhayi.qookix.control.ForeignControlLayout(resources.displayMetrics).convert(source)
                 ?: throw java.io.IOException(getString(R.string.app_import_layout_invalid))
         val layout = converted?.layout ?: source
+        if (LayoutConverter.parseLayout(layout.toString()) == null) {
+            throw java.io.IOException(getString(R.string.app_import_layout_invalid))
+        }
         val buttons = layout.optJSONArray("mControlDataList")?.length() ?: 0
         val joysticks = layout.optJSONArray("mJoystickDataList")?.length() ?: 0
         if (converted != null && buttons == 0 && joysticks == 0) {
@@ -1536,8 +1547,9 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             }
 
             androidx.activity.compose.BackHandler(
-                enabled = backStack.isNotEmpty() || parentOf(current) != null,
+                enabled = innerBack != null || backStack.isNotEmpty() || parentOf(current) != null,
             ) {
+                if (innerBack?.invoke() == true) return@BackHandler
                 if (backStack.isNotEmpty()) {
                     transitionKind = NavTransitionKind.Back
                     current = backStack.removeAt(backStack.lastIndex)
@@ -1551,7 +1563,11 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             fun navigate(dest: NavDestination) {
                 transitionKind = classifyNavTransition(dest, wentBack = false)
                 if (dest in NavDestination.bottomBar) { current = dest; backStack.clear() }
-                else { if (current !in NavDestination.bottomBar) backStack.add(current); current = dest }
+                else {
+                    val createdServer = current == NavDestination.ServerCreate && dest == NavDestination.ServerDetail
+                    if (!createdServer && current !in NavDestination.bottomBar) backStack.add(current)
+                    current = dest
+                }
             }
 
             // Deep link qookix://lan/pair?… → 跳同步页（参数在 LanSyncDeepLink.pending）

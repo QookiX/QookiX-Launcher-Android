@@ -29,11 +29,9 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import com.zhayi.qookix.compose.ui.QkFeedback
+import com.zhayi.qookix.compose.ui.QkGlobalFeedbackHost
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
@@ -147,16 +145,6 @@ fun LauncherShell(
 ) {
     val size = rememberWindowSize()
 
-    // 全局一句话反馈：删除/复制/备份这类「做完了」的操作统一在这里冒一下。
-    // 每个页面自己弹 Dialog 的话，位置和样式又会各不相同（审查 A-1 / X-3）。
-    val snackbarHost = remember { SnackbarHostState() }
-    val feedback = QkFeedback.message.collectAsState().value
-    LaunchedEffect(feedback) {
-        val text = feedback?.text ?: return@LaunchedEffect
-        snackbarHost.showSnackbar(text)
-        QkFeedback.clear()
-    }
-
     val topBar: @Composable () -> Unit = {
         LauncherTopBar(current, title, titleContent, onBack, onCreateInstance, onOpenAccount)
     }
@@ -262,7 +250,7 @@ fun LauncherShell(
                 //   · 指示器挂在 Box 上 → 坐标相对 Box（含 Box 的 padding）
                 // 两边差一个 (8dp, 6dp)，表现就是「橙色选中框和图标/文字错位」。
                 // 把 padding 挪到 Box 上，Column 不再有 padding，两个坐标系就对齐了。
-                Box(modifier = Modifier.padding(horizontal = QkSpacing.sm, vertical = 6.dp)) {
+                Box(modifier = Modifier.verticalScroll(rememberScrollState()).padding(horizontal = QkSpacing.sm, vertical = 6.dp)) {
                     if (iw.value > 1f) {
                         Box(
                             modifier = Modifier
@@ -301,13 +289,15 @@ fun LauncherShell(
                 // fillMaxSize() 会和它**抢宽度**（窄屏/大缩放时内容区被压成一条竖线）。
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 containerColor = MaterialTheme.colorScheme.background,
-                snackbarHost = { SnackbarHost(snackbarHost) },
             ) { inner ->
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(inner),
-                ) { content() }
+                ) {
+                    content()
+                    QkGlobalFeedbackHost(Modifier.align(Alignment.TopEnd))
+                }
             }
         }
         }
@@ -317,7 +307,6 @@ fun LauncherShell(
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
             topBar = topBar,
-            snackbarHost = { SnackbarHost(snackbarHost) },
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     NavDestination.bottomBar.forEach { dest ->
@@ -350,7 +339,10 @@ fun LauncherShell(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),
-            ) { content() }
+            ) {
+                    content()
+                    QkGlobalFeedbackHost(Modifier.align(Alignment.TopEnd))
+                }
         }
     }
 }

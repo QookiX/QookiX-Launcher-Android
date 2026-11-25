@@ -63,7 +63,7 @@ internal fun CustomHome(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            QkFeedback.show(customHomeError(context, error))
+            QkFeedback.showError(customHomeError(context, error))
         }
         ready = true
     }
@@ -107,7 +107,7 @@ internal fun CustomHome(
                         "open-url" -> {
                             val link = webAddress(field("url"))
                             if (link == null) {
-                                QkFeedback.show(context.getString(R.string.custom_home_invalid_link))
+                                QkFeedback.showError(context.getString(R.string.custom_home_invalid_link))
                             } else {
                                 openHomeIntent(context, Intent(Intent.ACTION_VIEW, link))
                             }
@@ -121,7 +121,7 @@ internal fun CustomHome(
                         "launch" -> if (field("world").isBlank() && field("server").isBlank()) {
                             onLaunch(field("instance"))
                         } else {
-                            QkFeedback.show(context.getString(R.string.custom_home_quick_play_unavailable))
+                            QkFeedback.showError(context.getString(R.string.custom_home_quick_play_unavailable))
                         }
                         "navigate" -> {
                             val path = field("to").trim().trimEnd('/')
@@ -129,7 +129,7 @@ internal fun CustomHome(
                             when {
                                 destination != null -> onNavigate(destination)
                                 path.startsWith("/instance/") -> onOpenInstance(Uri.decode(path.removePrefix("/instance/")))
-                                else -> QkFeedback.show(context.getString(R.string.custom_home_route_unavailable, path))
+                                else -> QkFeedback.showError(context.getString(R.string.custom_home_route_unavailable, path))
                             }
                         }
                         "open-path" -> {
@@ -140,7 +140,7 @@ internal fun CustomHome(
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 })
                             } else {
-                                QkFeedback.show(context.getString(R.string.custom_home_path_unavailable))
+                                QkFeedback.showError(context.getString(R.string.custom_home_path_unavailable))
                             }
                         }
                         "set-var" -> {
@@ -157,13 +157,13 @@ internal fun CustomHome(
                             home = store.reload()
                             QkFeedback.show(context.getString(R.string.custom_home_reloaded))
                         }
-                        else -> QkFeedback.show(context.getString(R.string.custom_home_action_unavailable, type))
+                        else -> QkFeedback.showError(context.getString(R.string.custom_home_action_unavailable, type))
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                QkFeedback.show(customHomeError(context, error))
+                QkFeedback.showError(customHomeError(context, error))
             } finally {
                 runningActions = false
             }
@@ -203,7 +203,7 @@ private fun openHomeIntent(context: Context, intent: Intent) {
     try {
         context.startActivity(intent)
     } catch (_: Exception) {
-        QkFeedback.show(context.getString(R.string.custom_home_open_failed))
+        QkFeedback.showError(context.getString(R.string.custom_home_open_failed))
     }
 }
 

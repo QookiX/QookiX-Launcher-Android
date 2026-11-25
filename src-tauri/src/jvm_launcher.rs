@@ -78,6 +78,11 @@ impl JvmLauncher {
     ) -> Result<i32> {
         init_jvm_state();
 
+        // JRE 8 的 JLI 通过 JAVA_HOME 找 lib/<arch>/libjava.so；
+        // 不设时它会按 app_process 的路径推算 java.home，报 could not find libjava.so。
+        #[cfg(target_os = "android")]
+        std::env::set_var("JAVA_HOME", jre_home);
+
         let libjli_path = Self::find_libjli(jre_home)?;
 
         let library = unsafe { Library::new(&libjli_path) }

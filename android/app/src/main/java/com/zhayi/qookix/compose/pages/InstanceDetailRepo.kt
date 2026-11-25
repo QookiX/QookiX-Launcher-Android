@@ -196,8 +196,8 @@ class InstanceDetailRepo(private val api: QookixApi, private val context: androi
                             // Rust 的 `apply_update` 要 6 个参数，其中 provider /
                             // project_id / new_version_id 只有这里能拿到。
                             // `source` 字段（modrinth/curseforge/manual）就是 provider。
-                            provider = rec.optString("source").ifBlank { "modrinth" },
-                            projectId = rec.optString("project_id"),
+                            provider = rec.optText("source").orEmpty(),
+                            projectId = rec.optText("project_id").orEmpty(),
                             versionId = rec.optString("version_id"),
                         )
                     }

@@ -107,6 +107,18 @@ fn read_packet(s: &mut TcpStream) -> Result<(i32, i32, String), String> {
 
 /// 鉴权 + 发送一条命令，返回服务端输出
 pub fn exec(port: u16, password: &str, command: &str) -> Result<String, String> {
+    let mut s = send_command(port, password, command)?;
+    let (_id, _ty, out) = read_packet(&mut s)?;
+    Ok(out)
+}
+
+// A server may close the RCON socket during shutdown without sending a reply.
+// Successful dispatch is not a successful stop; the caller must confirm exit.
+pub fn request_stop(creds: &RconCreds) -> Result<(), String> {
+    send_command(creds.port, &creds.password, "stop").map(|_| ())
+}
+
+fn send_command(port: u16, password: &str, command: &str) -> Result<TcpStream, String> {
     let addr = format!("127.0.0.1:{port}");
     // 服务端刚起时 RCON 监听可能慢，超时给足 5 秒
     let mut s = TcpStream::connect(&addr)
@@ -128,56 +140,5 @@ pub fn exec(port: u16, password: &str, command: &str) -> Result<String, String> 
 
     // 2) 执行命令
     write_packet(&mut s, 2, TYPE_CMD, command).map_err(|e| format!("命令发送失败: {e}"))?;
-    let (_id2, _ty2, out) = read_packet(&mut s)?;
-    Ok(out)
-}
-
-/**
- * 优雅停服：发 `stop` 并等 JVM 真正退出。
- *
- * 流程是「RCON stop → 轮询 IPC 等待 → 超时才退回 System.exit」：
- * RCON 让服务端自己存盘关世界（安全），而 Android 随时可能把进程杀掉
- * （lowmemorykiller），所以等待窗口有限（默认 20 秒）。
- */
-pub fn graceful_stop(
-    ipc_port: Option<u16>,
-    token: &str,
-    rcon: &RconCreds,
-    wait_secs: u64,
-) -> Result<String, String> {
-    // 先试 RCON
-    let rcon_res = exec(rcon.port, &rcon.password, "stop");
-    match &rcon_res {
-        Ok(_) => {}
-        Err(e) => {
-            // RCON 不可用不算失败：可能用户关掉了 enable-rcon，或服务端还没起完。
-            // 这种情况退回 System.exit，但要如实告诉调用方「这次不是优雅停服」。
-            tracing::warn!("[server] RCON 停服不可用（{e}），退回 System.exit");
-            return Err(format!("RCON 不可用：{e}"));
-        }
-    }
-
-    // 等 JVM 退出。
-    //
-    // **没有可用的 IPC 端口，就不能说「已经退出了」**。调用方原来用
-    // `read_runtime_io(...).unwrap_or((0, ""))` 兜底成端口 0，而 `ipc_alive(0, ..)`
-    // 必然立刻返回 false —— 于是「RCON stop 刚发出去」就直接被判定成
-    // 「已优雅停服（世界已存盘）」。如果 runtime.json 丢了或损坏（进程被系统杀过就会），
-    // 服务器其实可能还在跑，用户却以为已经安全关闭了。
-    // 这两种情况都如实降级措辞，让界面/用户自己去确认。
-    let Some(port) = ipc_port.filter(|p| *p != 0) else {
-        return Ok("已发送 stop，但缺少运行记录，无法确认 JVM 是否已退出".to_string());
-    };
-    if token.is_empty() {
-        return Ok("已发送 stop，但缺少校验 token，无法确认 JVM 是否已退出".to_string());
-    }
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(wait_secs);
-    while std::time::Instant::now() < deadline {
-        if !crate::servers::ipc_alive(port, token) {
-            return Ok("已优雅停服（RCON stop，世界已存盘）".to_string());
-        }
-        std::thread::sleep(Duration::from_millis(700));
-    }
-    Err(format!("RCON 已发 stop，但 {wait_secs} 秒内 JVM 仍未退出"))
+    Ok(s)
 }

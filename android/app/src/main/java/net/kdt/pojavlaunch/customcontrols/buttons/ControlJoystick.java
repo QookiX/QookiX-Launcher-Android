@@ -37,20 +37,18 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
     private boolean centerTapCandidate;
     private boolean doubleTapKeyHeld;
     private float centerTapX, centerTapY;
-    private int mLastDirectionInt = GamepadJoystick.DIRECTION_NONE;
+    private boolean forwardLocked;
+    private final JoystickKeyState heldKeys;
     private int mCurrentDirectionInt = GamepadJoystick.DIRECTION_NONE;
     public ControlJoystick(ControlLayout parent, ControlJoystickData data) {
         super(parent.getContext());
+        heldKeys = new JoystickKeyState((key, down) -> {
+            if (parent.hudKeys.update(key, this, down)) {
+                CallbackBridge.sendKeyPress(key, CallbackBridge.getCurrentMods(), down);
+                CallbackBridge.setModifiers(key, down);
+            }
+        });
         init(data, parent);
-    }
-
-    private static void sendInput(int[] keys, boolean isDown) {
-        if (keys == null) return;
-        for (int key : keys) {
-            if (key == 0) continue;
-            CallbackBridge.sendKeyPress(key, CallbackBridge.getCurrentMods(), isDown);
-            CallbackBridge.setModifiers(key, isDown);
-        }
     }
 
     private void init(ControlJoystickData data, ControlLayout layout) {
@@ -64,18 +62,17 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
         setOnMoveListener(new OnMoveListener() {
             @Override
             public void onMove(int angle, int strength) {
-                mLastDirectionInt = mCurrentDirectionInt;
-                mCurrentDirectionInt = getDirectionInt(angle, strength);
-
-                if (mLastDirectionInt != mCurrentDirectionInt) {
-                    sendDirectionalKeycode(mLastDirectionInt, false);
-                    sendDirectionalKeycode(mCurrentDirectionInt, true);
+                int direction = getDirectionInt(angle, strength);
+                if (mCurrentDirectionInt != direction) {
+                    mCurrentDirectionInt = direction;
+                    updateHeldKeys();
                 }
             }
 
             @Override
             public void onForwardLock(boolean isLocked) {
-                sendInput(mControlData.forwardLockKeys, isLocked);
+                forwardLocked = isLocked;
+                updateHeldKeys();
             }
         });
     }
@@ -177,6 +174,7 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
                         centerTapTime = -1;
                     }
                     break;
+                case MotionEvent.ACTION_POINTER_DOWN:
                 case MotionEvent.ACTION_CANCEL:
                     centerTapCandidate = false;
                     centerTapTime = -1;
@@ -198,7 +196,7 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
 
     private void toggleDoubleTapKey() {
         doubleTapKeyHeld = !doubleTapKeyHeld;
-        sendInput(new int[]{mControlData.doubleTapKey}, doubleTapKeyHeld);
+        updateHeldKeys();
     }
 
     @Override
@@ -211,45 +209,27 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
         return (int) (((angle + 22.5) / 45) % 8);
     }
 
-    private void sendDirectionalKeycode(int direction, boolean isDown) {
+    private void updateHeldKeys() {
+        int direction = mCurrentDirectionInt;
         int[][] overrides = mControlData.directionKeys;
+        int[] primary = null;
+        int[] secondary = null;
         if (overrides != null && direction >= 0 && direction < overrides.length && overrides[direction] != null) {
-            sendInput(overrides[direction], isDown);
-            return;
+            primary = overrides[direction];
+        } else {
+            switch (direction) {
+                case DIRECTION_NORTH: primary = mControlData.forwardKeys; break;
+                case DIRECTION_NORTH_EAST: primary = mControlData.forwardKeys; secondary = mControlData.rightKeys; break;
+                case DIRECTION_EAST: primary = mControlData.rightKeys; break;
+                case DIRECTION_SOUTH_EAST: primary = mControlData.rightKeys; secondary = mControlData.backwardKeys; break;
+                case DIRECTION_SOUTH: primary = mControlData.backwardKeys; break;
+                case DIRECTION_SOUTH_WEST: primary = mControlData.backwardKeys; secondary = mControlData.leftKeys; break;
+                case DIRECTION_WEST: primary = mControlData.leftKeys; break;
+                case DIRECTION_NORTH_WEST: primary = mControlData.forwardKeys; secondary = mControlData.leftKeys; break;
+            }
         }
-        switch (direction) {
-            case DIRECTION_NORTH:
-                sendInput(mControlData.forwardKeys, isDown);
-                break;
-            case DIRECTION_NORTH_EAST:
-                sendInput(mControlData.forwardKeys, isDown);
-                sendInput(mControlData.rightKeys, isDown);
-                break;
-            case DIRECTION_EAST:
-                sendInput(mControlData.rightKeys, isDown);
-                break;
-            case DIRECTION_SOUTH_EAST:
-                sendInput(mControlData.rightKeys, isDown);
-                sendInput(mControlData.backwardKeys, isDown);
-                break;
-            case DIRECTION_SOUTH:
-                sendInput(mControlData.backwardKeys, isDown);
-                break;
-            case DIRECTION_SOUTH_WEST:
-                sendInput(mControlData.backwardKeys, isDown);
-                sendInput(mControlData.leftKeys, isDown);
-                break;
-            case DIRECTION_WEST:
-                sendInput(mControlData.leftKeys, isDown);
-                break;
-            case DIRECTION_NORTH_WEST:
-                sendInput(mControlData.forwardKeys, isDown);
-                sendInput(mControlData.leftKeys, isDown);
-                break;
-            case DIRECTION_FORWARD_LOCK:
-                sendInput(mControlData.forwardLockKeys, isDown);
-                break;
-        }
+        heldKeys.update(primary, secondary, forwardLocked ? mControlData.forwardLockKeys : null,
+                doubleTapKeyHeld ? new int[]{mControlData.doubleTapKey} : null);
     }
 
 }

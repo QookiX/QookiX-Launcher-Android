@@ -118,52 +118,28 @@ pub fn delete_plugin(server_id: &str, file_name: &str) -> Result<()> {
 /// 而用户看着「装好了」完全不知道为什么。
 pub async fn install_plugin(server_id: &str, slug: &str, project_name: &str) -> Result<Value> {
     let server = crate::servers::get_server(server_id).map_err(|e| anyhow::anyhow!(e))?;
-    let mc = server.mc_version.clone();
-
+    use crate::server_install_guard as guard;
+    guard::ensure_plugin_core(&server.name, server.core).map_err(anyhow::Error::msg)?;
+    let mc = &server.mc_version;
     let client = crate::util::http_client().await;
-    let url = format!("{HANGAR_API}/projects/{}/versions?limit=25", urlencode(slug));
-    let resp = client.get(&url).send().await.context("请求 Hangar 版本列表失败")?;
-    if !resp.status().is_success() {
-        anyhow::bail!("Hangar 返回 {}", resp.status());
+    let mut versions = Vec::new();
+    let mut total = None;
+    for offset in (0..250).step_by(25) {
+        let url = format!("{HANGAR_API}/projects/{}/versions?limit=25&offset={offset}", urlencode(slug));
+        let resp = client.get(url).send().await.context("请求 Hangar 版本列表失败")?;
+        if !resp.status().is_success() { anyhow::bail!("Hangar 返回 {}", resp.status()); }
+        let body: Value = resp.json().await.context("解析 Hangar 版本列表失败")?;
+        total = body["pagination"]["count"].as_u64().or(total);
+        let page = body["result"].as_array().context("Hangar 版本列表格式错误")?;
+        versions.extend(page.iter().cloned());
+        if guard::page_has_compatible_release(page, PLATFORM, mc) || page.len() < 25 { break; }
     }
-    let body: Value = resp.json().await.context("解析 Hangar 版本列表失败")?;
-    let empty = Vec::new();
-    let versions = body["result"].as_array().unwrap_or(&empty);
-
-    let deps_of = |v: &Value| -> Vec<String> {
-        v["platformDependencies"][PLATFORM]
-            .as_array()
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
-            .unwrap_or_default()
+    let Some(pick) = guard::pick_hangar_version(&versions, PLATFORM, mc) else {
+        let supported = guard::collected_supported_versions(&versions, PLATFORM);
+        anyhow::bail!("{}", guard::hangar_no_version_message(project_name, mc, versions.len(), total, &supported));
     };
-    // 兼容 = 该版本声明的 PAPER 版本里含服务器的 MC 版本；
-    // 一个都没声明（部分插件不填）时按「未知」处理，可用但要在返回里提示
-    let compatible: Vec<&Value> = versions
-        .iter()
-        .filter(|v| deps_of(v).iter().any(|d| d == &mc))
-        .collect();
-    let unknown: Vec<&Value> = versions.iter().filter(|v| deps_of(v).is_empty()).collect();
-
-    let is_release = |v: &&Value| v["channel"]["name"].as_str() == Some("Release");
-    let picked = compatible
-        .iter()
-        .find(|v| is_release(v))
-        .or_else(|| compatible.first())
-        .or_else(|| unknown.iter().find(|v| is_release(v)))
-        .or_else(|| unknown.first())
-        .copied();
-
-    let Some(picked) = picked else {
-        let supported: Vec<String> = versions.iter().flat_map(|v| deps_of(v)).collect();
-        let mut uniq: Vec<String> = supported;
-        uniq.sort();
-        uniq.dedup();
-        anyhow::bail!(
-            "「{project_name}」没有适配 MC {mc} 的版本。它支持的版本：{}",
-            if uniq.is_empty() { "（接口未提供）".to_string() } else { uniq.join(", ") }
-        );
-    };
-
+    let picked = pick.version;
+    let compat_verified = pick.compat_verified;
     let version_name = picked["name"].as_str().unwrap_or("").to_string();
     // **原样使用接口给的 URL**（含 `%2B` 这类编码），不要自己拼
     let dl = &picked["downloads"][PLATFORM];
@@ -178,6 +154,8 @@ pub async fn install_plugin(server_id: &str, slug: &str, project_name: &str) -> 
         let external = dl["externalUrl"].as_str().unwrap_or("").trim().to_string();
         return Ok(serde_json::json!({
             "installed": false,
+            "fileName": null,
+            "compatVerified": compat_verified,
             "externalUrl": if external.is_empty() { Value::Null } else { Value::String(external) },
         }));
     };
@@ -226,7 +204,8 @@ pub async fn install_plugin(server_id: &str, slug: &str, project_name: &str) -> 
         "fileName": file_name,
         "version": version_name,
         // 兼容性是「按声明匹配」还是「接口没给版本信息」——界面要区别对待
-        "compatVerified": deps_of(picked).iter().any(|d| d == &mc),
+        "compatVerified": compat_verified,
+        "externalUrl": null,
     }))
 }
 

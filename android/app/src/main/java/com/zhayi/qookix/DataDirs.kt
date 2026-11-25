@@ -54,7 +54,12 @@ object DataDirs {
     fun serversRoot(filesDir: File): File {
         val newDir = File(filesDir, SERVER)
         val legacy = File(filesDir, SERVER_LEGACY)
-        return if (newDir.exists() || !legacy.exists()) newDir else legacy
+        if (!legacy.exists()) return newDir
+        if (!newDir.exists()) return legacy
+        fun hasServers(root: File) = root.listFiles()?.any {
+            it.isDirectory && File(it, "server.json").isFile
+        } == true
+        return if (!hasServers(newDir) && hasServers(legacy)) legacy else newDir
     }
 
     /** 解析单个服务器目录。 */

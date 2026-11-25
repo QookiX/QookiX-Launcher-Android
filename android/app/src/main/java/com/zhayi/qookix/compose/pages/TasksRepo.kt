@@ -226,7 +226,20 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
             if (id < 0) return
             val e = get(id)
 
-            e.stage = o.optString("stage")
+            if (e.finished) return
+            val nextStage = o.optString("stage")
+            if (isLoaderInstallStage(nextStage)) {
+                e.bytesDone = 0
+                e.bytesTotal = 0
+                e.fileDone = 0
+                e.fileTotal = 0
+                e.speed = 0.0
+                e.samples.clear()
+                if (e.stage != nextStage || e.message != o.optString("message") || e.stepDone != o.optInt("done")) {
+                    e.lastProgressAt = System.currentTimeMillis()
+                }
+            }
+            e.stage = nextStage
             e.message = o.optString("message")
             e.stepDone = o.optInt("done")
             e.stepTotal = o.optInt("total")
@@ -249,7 +262,7 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
                 // 通过总线把「正在做什么」传过去（用户反馈「启动没动静」）。
                 LaunchStageBus.update(
                     detail = e.message.ifBlank { e.title }.ifBlank { null },
-                    progress = if (e.stepTotal > 0) {
+                    progress = if (isLoaderInstallStage(e.stage)) { loaderDependencyProgress(e.stage, e.stepDone, e.stepTotal)?.fraction ?: -1f } else if (e.stepTotal > 0) {
                         e.stepDone.toFloat() / e.stepTotal
                     } else {
                         -1f
@@ -266,6 +279,7 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
             val id = o.optLong("taskId", -1)
             if (id < 0) return
             val e = get(id)
+            if (e.finished || isLoaderInstallStage(e.stage)) return
 
             e.stage = o.optString("phase")
             e.fileDone = o.optInt("done")
@@ -437,6 +451,9 @@ class TasksRepo(private val bridge: RustBridge, private val context: android.con
         }
 
         val progressText = when {
+            !finished && isLoaderInstallStage(stage) -> loaderDependencyProgress(stage, stepDone, stepTotal)?.let {
+                context.getString(R.string.task_loader_dependencies, it.completed, it.total)
+            }.orEmpty()
             finished -> if (ok) context.getString(R.string.task_done) else context.getString(R.string.task_failed)
             bytesTotal > 0 -> "${fmtBytes(bytesDone)} / ${fmtBytes(bytesTotal)}"
             stepTotal > 0 -> "$stepDone / $stepTotal"

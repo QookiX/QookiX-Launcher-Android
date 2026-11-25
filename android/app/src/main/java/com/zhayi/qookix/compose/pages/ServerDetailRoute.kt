@@ -16,20 +16,7 @@ import com.zhayi.qookix.compose.bridge.*
 /**
  * 服务器详情的**路由层**（状态 + 与 Rust 的所有交互）。
  *
- * ── 为什么单独一个文件（2026-10-17）─────────────────────────────────────
- * 原先这一整段写在 `PageHost.kt` 的 `ServerDetailRoute` 里。补这三个缺陷
- * （分享 / 插件 / 日志内存）要往里面塞十来个回调 + 两个 LaunchedEffect，
- * 而 `PageHost.kt` 有 4000 行、是好几个功能共用的接线文件 —— 全塞进去
- * 会让本来就难读的文件更难读。
- *
- * 所以把「服务器详情」这一整块（本来是 PageHost 里的一个私有函数）
- * **原样搬到这里**，PageHost 只留一行调用。界面在 `ServerDetailPage.kt`，
- * 数据在 `ServerDetailRepo.kt`，接线在这里。
- *
- * ── 状态轮询 ──────────────────────────────────────────────────────────
- * 服务器运行状态会自己变（JVM 起来 / 崩溃 / 空闲休眠），而 Rust 侧没有
- * 为它发事件，所以用**定时轮询**。间隔 2 秒 —— 更密浪费，更疏则
- * 「点启动后半天没反应」。
+ * 过程态订阅 Rust 事件；运行状态与日志定期读取。
  */
 @Composable
 fun ServerDetailRoute(
@@ -104,16 +91,38 @@ fun ServerDetailRoute(
         }
     }
 
-    /** 刷新日志（手动按钮与轮询走同一条路，保证行为一致）。 */
-    fun refreshLogs(onComplete: (Boolean) -> Unit = {}) {
-        repo.loadLogs(serverId) { r ->
-            r.fold(
-                onSuccess = { logs ->
-                    state = state.copy(logs = logs.takeLast(2000))
-                    onComplete(true)
-                },
-                onFailure = { onComplete(false) },
-            )
+    val scope = remember(bridgeReady, repo, serverId) { DetailRouteScope() }
+    DisposableEffect(scope) { onDispose { scope.active = false } }
+    val runtime = remember(scope) {
+        DetailRead<ServerDetailRuntime> { complete ->
+            val revision = scope.lifecycleRevision
+            repo.loadRuntime(serverId) { result ->
+                if (scope.active && revision == scope.lifecycleRevision) {
+                    result.onSuccess {
+                        state = state.copy(
+                            running = it.running, jvmUp = it.jvmUp, sleeping = it.sleeping,
+                            wakeError = it.wakeError, exitNote = it.exitNote, runtimeCurrent = true,
+                            effectiveMaxMemoryMb = it.effectiveMaxMemoryMb,
+                            logs = if (it.startedAt != scope.startedAt) emptyList() else state.logs,
+                        )
+                        scope.startedAt = it.startedAt
+                    }.onFailure { state = state.copy(runtimeCurrent = false) }
+                }
+                complete(result)
+            }
+        }
+    }
+    val logs = remember(scope) {
+        DetailRead<List<String>> { complete ->
+            val startedAt = scope.startedAt
+            repo.loadLogs(serverId) { result ->
+                val current = scope.active && startedAt == scope.startedAt
+                if (current) {
+                    result.onSuccess { state = state.copy(logs = it, logsError = null) }
+                        .onFailure { state = state.copy(logsError = friendlyError(ctx, it)) }
+                }
+                complete(if (current) result else Result.failure(kotlinx.coroutines.CancellationException()))
+            }
         }
     }
 
@@ -161,15 +170,24 @@ fun ServerDetailRoute(
             // ⚠️ pollRoom 是**异步回调**，回调不保证在 delay 之前回来。
             // 用一个「已收到」标记 + 短促等待，避免读到上一轮的空值。
             var code = ""
+            var pollError = ""
             var done = false
-            repo.pollRoom { room ->
+            repo.pollRoom { room, error ->
                 if (room.isNotBlank()) code = room
+                if (error.isNotBlank()) pollError = error
                 done = true
             }
             var spin = 0
             while (!done && spin < 40) {
                 kotlinx.coroutines.delay(50)
                 spin++
+            }
+            if (pollError.isNotBlank()) {
+                repo.stopShare { }
+                TunnelSharing.release(serverId)
+                state = state.copy(shareOn = false, shareBusy = false, shareMessage = pollError,
+                    error = ctx.getString(R.string.server_detail_share_failed_reason, pollError))
+                return@LaunchedEffect
             }
             if (code.isNotBlank()) {
                 state = state.copy(
@@ -180,56 +198,39 @@ fun ServerDetailRoute(
                 return@LaunchedEffect
             }
         }
+        // 等不到房间码：把这次广播/开房收尾掉，别把半开的房间留在隧道里
+        repo.stopShare { }
+        TunnelSharing.release(serverId)
         state = state.copy(
             shareMessage = ctx.getString(R.string.server_detail_room_timeout),
             shareOn = false,
+            shareBusy = false,
         )
     }
 
     // 首屏：拉详情 + 日志 + 配置 + 插件
     LaunchedEffect(bridgeReady, serverId) {
         if (!bridgeReady) return@LaunchedEffect
-        // 找回「分享中」（P1-17），但先确认房间是不是本服务器的（B24）
-        repo.tunnelState { st, room ->
-            if (st != "hosting" && st != "host-scanning") return@tunnelState
-            if (TunnelSharing.ownedByOther(serverId)) {
-                state = state.copy(
-                    shareOn = false,
-                    shareRoom = "",
-                    error = ctx.getString(
-                        R.string.server_detail_share_owned_by,
-                        TunnelSharing.ownerServerName,
-                    ),
-                )
-            } else {
-                TunnelSharing.claim(serverId, serverName.ifBlank { ctx.getString(R.string.server_detail_untitled) })
-                state = state.copy(shareOn = true, shareRoom = room)
+        // 普通进页不探测陶瓦。状态查询可能拉起隧道；只恢复明确属于本服的房间。
+        if (TunnelSharing.ownerServerId == serverId) {
+            repo.tunnelState { st, room, tunnelError ->
+                if (!scope.active || state.shareBusy || TunnelSharing.ownerServerId != serverId) return@tunnelState
+                if (tunnelError.isNotBlank()) {
+                    state = state.copy(shareMessage = tunnelError.removePrefix("java.lang.IllegalStateException: "))
+                    return@tunnelState
+                }
+                if (st == "hosting" || st == "host-scanning") {
+                    state = state.copy(shareOn = true, shareRoom = room, shareMessage = "")
+                }
             }
         }
         repo.load(serverId) { r ->
+            if (!scope.active) return@load
             r.onSuccess {
-                state = state.copy(
-                    running = it.running,
-                    address = it.address,
-                    coreInstalled = it.coreInstalled,
-                    // ⚠️ 2026-10-29（外部审计 B17）：Repo 明明读了 exitNote / eulaAgreed，
-                    // 这里却没复制进 state —— 于是「上次退出原因」永远不显示、
-                    // EULA 永远显示未同意（Rust 启动前会因此拒绝，用户找不到已勾过的状态）。
-                    exitNote = it.exitNote,
-                    eulaAgreed = it.eulaAgreed,
-                )
+                state = state.copy(address = it.address, coreInstalled = it.coreInstalled, eulaAgreed = it.eulaAgreed)
+            }.onFailure {
+                state = state.copy(error = ctx.getString(R.string.server_detail_load_failed, friendlyError(ctx, it)))
             }
-            r.onFailure {
-                state = state.copy(
-                    error = ctx.getString(
-                        R.string.server_detail_load_failed,
-                        friendlyError(ctx, it),
-                    )
-                )
-            }
-        }
-        repo.loadLogs(serverId) { r ->
-            r.onSuccess { state = state.copy(logs = it) }
         }
         state = state.copy(loadingConfig = true)
         repo.loadProperties(serverId) { r ->
@@ -249,59 +250,39 @@ fun ServerDetailRoute(
         refreshPlugins()
     }
 
-    // 轮询：只拉「会变」的状态 + 日志（审计 B18：原来每 2 秒 5 条命令、不等上轮返回）
-    var pollSeq by remember(serverId) { mutableStateOf(0) }
-    LaunchedEffect(bridgeReady, serverId) {
+    // Skip periodic ticks while a read is in flight; manual log refresh joins that read.
+    LaunchedEffect(scope) {
         if (!bridgeReady) return@LaunchedEffect
         while (true) {
+            runtime.request()
+            logs.request()
             kotlinx.coroutines.delay(2000)
-            val seq = ++pollSeq
-            repo.loadRuntime(serverId) { r ->
-                r.onSuccess { (running, note) ->
-                    // 序号不等 = 期间又发过新请求，这份是旧数据，丢掉
-                    if (seq == pollSeq) {
-                        state = state.copy(running = running, exitNote = note)
-                    }
-                }
-            }
-            repo.loadLogs(serverId) { r ->
-                r.onSuccess { logs ->
-                    if (seq == pollSeq) {
-                        // 只保留最近 2000 行：控制台不需要全量，且越长重组越慢
-                        state = state.copy(logs = logs.takeLast(2000))
-                    }
-                }
-            }
         }
     }
 
-    // ── 启动 / 停止 / 装核心：顶栏和页面内共用（2026-10-17）────────────
-    val startAction: () -> Unit = {
-        state = state.copy(error = null)
-        repo.start(serverId) { r ->
-            r.onFailure { e ->
-                state = state.copy(
-                    error = ctx.getString(
-                        R.string.server_detail_start_failed,
-                        e.message ?: ctx.getString(R.string.server_detail_unknown_error),
-                    )
-                )
-            }
+    var lifecycleAction by remember(scope) { mutableStateOf<Boolean?>(null) } // true = start/wake
+    fun changeLifecycle(start: Boolean) {
+        if (!bridgeReady || lifecycleAction != null || !state.runtimeCurrent || state.stage.isNotBlank()) return
+        if (start && state.jvmUp || !start && !state.jvmUp) return
+        lifecycleAction = start
+        scope.lifecycleRevision++
+        state = state.copy(error = null, notice = null)
+        val complete: (Result<String>) -> Unit = complete@{ result ->
+            if (!scope.active) return@complete
+            scope.lifecycleRevision++
+            lifecycleAction = null
+            state = state.copy(stage = "", runtimeCurrent = false)
+            result.onSuccess { if (!start) state = state.copy(notice = it) }
+                .onFailure {
+                    val label = if (start) R.string.server_detail_start_failed else R.string.server_detail_stop_failed
+                    state = state.copy(error = ctx.getString(label, friendlyError(ctx, it)))
+                }
+            runtime.request()
         }
+        if (start) repo.start(serverId, complete) else repo.stop(serverId, complete)
     }
-    val stopAction: () -> Unit = {
-        state = state.copy(error = null)
-        repo.stop(serverId) { r ->
-            r.onFailure { e ->
-                state = state.copy(
-                    error = ctx.getString(
-                        R.string.server_detail_stop_failed,
-                        e.message ?: ctx.getString(R.string.server_detail_unknown_error),
-                    )
-                )
-            }
-        }
-    }
+    val startAction: () -> Unit = { changeLifecycle(true) }
+    val stopAction: () -> Unit = { changeLifecycle(false) }
     val installCoreAction: () -> Unit = {
         state = state.copy(installing = true, error = null)
         repo.installCore(serverId) { r ->
@@ -315,7 +296,6 @@ fun ServerDetailRoute(
                         lr.onSuccess {
                             state = state.copy(
                                 coreInstalled = it.coreInstalled,
-                                running = it.running,
                                 address = it.address,
                             )
                         }
@@ -343,10 +323,14 @@ fun ServerDetailRoute(
             ServerDetailToolbar(
                 name = serverName,
                 running = state.running,
+                jvmUp = state.jvmUp,
+                sleeping = state.sleeping,
+                runtimeCurrent = state.runtimeCurrent,
                 address = state.address,
                 stage = state.stage,
                 coreInstalled = state.coreInstalled,
                 installing = state.installing,
+                lifecycleAction = lifecycleAction,
                 onStart = startAction,
                 onStop = stopAction,
                 onInstallCore = installCoreAction,
@@ -355,36 +339,36 @@ fun ServerDetailRoute(
     }
     DisposableEffect(Unit) { onDispose { onRegisterToolbar(null) } }
 
+    fun sendCommand(command: String) {
+        if (!state.runtimeCurrent || !state.running || state.commandPending || command.isBlank()) return
+        val revision = scope.inputRevision
+        state = state.copy(commandPending = true, commandFeedback = null)
+        repo.sendCommand(serverId, command) { result ->
+            if (!scope.active) return@sendCommand
+            val clear = revision == scope.inputRevision && result.isSuccess
+            state = state.copy(
+                commandPending = false,
+                commandInput = if (clear) "" else state.commandInput,
+                commandFeedback = result.fold(
+                    onSuccess = { "> $command\n${it.take(4000).ifBlank { ctx.getString(R.string.server_detail_command_no_output) }}" },
+                    onFailure = { ctx.getString(R.string.server_detail_send_failed, friendlyError(ctx, it)) },
+                ),
+                commandFailed = result.isFailure,
+            )
+        }
+    }
+
     ServerDetailPage(
         state = state.copy(name = serverName.ifBlank { ctx.getString(R.string.server_detail_untitled) }),
         onTabChange = { state = state.copy(tab = it) },
         onBack = onBack,
         onStart = startAction,
         onStop = stopAction,
-        onCommandInput = { state = state.copy(commandInput = it) },
-        onCommandSend = {
-            val cmd = state.commandInput.trim()
-            if (cmd.isNotEmpty()) {
-                // ⚠️ 发送成功后才清输入框：以前是先清再发、且不接回调，
-                // 发不出去（服务端没跑 / RCON 没就绪）时用户毫无察觉。
-                repo.sendCommand(serverId, cmd) { r ->
-                    r.fold(
-                        onSuccess = { state = state.copy(commandInput = "") },
-                        onFailure = { e ->
-                            state = state.copy(error = ctx.getString(R.string.server_detail_send_failed, e.message ?: ""))
-                        },
-                    )
-                }
-            }
+        onCommandInput = {
+            scope.inputRevision++
+            state = state.copy(commandInput = it)
         },
-        // 快捷命令（list / save-all）：跳过输入框直接下发。
-        onQuickCommand = { cmd ->
-            repo.sendCommand(serverId, cmd) { r ->
-                r.onFailure { e ->
-                    state = state.copy(error = ctx.getString(R.string.server_detail_send_failed, e.message ?: ""))
-                }
-            }
-        },
+        onCommandSend = { sendCommand(state.commandInput.trim()) },
         onInstallCore = installCoreAction,
         onOpenDirectory = { repo.openDirectory(serverId) { } },
         onOpenFiles = onOpenFiles,
@@ -411,6 +395,12 @@ fun ServerDetailRoute(
                 },
         onToggleShare = { want ->
             if (state.shareBusy) return@ServerDetailPage
+            if (TunnelSharing.ownedByOther(serverId)) {
+                state = state.copy(shareMessage = ctx.getString(
+                    R.string.server_detail_share_owned_by, TunnelSharing.ownerServerName,
+                ))
+                return@ServerDetailPage
+            }
 
             if (!want) {
                 state = state.copy(shareBusy = true, shareMessage = "")
@@ -473,6 +463,8 @@ fun ServerDetailRoute(
                         state = state.copy(shareBusy = false)
                     },
                     onFailure = { e ->
+                        // 开房失败：归属必须撤掉，否则下一次会被当成「别的服务器在分享」
+                        TunnelSharing.release(serverId)
                         state = state.copy(
                             shareBusy = false,
                             shareOn = false,
@@ -544,8 +536,8 @@ fun ServerDetailRoute(
 
         // ── 缺陷 3：日志 / 内存 / 删除 ──────────────────────────────────
         onRefreshLogs = {
-            refreshLogs { ok ->
-                state = state.copy(notice = if (ok) ctx.getString(R.string.server_detail_logs_refreshed) else ctx.getString(R.string.server_detail_logs_refresh_failed))
+            if (bridgeReady) logs.request { result ->
+                if (scope.active && result.isSuccess) state = state.copy(notice = ctx.getString(R.string.server_detail_logs_refreshed))
             }
         },
         onRequestBatteryUnrestricted = {
@@ -626,4 +618,11 @@ fun ServerDetailRoute(
             }
         },
     )
+}
+
+private class DetailRouteScope {
+    var active = true
+    var lifecycleRevision = 0L
+    var inputRevision = 0L
+    var startedAt = 0L
 }

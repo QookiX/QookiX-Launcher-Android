@@ -14,6 +14,71 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
+// The launcher owns a single Android service process. Serialize user operations
+// across server IDs, including the time before a runtime record is published.
+static HOST_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub async fn host_operation() -> tokio::sync::MutexGuard<'static, ()> {
+    HOST_OPERATION.lock().await
+}
+
+pub fn try_host_operation() -> Result<tokio::sync::MutexGuard<'static, ()>, String> {
+    HOST_OPERATION.try_lock().map_err(|_| "服务器正在处理启动、停止或安装任务，请稍后再试".into())
+}
+
+/// A broken IPC connection is not proof that the separate JVM process exited.
+#[cfg(target_os = "android")]
+pub fn process_may_be_alive(pid: i32) -> bool {
+    pid > 0 && (unsafe { libc::kill(pid, 0) } == 0
+        || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH))
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn process_may_be_alive(_pid: i32) -> bool {
+    false
+}
+
+#[derive(serde::Deserialize)]
+pub struct IpcStatus {
+    pub pid: i32,
+    // Keep the numeric field compatible with earlier server processes.
+    jvm: u8,
+}
+
+impl IpcStatus {
+    pub fn from_http(response: &str) -> Option<Self> {
+        let (headers, body) = response.split_once("\r\n\r\n")?;
+        if headers.lines().next()?.split_whitespace().nth(1)? != "200" {
+            return None;
+        }
+        serde_json::from_str(body).ok()
+    }
+
+    pub fn jvm_active(&self) -> bool { self.jvm == 1 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ipc_status_agrees_with_process_contract() {
+        let response = |jvm| format!("HTTP/1.1 200 OK\r\n\r\n{{\"pid\":7,\"jvm\":{jvm}}}");
+        assert!(IpcStatus::from_http(&response(1)).unwrap().jvm_active());
+        assert!(!IpcStatus::from_http(&response(0)).unwrap().jvm_active());
+        assert!(IpcStatus::from_http(&response(1).replace("200", "404")).is_none());
+        assert!(IpcStatus::from_http("HTTP/1.1 200 OK\r\n\r\n{}").is_none());
+    }
+
+    #[tokio::test]
+    async fn synchronous_mutation_refuses_inflight_operation() {
+        let guard = host_operation().await;
+        assert!(try_host_operation().is_err());
+        drop(guard);
+        assert!(try_host_operation().is_ok());
+    }
+}
+
 /// 停止请求：`serve_ipc` 收到 `/stop`、或 JVM 退出后置 true。
 static STOP: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 /// JVM 是否活着（`try_begin` 抢占，`AliveGuard` 复位）。

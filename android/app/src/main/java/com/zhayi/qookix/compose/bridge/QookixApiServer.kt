@@ -252,8 +252,8 @@ fun QookixApi.installServerPlugin(
     serverId: String,
     slug: String,
     projectName: String,
-    onResult: (Result<String>) -> Unit = {},
-) = call(
+    onResult: (Result<JSONObject>) -> Unit = {},
+) = callObj(
     "install_server_plugin",
     JSONObject()
         .put("serverId", serverId)

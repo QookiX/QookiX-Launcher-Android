@@ -60,6 +60,9 @@ fun InstallDialog(
     onCreateTargetInstance: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val shortLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
+        configuration.screenHeightDp < 340
     androidx.compose.material3.AlertDialog(
         // ⚠️ 安装中不允许关闭（2026-10-17 修，对照 CreateServerDialog 的正确写法）。
         // 原来点外部/返回键就能关，而下载其实在后台继续 ——
@@ -71,6 +74,8 @@ fun InstallDialog(
                     text = state.project.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = if (shortLandscape) 1 else 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (state.project.author.isNotBlank()) {
                     Text(
@@ -88,7 +93,7 @@ fun InstallDialog(
                     .heightIn(max = 520.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
-                InstallIntro(state = state, onTranslate = onTranslate)
+                if (!shortLandscape) InstallIntro(state = state, onTranslate = onTranslate)
                 InstallTargets(
                     state = state,
                     onSelectInstance = onSelectInstance,
@@ -102,6 +107,10 @@ fun InstallDialog(
                 )
                 InstallVersionList(state = state, onSelectVersion = onSelectVersion)
                 InstallExtras(state = state, onOpenDependency = onOpenDependency)
+                if (shortLandscape) {
+                    Spacer(Modifier.height(QkSpacing.sm))
+                    InstallIntro(state = state, onTranslate = onTranslate)
+                }
             }
         },
         confirmButton = { InstallButton(state = state, onInstall = onInstall) },

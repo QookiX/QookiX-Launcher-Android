@@ -15,7 +15,8 @@ public class InGameEventProcessor implements TouchEventProcessor {
     private final double mSensitivity;
     private boolean mEventTransitioned = true;
     private boolean fighting;
-    private boolean suppressUntilDown;
+    private boolean suppressUntilDown = true;
+    private boolean directTouchActive;
     private final PointerTracker mTracker = new PointerTracker();
     private final LeftClickGesture mLeftClickGesture = new LeftClickGesture(mGestureHandler);
     private final RightClickGesture mRightClickGesture = new RightClickGesture(mGestureHandler);
@@ -28,6 +29,7 @@ public class InGameEventProcessor implements TouchEventProcessor {
     public boolean processTouchEvent(MotionEvent motionEvent) {
         switch (motionEvent.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                directTouchActive = true;
                 suppressUntilDown = false;
                 mTracker.startTracking(motionEvent);
                 if(LauncherPreferences.PREF_DISABLE_GESTURES) break;
@@ -35,6 +37,7 @@ public class InGameEventProcessor implements TouchEventProcessor {
                 checkGestures();
                 break;
             case MotionEvent.ACTION_MOVE:
+                if (!directTouchActive) break;
                 try {
                     mTracker.trackEvent(motionEvent);
                     float[] motionVector = mTracker.getMotionVector();
@@ -42,13 +45,7 @@ public class InGameEventProcessor implements TouchEventProcessor {
                     float deltaY = (float) (motionVector[1] * mSensitivity);
                     mLeftClickGesture.setMotion(deltaX, deltaY);
                     mRightClickGesture.setMotion(deltaX, deltaY);
-                    CallbackBridge.mouseX += deltaX;
-                    CallbackBridge.mouseY += deltaY;
-                    // SDL 路径用相对位移（见 CallbackBridge.sendCursorPos）
-                    CallbackBridge.deltaX = deltaX;
-                    CallbackBridge.deltaY = deltaY;
-                    CallbackBridge.inputDebugLogPub("InGame MOVE d(" + deltaX + "," + deltaY + ")");
-                    CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
+                    sendLookDelta(deltaX, deltaY);
                 } catch (Throwable t) {
                     CallbackBridge.inputDebugLogPub("InGame MOVE EX: " + t);
                 }
@@ -57,6 +54,9 @@ public class InGameEventProcessor implements TouchEventProcessor {
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                if (!directTouchActive) break;
+                directTouchActive = false;
+                suppressUntilDown = true;
                 mTracker.cancelTracking();
                 cancelGestures(motionEvent.getActionMasked() == MotionEvent.ACTION_CANCEL);
         }
@@ -74,7 +74,25 @@ public class InGameEventProcessor implements TouchEventProcessor {
 
     @Override
     public void cancelPendingActions() {
+        directTouchActive = false;
+        suppressUntilDown = true;
+        mTracker.cancelTracking();
         cancelGestures(true);
+    }
+
+    /** HUD passthrough rotates the view without starting or interrupting canvas gestures. */
+    public void moveFromControl(float dx, float dy) {
+        if (!directTouchActive && (dx != 0 || dy != 0)) {
+            sendLookDelta((float) (dx * mSensitivity), (float) (dy * mSensitivity));
+        }
+    }
+
+    private void sendLookDelta(float dx, float dy) {
+        CallbackBridge.mouseX += dx;
+        CallbackBridge.mouseY += dy;
+        CallbackBridge.deltaX = dx;
+        CallbackBridge.deltaY = dy;
+        CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
     }
 
     private void checkGestures() {

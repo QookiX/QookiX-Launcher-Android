@@ -16,11 +16,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -55,12 +54,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import com.zhayi.qookix.compose.ui.QkInlineError
 import com.zhayi.qookix.compose.ui.QkProgressBar
 import com.zhayi.qookix.compose.ui.QkTabContent
 import com.zhayi.qookix.compose.ui.QkTabRow
@@ -180,6 +177,7 @@ fun InstanceDetailPage(
     identifying: Boolean = false,
     /** 切换内容分类（审计 H-2）。 */
     onContentKindChange: (String) -> Unit = {},
+    onOpenContentProject: (ContentSelection) -> Unit = {},
     /** 「导入文件」：选本地文件复制进当前分类目录（mods / resourcepacks / shaderpacks）。 */
     onImportContent: (() -> Unit)? = null,
     /**
@@ -217,9 +215,8 @@ fun InstanceDetailPage(
     exportHint: String? = null,
     onExport: (Boolean, Boolean, Boolean) -> Unit = { _, _, _ -> },
 ) {
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = state.tab.ordinal) { InstanceTab.entries.size }
     Column(modifier = Modifier.fillMaxSize()) {
-        state.error?.let { QkInlineError(it) }
-
         // ── Hero：图标 + 名称 + 版本（2026-10-27 新增）──────────────────
         //
         // 两个用途：
@@ -378,7 +375,7 @@ fun InstanceDetailPage(
                         )
                         Spacer(Modifier.height(QkSpacing.xs))
                         QkProgressBar(
-                            progress = t.fraction,
+                            progress = t.displayFraction,
                             modifier = Modifier.height(6.dp),
                         )
                         Spacer(Modifier.height(QkSpacing.xxs))
@@ -465,6 +462,7 @@ fun InstanceDetailPage(
             labels = InstanceTab.entries.map { stringResource(it.labelRes) },
             selectedIndex = state.tab.ordinal,
             onSelect = { onTabChange(InstanceTab.entries[it]) },
+            pagerState = pager,
         )
 
         // ── 内容区 ────────────────────────────────────────────────────
@@ -489,6 +487,7 @@ fun InstanceDetailPage(
                 selected = state.tab,
                 onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
+                pagerState = pager,
             ) { tab ->
             when (tab) {
                 InstanceTab.Saves -> SavesTab(
@@ -509,6 +508,7 @@ fun InstanceDetailPage(
                     onIdentify = onIdentify,
                     identifying = identifying,
                     onKindChange = onContentKindChange,
+                     onOpenProject = onOpenContentProject,
                     onImport = onImportContent,
                 )
                 InstanceTab.Settings -> InstanceSettingsTab(
@@ -692,9 +692,8 @@ private fun KeysTab(
     onSetPassthru: (Int, Boolean) -> Unit = { _, _ -> },
 ) {
     var showPassthru by remember { mutableStateOf(false) }
-    Column(modifier = Modifier.fillMaxSize()) {
-        // ⚠️ 2026-10-28（竖屏审计）：原来是「导入 + 按键穿透 + 说明文字」挤在一个 Row，
-        // 竖屏 411dp 下说明文字只剩半宽、被压成 4 行。改成按钮一行、说明独占下一行。
+    run {
+        val toolbar: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -726,6 +725,7 @@ private fun KeysTab(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
+        }
         }
 
         if (showPassthru) {
@@ -778,19 +778,18 @@ private fun KeysTab(
             )
         }
 
-        if (state.layouts.isEmpty()) {
-            EmptyHint(
-                stringResource(R.string.instance_detail_no_layouts_title),
-                stringResource(R.string.instance_detail_no_layouts_desc),
-            )
-            return@Column
-        }
-
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
         ) {
+            item { toolbar() }
+            if (state.layouts.isEmpty()) item {
+                EmptyHint(
+                    stringResource(R.string.instance_detail_no_layouts_title),
+                    stringResource(R.string.instance_detail_no_layouts_desc),
+                )
+            }
             items(state.layouts, key = { it.name }) { l ->
                 Card(
                     onClick = { onSelect(l.name) },
@@ -886,97 +885,31 @@ private fun ContentTab(
     /** 「导入文件」：把本地下载好的 jar/zip 复制进当前分类目录（D4）。 */
     onImport: (() -> Unit)? = null,
     onApplyUpdate: (ContentUi) -> Unit,
+    onOpenProject: (ContentSelection) -> Unit,
 ) {
+    var unidentified by remember(state.contentKind) { mutableStateOf(false) }
+    if (unidentified) {
+        AlertDialog(
+            onDismissRequest = { unidentified = false },
+            title = { Text(stringResource(R.string.instance_project_unidentified)) },
+            text = { Text(stringResource(R.string.instance_project_identify_hint)) },
+            confirmButton = {
+                TextButton(enabled = !identifying, onClick = { unidentified = false; onIdentify() }) {
+                    Text(stringResource(R.string.instance_project_identify))
+                }
+            },
+            dismissButton = { TextButton(onClick = { unidentified = false }) { Text(stringResource(R.string.common_cancel)) } },
+        )
+    }
     Column(modifier = Modifier.fillMaxSize()) {
-        // ── 分类筛选 + 操作按钮（2026-10-17 改响应式）──────────────────
-        //
-        // 原来是「chips(weight 1 + horizontalScroll) | 检查更新 | 识别」一行。
-        // 竖屏 1080px 下 chips 被挤到只剩一半，第三个 chip「光影」直接被
-        // 右侧按钮压住看不清（真机截图可见）。
-        //
-        // 现在按可用宽度分两种排布：
-        //   - 够宽（横屏）：还是一行，chips 占剩余空间可横滚
-        //   - 太窄（竖屏）：chips 单独一行，按钮移到下一行右侧
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val wide = maxWidth >= 600.dp
-            if (wide) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                    ) {
-                        state.contentKinds.forEach { k ->
-                            // ⚠️ 2026-10-23 真机反馈「下面列着 3 个模组，页签却写 模组 0」：
-                            // `count` 是加载时统计出来的（PageHost 那侧写回），但操作后
-                            // （启用/删除/更新）可能滞后。当前分类以**实际列表条数**兜底，
-                            // 保证 chips 和下面的列表永远一致。
-                            val shownCount =
-                                if (k.id == state.contentKind) maxOf(k.count, state.content.size)
-                                else k.count
-                            FilterChip(
-                                selected = state.contentKind == k.id,
-                                onClick = { onKindChange(k.id) },
-                                label = {
-                                    Text(
-                                        stringResource(
-                                            R.string.instance_detail_kind_label_count,
-                                            stringResource(k.labelRes),
-                                            shownCount,
-                                        )
-                                    )
-                                },
-                            )
-                        }
-                    }
-                    ContentActions(onCheckUpdates, onIdentify, identifying, onImport)
-                }
-            } else {
-                Column(modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 8.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                    ) {
-                        state.contentKinds.forEach { k ->
-                            // ⚠️ 2026-10-23 真机反馈「下面列着 3 个模组，页签却写 模组 0」：
-                            // `count` 是加载时统计出来的（PageHost 那侧写回），但操作后
-                            // （启用/删除/更新）可能滞后。当前分类以**实际列表条数**兜底，
-                            // 保证 chips 和下面的列表永远一致。
-                            val shownCount =
-                                if (k.id == state.contentKind) maxOf(k.count, state.content.size)
-                                else k.count
-                            FilterChip(
-                                selected = state.contentKind == k.id,
-                                onClick = { onKindChange(k.id) },
-                                label = {
-                                    Text(
-                                        stringResource(
-                                            R.string.instance_detail_kind_label_count,
-                                            stringResource(k.labelRes),
-                                            shownCount,
-                                        )
-                                    )
-                                },
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        ContentActions(onCheckUpdates, onIdentify, identifying, onImport)
-                    }
-                }
-            }
-        }
+        InstanceContentToolbar(
+            state = state,
+            onKindChange = onKindChange,
+            onCheckUpdates = onCheckUpdates,
+            onIdentify = onIdentify,
+            identifying = identifying,
+            onImport = onImport,
+        )
 
         if (state.loading) {
             Column(modifier = Modifier.padding(QkSpacing.lg)) {
@@ -986,10 +919,7 @@ private fun ContentTab(
         }
 
         if (state.content.isEmpty()) {
-            EmptyHint(
-                stringResource(R.string.instance_detail_no_content_title),
-                stringResource(R.string.instance_detail_no_content_desc),
-            )
+            InstanceContentEmpty()
             return@Column
         }
 
@@ -1008,7 +938,13 @@ private fun ContentTab(
                         modifier = Modifier.padding(horizontal = QkSpacing.md, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        val project = c.resourceCenterSelection(state.contentKind)
+                        Column(
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).clickable {
+                                if (project == null) unidentified = true else onOpenProject(project)
+                            },
+                            verticalArrangement = Arrangement.Center,
+                        ) {
                             Text(
                                 text = c.name,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -1778,33 +1714,5 @@ fun InstanceDetailToolbar(
             Spacer(Modifier.width(4.dp))
             Text(stringResource(R.string.instance_detail_launch), maxLines = 1)
         }
-    }
-}
-
-
-
-/** 「导入 / 检查更新 / 识别」文字按钮（横竖屏共用）。 */
-@Composable
-private fun ContentActions(
-    onCheckUpdates: () -> Unit,
-    onIdentify: () -> Unit,
-    identifying: Boolean,
-    onImport: (() -> Unit)? = null,
-) {
-    // 导入排在最前：手动装 mod 是「找不到资源就本地下载」的兜底路径，
-    // 也是唯一不需要网络的入口，不该藏在别处。
-    if (onImport != null) {
-        TextButton(onClick = onImport) { Text(stringResource(R.string.instance_detail_import_file)) }
-    }
-    TextButton(onClick = onCheckUpdates) { Text(stringResource(R.string.instance_detail_check_updates)) }
-    TextButton(onClick = onIdentify, enabled = !identifying) {
-        if (identifying) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
-                strokeWidth = 2.dp,
-            )
-            Spacer(Modifier.width(6.dp))
-        }
-        Text(stringResource(R.string.instance_detail_identify))
     }
 }

@@ -34,7 +34,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.isActive
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Column
@@ -454,14 +456,7 @@ fun PageHost(
     //   2. 外层那份 `tasksState` 本来就是全量快照（`DownloadsUiState.active`
     //      里已经带了每个任务的归属实例），够详情页用了。
     //
-    // 真正把「哪个任务属于这个实例」挑出来的动作在 InstanceDetailRoute 里
-    //（`tasksRepo.activeTaskFor(instanceId)`，按 `Entry.instanceId` 精确匹配）。
-    var taskQueryInstanceId by remember { mutableStateOf<String?>(null) }
-
-    // 离开详情页就清掉，免得 `?: selectedInstanceId` 永远读不到兜底值
-    //（那会把「当前查看的实例」改坏）。
     LaunchedEffect(dest) {
-        if (dest != NavDestination.InstanceDetail) taskQueryInstanceId = null
         // 内容详情同理：离开这一页（不管走返回键还是底栏跳走）都要清掉选中项，
         // 否则下次进内容中心会直接停在详情页上。
         if (dest != NavDestination.ContentDetail) onSelectedContentChange(null)
@@ -475,7 +470,8 @@ fun PageHost(
     // 文件浏览器：非空表示「详情页下钻到文件浏览」这一层。
     // 用同一个状态服务实例与服务器两种场景 —— 它们的页面代码完全一样，
     // 只是底层的 FileOps 实现不同（见 FileOps.kt 的注释）。
-    var fileBrowserTarget by remember { mutableStateOf<FileTarget?>(null) }
+    var fileBrowserTarget by remember(dest, selectedInstanceId, selectedServerId) { mutableStateOf<FileTarget?>(null) }
+    var instanceProjectReturn by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     // ── 渲染器健康检查（对应旧 UI 的 RendererHintDialog）────────────────
     //
@@ -725,9 +721,9 @@ fun PageHost(
         NavDestination.ServerCreate -> ServerCreateRoute(
             bridge = bridge,
             onBack = { onNavigate(NavDestination.Multiplayer) },
-            onCreated = {
-                // 与实例同理：先刷新再回去，否则列表还是旧的
-                onNavigate(NavDestination.Multiplayer)
+            onCreated = { id ->
+                onSelectedServerIdChange(id)
+                onNavigate(NavDestination.ServerDetail)
             },
         )
         NavDestination.Multiplayer -> MultiplayerRoute(
@@ -747,8 +743,13 @@ fun PageHost(
                 // 直接落到这个页面（没有选中服务器）时退回多人页，
                 // 否则会显示一个空壳界面让人困惑
                 LaunchedEffect(Unit) { onNavigate(NavDestination.Multiplayer) }
-            } else if (fileBrowserTarget != null) {
-                // 服务器文件浏览（从详情页「文件」tab 进入）
+            } else if (fileBrowserTarget == FileTarget.Server) {
+                val fileTitle = stringResource(R.string.nav_file)
+                DisposableEffect(fileTitle) {
+                    onTitleChange(fileTitle)
+                    onBackHandlerChanged({ fileBrowserTarget = null; true })
+                    onDispose { onBackHandlerChanged(null); onTitleChange(null) }
+                }
                 FileBrowserRoute(
                     bridge = bridge,
                     bridgeReady = bridgeReady,
@@ -771,21 +772,18 @@ fun PageHost(
         }
 
         NavDestination.InstanceDetail -> {
-            // 当前查看的实例。instanceId 优先用 `taskQueryInstanceId`
-            // ——这是 InstanceDetailRoute 回写的**同一个值**，
-            // 只是它一定在详情页组合之后才被赋值，而这里用它能让
-            // 「详情页首帧」就带着正确的实例 id 去查任务（少一次空转）。
-            val id = taskQueryInstanceId ?: selectedInstanceId
+            val id = selectedInstanceId
             if (id.isNullOrBlank()) {
                 LaunchedEffect(Unit) { onNavigate(NavDestination.Instances) }
-            } else if (fileBrowserTarget != null) {
+            } else if (fileBrowserTarget == FileTarget.Instance) {
                 // 进文件浏览时把标题改掉（否则顶栏还显示「实例详情」）
-                LaunchedEffect(fileBrowserTarget) { onTitleChange(context.getString(R.string.nav_file)) }
+                val fileTitle = stringResource(R.string.nav_file)
                 // 注册「内部返回」（顶栏先问这里，避免跳过详情页），并成对注销：
                 // 原来只有 set 没有 clear → 离开后顶栏返回键在别的页面静默失效（P1-7 通路③）
-                DisposableEffect(Unit) {
+                DisposableEffect(fileTitle) {
+                    onTitleChange(fileTitle)
                     onBackHandlerChanged({ fileBrowserTarget = null; true })
-                    onDispose { onBackHandlerChanged(null) }
+                    onDispose { onBackHandlerChanged(null); onTitleChange(null) }
                 }
                 FileBrowserRoute(
                     bridge = bridge,
@@ -800,11 +798,16 @@ fun PageHost(
                     instanceId = id,
                     activity = activity,
                     onBack = { onNavigate(NavDestination.Instances) },
-                    onOpenFiles = { fileBrowserTarget = FileTarget.Instance },
+                    onOpenFiles = { SharedHero.finish(); fileBrowserTarget = FileTarget.Instance },
+                    initialContentKind = instanceProjectReturn?.takeIf { it.first == id }?.second ?: "mod",
+                    onOpenContentProject = { selection ->
+                        instanceProjectReturn = id to selection.kind
+                        onSelectedContentChange(selection)
+                        onNavigate(NavDestination.ContentDetail)
+                    },
                     tasksRepo = tasksRepo,
                     // 任务列表快照（详情页据此显示「正在下载 + 取消」）
                     tasksState = tasksState,
-                    onTaskQuery = { taskQueryInstanceId = it },
                     // 把实例信息注册到顶栏（替换掉「实例详情」那个标题）
                     onRegisterToolbar = onRegisterToolbar,
                     // 换图标后要让实例列表重载（D3）
@@ -1076,6 +1079,8 @@ private fun InstanceDetailRoute(
     activity: ComposeMainActivity? = null,
     onBack: () -> Unit,
     onOpenFiles: () -> Unit,
+    initialContentKind: String,
+    onOpenContentProject: (ContentSelection) -> Unit,
     /** 任务仓库：判断该实例是否已有进行中的下载（防止重复开任务）。 */
     tasksRepo: TasksRepo,
     /**
@@ -1087,8 +1092,6 @@ private fun InstanceDetailRoute(
      * 事件还会漏。共用外层那一份最省事也最不容易错。
      */
     tasksState: DownloadsUiState,
-    /** 把「正在查哪个实例」告诉外层（取消任务要用，见调用处）。 */
-    onTaskQuery: (String) -> Unit,
     /** 向顶栏注册实例信息（名字/版本/加载器/按钮）。 */
     onRegisterToolbar: ((@Composable () -> Unit)?) -> Unit = {},
     /**
@@ -1103,7 +1106,7 @@ private fun InstanceDetailRoute(
     val api = remember(bridge) { QookixApi(bridge) }
     val repo = remember(api) { InstanceDetailRepo(api, context) }
 
-    var state by remember(instanceId) { mutableStateOf(InstanceDetailUiState(id = instanceId)) }
+    var state by remember(instanceId) { mutableStateOf(InstanceDetailUiState(id = instanceId, contentKind = initialContentKind)) }
 
     // ── 按键布局导入：选完文件后的结果接收 ──────────────────────────────
     //
@@ -1238,13 +1241,8 @@ private fun InstanceDetailRoute(
                     val o = org.json.JSONObject(payload)
                     val ok = o.optBoolean("ok", false)
                     val filename = o.optString("filename")
-                    state = state.copy(
-                        error = if (ok) {
-                            context.getString(R.string.update_done_for, filename)
-                        } else {
-                            context.getString(R.string.update_failed, o.optText("error").orEmpty())
-                        },
-                    )
+                    if (ok) QkFeedback.show(context.getString(R.string.update_done_for, filename))
+                    else QkFeedback.showError(context.getString(R.string.update_failed, o.optText("error").orEmpty()))
                     // 重新拉当前分类，让新版本号/状态即时反映
                     repo.loadContent(state.contentKind, instanceId) { lr ->
                         state = lr.fold(
@@ -1293,7 +1291,6 @@ private fun InstanceDetailRoute(
     // 复制按键布局的目标（2026-10-17 修审计 H-3：原来和重命名共用一个状态）
     var duplicateTarget by remember(instanceId) { mutableStateOf<String?>(null) }
     // 布局操作（复制/删除）的错误提示
-    var layoutError by remember(instanceId) { mutableStateOf<String?>(null) }
     // 换图标面板（D3）：游戏素材图标 + 本地图片导入
     var showIconPicker by remember(instanceId) { mutableStateOf(false) }
     var gameIcons by remember(instanceId) { mutableStateOf<List<org.json.JSONObject>>(emptyList()) }
@@ -1354,7 +1351,7 @@ private fun InstanceDetailRoute(
             r.onSuccess { arr ->
                 gameIcons = (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i) }
             }
-            r.onFailure { e -> QkFeedback.show(context.getString(R.string.instance_detail_read_failed, e.message.orEmpty())) }
+            r.onFailure { e -> QkFeedback.showError(context.getString(R.string.instance_detail_read_failed, e.message.orEmpty())) }
         }
     }
 
@@ -1406,8 +1403,10 @@ private fun InstanceDetailRoute(
         }
     }
 
-    // 按 tab 懒加载
-    LaunchedEffect(bridgeReady, instanceId, state.tab, keysReload, savesReload) {
+    // Only the Keys tab needs reloading when the native editor returns.
+    val editorReturn = activity?.controlEditorReturnTick?.collectAsState()?.value ?: 0
+    val keysEditorReturn = if (state.tab == InstanceTab.Keys) editorReturn else 0
+    LaunchedEffect(bridgeReady, instanceId, state.tab, keysReload, savesReload, keysEditorReturn) {
         if (!bridgeReady) return@LaunchedEffect
         state = state.copy(loading = true, error = null)
         when (state.tab) {
@@ -1429,8 +1428,8 @@ private fun InstanceDetailRoute(
                 // 因为这里只加载了「当前」kind。改成：三类各查一次条数写回 chips，
                 // 当前 kind 顺便把列表也填上（只多两次轻量查询，都是本地扫目录）。
                 state.contentKinds.forEach { k ->
-                    val isCurrent = k.id == state.contentKind
                     repo.loadContent(k.id, instanceId) { r ->
+                        val isCurrent = state.tab == InstanceTab.Content && k.id == state.contentKind
                         r.getOrNull()?.let { list ->
                             state = state.copy(
                                 contentKinds = state.contentKinds.map { kk ->
@@ -1504,7 +1503,7 @@ private fun InstanceDetailRoute(
                             keysReload += 1
                         },
                         onFailure = { e ->
-                            layoutError = context.getString(R.string.layout_copy_failed, friendlyError(context, e))
+                            state = state.copy(error = context.getString(R.string.layout_copy_failed, friendlyError(context, e)))
                         },
                     )
                 }
@@ -1552,7 +1551,7 @@ private fun InstanceDetailRoute(
                                             r.fold(
                                                 onSuccess = {
                                                     showIconPicker = false
-                                                    state = state.copy(error = context.getString(R.string.instance_detail_icon_set))
+                                                    QkFeedback.show(context.getString(R.string.instance_detail_icon_set))
                                                     onInstanceChanged()
                                                 },
                                                 onFailure = { e ->
@@ -1586,7 +1585,7 @@ private fun InstanceDetailRoute(
                                         ur.fold(
                                             onSuccess = {
                                                 showIconPicker = false
-                                                state = state.copy(error = context.getString(R.string.instance_detail_icon_set))
+                                                QkFeedback.show(context.getString(R.string.instance_detail_icon_set))
                                                 onInstanceChanged()
                                             },
                                             onFailure = { e ->
@@ -1627,7 +1626,6 @@ private fun InstanceDetailRoute(
     // 算出结果再传回来。用 remember(instanceId, tasksState) 而不是
     // LaunchedEffect，是因为后者要多等一帧才出结果（提示条会闪一下）。
     val instanceTask = remember(instanceId, tasksState) { tasksRepo.activeTaskFor(instanceId) }
-    LaunchedEffect(instanceId) { onTaskQuery(instanceId) }
 
 
     // 启动 / 修复文件 —— 顶栏和页面内共用同一份实现。
@@ -1735,6 +1733,17 @@ private fun InstanceDetailRoute(
         }
     }
     DisposableEffect(Unit) { onDispose { onRegisterToolbar(null) } }
+
+    LaunchedEffect(instanceId, state.error) {
+        val message = state.error ?: return@LaunchedEffect
+        QkFeedback.showError(message)
+        state = state.copy(error = null)
+    }
+    LaunchedEffect(instanceId, settingsCtl.hint) {
+        val message = settingsCtl.hint ?: return@LaunchedEffect
+        QkFeedback.show(message)
+        settingsCtl.hint = null
+    }
 
     InstanceDetailPage(
         state = state,
@@ -1877,18 +1886,12 @@ private fun InstanceDetailRoute(
             }
             pollControlImport()
         },
-        // 导出按键布局（D2）：`export_control_layout` 一直没有 UI。
-        // 后端把布局 json 写到导出目录并返回路径；这里提示一下即可。
+        // Native export opens the Android share chooser; returning from the bridge does not mean the user exported a file.
         onLayoutExport = { name ->
             api.exportControlLayout(name.removeSuffix(".json")) { r ->
-                r.fold(
-                    onSuccess = { path ->
-                        state = state.copy(error = context.getString(R.string.layout_export_done, path))
-                    },
-                    onFailure = { e ->
-                        state = state.copy(error = context.getString(R.string.layout_export_failed, e.message ?: ""))
-                    },
-                )
+                r.onFailure { e ->
+                    state = state.copy(error = context.getString(R.string.layout_export_failed, e.message ?: ""))
+                }
             }
         },
         // 按键穿透设置（D2）：`get_control_buttons` / `set_control_button_passthru`
@@ -1957,8 +1960,9 @@ private fun InstanceDetailRoute(
         // 但 ContentTab 形参里根本没有 onKindChange，外层也没传。
         // 现在补上，并且切分类后**重新加载该分类的内容**（否则只高亮不换数据）。
         onContentKindChange = { kind ->
-            state = state.copy(contentKind = kind, content = emptyList())
+            state = state.copy(contentKind = kind, content = emptyList(), loading = true)
             repo.loadContent(kind, instanceId) { r ->
+                if (state.tab != InstanceTab.Content || state.contentKind != kind) return@loadContent
                 state = r.fold(
                     onSuccess = { state.copy(content = it, loading = false) },
                     onFailure = { state.copy(loading = false, error = context.getString(R.string.load_failed, friendlyError(context, it))) },
@@ -2003,7 +2007,7 @@ private fun InstanceDetailRoute(
                         val byName = (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i) }
                             .associateBy { it.optString("filename") }
                         if (byName.isEmpty()) {
-                            state = state.copy(error = context.getString(R.string.update_none))
+                            QkFeedback.show(context.getString(R.string.update_none))
                         } else {
                             val updated = state.content.map { c ->
                                 val u = byName[c.rel]
@@ -2016,8 +2020,8 @@ private fun InstanceDetailRoute(
                             }
                             state = state.copy(
                                 content = updated,
-                                error = context.getString(R.string.updates_found, byName.size),
                             )
+                            QkFeedback.show(context.getString(R.string.updates_found, byName.size))
                         }
                     },
                     onFailure = { e -> state = state.copy(error = context.getString(R.string.update_check_failed, e.message ?: "")) },
@@ -2091,7 +2095,7 @@ private fun InstanceDetailRoute(
                         onSuccess = { res ->
                             val name = res.optString("file_name").ifBlank { res.optString("fileName") }
                             val bytes = res.optLong("bytes", 0)
-                            exportHint = context.getString(R.string.export_done, name, fmtBytes(bytes))
+                            QkFeedback.show(context.getString(R.string.export_done, name, fmtBytes(bytes)))
                         },
                         onFailure = { e -> exportHint = context.getString(R.string.export_failed, e.message) },
                     )
@@ -2101,10 +2105,11 @@ private fun InstanceDetailRoute(
         // ⚠️ 2026-10-17 修：以前只传 `(instanceId, c.rel)` 两个参数，
         // 而 Rust 需要 6 个（commands.rs:1079-1086）→ 更新必然失败。
         // 现在把 kind / oldFilename / provider / projectId / newVersionId 都传过去。
+        onOpenContentProject = onOpenContentProject,
         onApplyUpdate = { c ->
             val newId = c.latestVersionId
             if (newId.isBlank()) {
-                state = state.copy(error = context.getString(R.string.update_none_for, c.name))
+                QkFeedback.show(context.getString(R.string.update_none_for, c.name))
             } else {
                 // ⚠️ 2026-10-21 真机修：以前成功后只弹一句提示，不刷新列表 →
                 // 该行 updatable 仍为 true、「更新」按钮还在，且看不到版本号变化。
@@ -2119,7 +2124,7 @@ private fun InstanceDetailRoute(
                 ) { r ->
                     r.fold(
                         onSuccess = {
-                            state = state.copy(error = context.getString(R.string.update_done_for, c.name))
+                            QkFeedback.show(context.getString(R.string.update_done_for, c.name))
                             repo.loadContent(state.contentKind, instanceId) { lr ->
                                 state = lr.fold(
                                     onSuccess = { state.copy(content = it, loading = false) },
@@ -2164,7 +2169,8 @@ private fun InstanceDetailRoute(
                             api.saveTextFile(uri, content) { r ->
                                 state = r.fold(
                                     onSuccess = {
-                                        state.copy(error = context.getString(R.string.instance_detail_save_log_done))
+                                        QkFeedback.show(context.getString(R.string.instance_detail_save_log_done))
+                                        state
                                     },
                                     onFailure = { e ->
                                         state.copy(
@@ -2194,9 +2200,7 @@ private fun InstanceDetailRoute(
                         api.importLocalFile(instanceId, kind, path) { r ->
                             r.fold(
                                 onSuccess = {
-                                    state = state.copy(
-                                        error = context.getString(R.string.instance_detail_import_file_done, fileName),
-                                    )
+                                    QkFeedback.show(context.getString(R.string.instance_detail_import_file_done, fileName))
                                     repo.loadContent(kind, instanceId) { lr ->
                                         state = lr.fold(
                                             onSuccess = { state.copy(content = it, loading = false) },
@@ -2241,7 +2245,7 @@ private fun InstanceDetailRoute(
         onSettingsChange = settingsCtl::applyPatch,
         onSettingsSave = settingsCtl::save,
         settingsSaving = settingsCtl.saving,
-        settingsHint = settingsCtl.hint,
+        settingsHint = null,
         settingsError = settingsCtl.error,
         onDismissSettingsHint = { settingsCtl.hint = null; settingsCtl.error = null },
         // 2026-11-04（审计 UI-01/UI-02）：读失败禁用保存 + 给重试；离开前确认放弃改动
@@ -2434,61 +2438,55 @@ data class DangerConfirm(
 
 
 
-/**
- * 「新建服务器」页面的状态容器。
- *
- * ⚠️ 版本清单**按核心类型分别取**：Paper 用后端自己的支持清单，
- * Vanilla / Fabric 用官方 version manifest。切换核心时要重新拉，
- * 否则会出现「选了 Paper 却看到原版才有的版本」。
- */
 @Composable
 private fun ServerCreateRoute(
     bridge: RustBridge,
     onBack: () -> Unit,
-    onCreated: () -> Unit,
+    onCreated: (String) -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
-    var state by remember { mutableStateOf(ServerCreateUiState()) }
+    val routeScope = rememberCoroutineScope()
+    var state by remember(api) { mutableStateOf(ServerCreateUiState()) }
+    val request = state.versionsRequest
 
-    // 拉版本清单。key 用 core —— 换核心就重拉。
-    LaunchedEffect(state.core) {
-        // 换核心时必须**清空已选版本** ——
-        // 否则会出现「选了 Paper 但 version 还是原版才有的版本」，
-        // 提交后 Rust 那边 404。
-        state = state.copy(loadingVersions = true, versionsError = null, version = "")
-        loadServerVersions(api, state.core) { r ->
-            r.fold(
-                onSuccess = { list ->
-                    // ⚠️ 不自动选中。用户要求「只能从右面选择」——
-                    // 自动帮选最新也是替他做决定：开服版本错了要重下几百 MB。
-                    state = state.copy(loadingVersions = false, versions = list)
-                },
-                onFailure = { e ->
-                    state = state.copy(
-                        loadingVersions = false,
-                        versions = emptyList(),
-                        versionsError = context.getString(R.string.server_version_load_failed, e.message),
-                    )
-                },
-            )
+    LaunchedEffect(api, request) {
+        loadServerVersions(api, request.core) { result ->
+            if (routeScope.isActive) {
+                state = state.finishVersions(request, result) { error ->
+                    context.getString(R.string.server_version_load_failed, error.message)
+                }
+            }
         }
     }
 
     ServerCreatePage(
         state = state,
-        onNameChange = { state = state.copy(name = it) },
-        onCoreChange = { state = state.copy(core = it) },
-        onVersionChange = { state = state.copy(version = it) },
+        onNameChange = { if (!state.creating) state = state.copy(name = it) },
+        onCoreChange = { if (!state.creating && it != state.core) state = state.reloadVersions(it) },
+        onVersionChange = {
+            if (!state.creating && request == state.versionsRequest && it in state.versions) {
+                state = state.copy(version = it)
+            }
+        },
+        onRetryVersions = { if (state.versionsError != null) state = state.reloadVersions() },
         onBack = onBack,
-        onCreate = {
+        onCreate = create@{
+            if (!state.canCreate) return@create
             state = state.copy(creating = true, createError = null)
-            api.createHostedServer(state.name.trim(), state.core, state.version.trim()) { r ->
-                state = state.copy(creating = false)
-                r.fold(
-                    onSuccess = { onCreated() },
-                    onFailure = { e -> state = state.copy(createError = e.message.orEmpty()) },
-                )
+            api.createHostedServer(state.name.trim(), state.core, state.version) { result ->
+                if (routeScope.isActive) {
+                    val id = (result.getOrNull()?.opt("id") as? String)?.takeIf { it.isNotBlank() }
+                    if (id != null) {
+                        onCreated(id)
+                    } else {
+                        state = state.copy(
+                            creating = false,
+                            createError = result.exceptionOrNull()?.message
+                                ?: context.getString(R.string.error_bad_response),
+                        )
+                    }
+                }
             }
         },
     )

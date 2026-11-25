@@ -70,6 +70,7 @@ fun DownloadsPage(
      */
     onClearFinished: () -> Unit,
 ) {
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = state.tab.ordinal) { DownloadsTab.entries.size }
     Column(modifier = Modifier.fillMaxSize()) {
         QkTabRow(
             labels = listOf(
@@ -78,6 +79,7 @@ fun DownloadsPage(
             ),
             selectedIndex = state.tab.ordinal,
             onSelect = { onTabChange(DownloadsTab.entries[it]) },
+            pagerState = pager,
         )
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -86,6 +88,7 @@ fun DownloadsPage(
                 selected = state.tab,
                 onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
+                pagerState = pager,
             ) { tab ->
                 val tabList = when (tab) {
                     DownloadsTab.Active -> state.active
@@ -204,7 +207,7 @@ internal fun TaskCard(t: TaskUi, onCancel: () -> Unit) {
 
             Spacer(Modifier.height(QkSpacing.sm))
             QkProgressBar(
-                progress = t.fraction,
+                progress = t.displayFraction,
                 modifier = Modifier.height(6.dp),
             )
 

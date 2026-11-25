@@ -62,17 +62,16 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         }
     }
 
-    /** 一次拉齐详情页需要的三样东西。 */
+    /** 运行态由独立轮询读取，这里只拉详情配置。 */
     fun load(
         id: String,
         onResult: (Result<ServerDetailUiState>) -> Unit,
     ) {
-        var runtime: JSONObject? = null
         var address = ""
         var coreInstalled = true
         var failed: Throwable? = null
         var eula = false
-        var pending = 4
+        var pending = 3
 
         fun done() {
             if (--pending > 0) return
@@ -85,22 +84,12 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
                 Result.success(
                     ServerDetailUiState(
                         id = id,
-                        running = runtime?.optBoolean("running", false) ?: false,
-                        // 上次运行的结束原因：服务端起不来时这是**唯一**的线索
-                        // （写在 runtime.json.exit / launch-error.txt，以前界面不显示）。
-                        exitNote = runtime?.optText("exitNote"),
                         address = address,
                         coreInstalled = coreInstalled,
                         eulaAgreed = eula,
                     )
                 )
             )
-        }
-
-        api.hostedServerRuntime(id) { r ->
-            r.onSuccess { runtime = it }
-            r.onFailure { failed = it }
-            done()
         }
 
         api.hostedServerAddress(id) { r ->
@@ -129,41 +118,13 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
         }
     }
 
-    /**
-     * 只拉「会变」的运行时状态（轮询用）。
-     *
-     * ⚠️ 2026-10-29（外部审计 B18）：详情页原来每 2 秒调一次 [load]，
-     * 而 [load] 内部并发 4 条命令（runtime / address / coreInstalled / getHostedServer），
-     * 加上日志就是 5 条 —— 其中 address、coreInstalled、eula 基本不变，纯浪费；
-     * 而且不校验上一轮是否返回，服务端慢的时候请求会积压。
-     * 轮询现在只调这一条（+日志），其余字段靠首屏加载和操作后的主动刷新。
-     */
-    fun loadRuntime(
-        id: String,
-        onResult: (Result<Pair<Boolean, String?>>) -> Unit,
-    ) {
-        api.hostedServerRuntime(id) { r ->
-            onResult(
-                r.mapCatching { o ->
-                    o.optBoolean("running", false) to
-                        o.optText("exitNote")
-                }
-            )
-        }
-    }
+    internal fun loadRuntime(id: String, onResult: (Result<ServerDetailRuntime>) -> Unit) =
+        api.hostedServerRuntime(id) { r -> onResult(r.mapCatching(::parseDetailRuntime)) }
 
-    /** 读日志（返回字符串数组，不是单个字符串）。 */
-    fun loadLogs(id: String, onResult: (Result<List<String>>) -> Unit) {
+    fun loadLogs(id: String, onResult: (Result<List<String>>) -> Unit) =
         api.callRaw("read_hosted_server_log", JSONObject().put("id", id)) { r ->
-            r.fold(
-                onSuccess = { onResult(Result.success(parseStringArray(it))) },
-                onFailure = { e ->
-                    Log.w(TAG, "读日志失败: ${e.message}")
-                    onResult(Result.failure(e))
-                },
-            )
+            onResult(r.mapCatching(::parseDetailLogs))
         }
-    }
 
     /** 读配置白名单项。 */
     fun loadProperties(id: String, onResult: (Result<List<PropertyUi>>) -> Unit) {
@@ -391,11 +352,18 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
     /** 停止分享：先 /no-advertise 立刻停广播，再 /waiting 收尾。 */
     fun stopShare(onResult: (Result<String>) -> Unit = {}) {
         tunnelCall("/no-advertise") { r1 ->
-            // 原来丢弃这个结果：停广播失败也照发 /waiting，用户以为已经停了
-            if (r1.isFailure) {
-                onResult(Result.failure(r1.exceptionOrNull() ?: IllegalStateException("no-advertise failed")))
-            } else {
-                tunnelCall("/waiting") { r -> onResult(r) }
+            val appError = r1.getOrNull()?.let { tunnelError(it) }
+            if (r1.isFailure || appError != null) {
+                onResult(Result.failure(r1.exceptionOrNull() ?: IllegalStateException(appError)))
+                return@tunnelCall
+            }
+            tunnelCall("/waiting") { r ->
+                val stopError = r.getOrNull()?.let { tunnelError(it) }
+                if (r.isFailure || stopError != null) {
+                    onResult(Result.failure(r.exceptionOrNull() ?: IllegalStateException(stopError)))
+                } else {
+                    onResult(r)
+                }
             }
         }
     }
@@ -407,13 +375,13 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
      * 掏 `"state"` / `"room"` / `"error"` —— 与旧 Vue `pickRoomCode` 等价
      * （旧 Vue 还兼容 `code` / `room_code` / `roomCode`，这里由包装层统一处理）。
      */
-    fun pollRoom(onResult: (String) -> Unit) {
-        api.terracottaTunnelState { st -> onResult(st.room) }
+    fun pollRoom(onResult: (room: String, error: String) -> Unit) {
+        api.terracottaTunnelState { st -> onResult(st.room, st.error) }
     }
 
     /** 读一次隧道状态：进页面时恢复「分享中」（隧道在别的进程里，离开页面不会停）。 */
-    fun tunnelState(onResult: (state: String, room: String) -> Unit) {
-        api.terracottaTunnelState { st -> onResult(st.state, st.room) }
+    fun tunnelState(onResult: (state: String, room: String, error: String) -> Unit) {
+        api.terracottaTunnelState { st -> onResult(st.state, st.room, st.error) }
     }
 
     /**
@@ -486,23 +454,6 @@ class ServerDetailRepo(private val api: QookixApi, private val context: android.
     }
 
     // ── 解析 ──────────────────────────────────────────────────────────────
-
-    /**
-     * `read_hosted_server_log` 返回的是 **Vec<String>**，
-     * 即 JSON 字符串数组 —— 不是对象、也不是单个大字符串。
-     */
-    fun parseStringArray(json: String): List<String> {
-        return try {
-            val arr = org.json.JSONArray(json)
-            (0 until arr.length()).mapNotNull { i ->
-                // optString 遇 JSON null 会给出字面量 "null"，日志里凭空多一行
-                (arr.opt(i) as? String)?.takeIf { it.isNotBlank() }
-            }
-        } catch (e: Exception) {
-            // 兜底：可能返回的是普通字符串（换行分隔）
-            json.lines().filter { it.isNotBlank() }
-        }
-    }
 
     /**
      * 一条属性的类型规格（类型 / 候选值 / 最小值 / 最大值）。

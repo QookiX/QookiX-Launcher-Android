@@ -16,19 +16,27 @@ import java.util.ArrayList;
 public class LayoutConverter {
     public static CustomControls loadAndConvertIfNecessary(String jsonPath) throws IOException, JsonSyntaxException {
 
-        String jsonLayoutData = Tools.read(jsonPath);
+        return parseLayout(Tools.read(jsonPath), jsonPath);
+    }
+
+    /** Parse and validate without writing to the layout library. */
+    public static CustomControls parseLayout(String jsonLayoutData) throws IOException, JsonSyntaxException {
+        return parseLayout(jsonLayoutData, null);
+    }
+
+    private static CustomControls parseLayout(String jsonLayoutData, String migrationPath) throws IOException {
         try {
             JSONObject layoutJobj = new JSONObject(jsonLayoutData);
 
             if (!layoutJobj.has("version")) { //v1 layout
                 CustomControls layout = LayoutConverter.convertV1Layout(layoutJobj);
-                layout.save(jsonPath);
+                if (migrationPath != null) layout.save(migrationPath);
                 return layout;
             } else {
                 int version = layoutJobj.getInt("version");
                 if (version == 2) {
                     CustomControls layout = LayoutConverter.convertV2Layout(layoutJobj);
-                    layout.save(jsonPath);
+                    if (migrationPath != null) layout.save(migrationPath);
                     return layout;
                 }
                 if (version == 3 || version == 4 || version == 5) {

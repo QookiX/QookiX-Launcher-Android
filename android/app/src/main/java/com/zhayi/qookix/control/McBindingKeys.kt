@@ -1,5 +1,6 @@
 package com.zhayi.qookix.control
 
+import net.kdt.pojavlaunch.customcontrols.ControlData
 import net.kdt.pojavlaunch.utils.MCOptionUtils
 
 /**
@@ -28,7 +29,13 @@ object McBindingKeys {
             return ImportedControlKeys.glfw[glfwName] ?: 0
         }
         // 1.13+：key.keyboard.b
-        val glfwName = ImportedControlKeys.zalithAliases[raw] ?: return 0
-        return ImportedControlKeys.glfw[glfwName] ?: 0
+        return resolveModern(raw)
+    }
+
+    internal fun resolveModern(raw: String): Int = when (raw) {
+        "key.mouse.left" -> ControlData.SPECIALBTN_MOUSEPRI
+        "key.mouse.right" -> ControlData.SPECIALBTN_MOUSESEC
+        "key.mouse.middle" -> ControlData.SPECIALBTN_MOUSEMID
+        else -> ImportedControlKeys.zalithAliases[raw]?.let(ImportedControlKeys.glfw::get) ?: 0
     }
 }

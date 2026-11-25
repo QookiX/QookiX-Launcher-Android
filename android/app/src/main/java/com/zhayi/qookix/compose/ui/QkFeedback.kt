@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * 界面都只是「悄悄变了」。用户不确定做没做成，于是重复点、或者去翻列表确认
  * （审查报告 A-1 / X-3 说的就是这类）。
  *
- * 实现刻意做成**一个全局状态 + 一处渲染**（`LauncherShell` 里的 Snackbar）：
+ * 实现刻意做成**一个全局状态 + 一处渲染**（`LauncherShell` 里的右上角浮层）：
  * 每个页面自己弹 Dialog/Toast 的话，样式和位置又会各不相同。
  *
  * 用法：`QkFeedback.show("已删除服务器")`，不用管生命周期 —— 显示一次后自动清空。
@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 object QkFeedback {
 
     /** 带序号：连续两次相同文案也必须是两个不同值，否则 StateFlow 会去重吞掉第二条。 */
-    data class Notice(val text: String, val seq: Long)
+    data class Notice(val text: String, val seq: Long, val error: Boolean = false)
 
     private val _message = MutableStateFlow<Notice?>(null)
     private var seq = 0L
@@ -29,12 +29,15 @@ object QkFeedback {
     val message: StateFlow<Notice?> = _message.asStateFlow()
 
     /** 显示一条提示（覆盖尚未显示的上一条，避免排队堆积）。 */
-    fun show(text: String) {
-        _message.value = Notice(text, ++seq)
+    fun show(text: String) = publish(text, false)
+    fun showError(text: String) = publish(text, true)
+
+    private fun publish(text: String, error: Boolean) {
+        _message.value = Notice(text, ++seq, error)
     }
 
     /** 渲染方消费掉之后调用，防止重组时重复弹。 */
-    fun clear() {
-        _message.value = null
+    fun clear(seq: Long) {
+        if (_message.value?.seq == seq) _message.value = null
     }
 }

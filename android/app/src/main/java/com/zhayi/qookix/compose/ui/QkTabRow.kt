@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -24,12 +25,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import com.zhayi.qookix.compose.motion.QookiX
 
 /**
@@ -58,6 +60,7 @@ import com.zhayi.qookix.compose.motion.QookiX
  * @param labels tab 文字，顺序即显示顺序
  * @param selectedIndex 当前选中索引
  * @param onSelect 点击回调
+ * @param pagerState 可选；指示条跟随此分页器的位置，不改变选中状态或回调
  */
 @Composable
 fun QkTabRow(
@@ -72,6 +75,7 @@ fun QkTabRow(
      *（设置页有 8 个），76 能放 5.4 个，配合下面的渐隐提示够用了。
      */
     minTabWidth: Int = 76,
+    pagerState: PagerState? = null,
 ) {
     if (labels.isEmpty()) return
 
@@ -89,7 +93,7 @@ fun QkTabRow(
             TabRow(
                 selectedTabIndex = selectedIndex,
                 containerColor = container,
-                indicator = { tabPositions -> QkTabIndicator(tabPositions, selectedIndex) },
+                indicator = { tabPositions -> QkTabIndicator(tabPositions, selectedIndex, pagerState) },
             ) {
                 labels.forEachIndexed { i, label ->
                     QkTab(
@@ -105,7 +109,7 @@ fun QkTabRow(
                     selectedTabIndex = selectedIndex,
                     edgePadding = 8.dp,
                     containerColor = container,
-                    indicator = { tabPositions -> QkTabIndicator(tabPositions, selectedIndex) },
+                    indicator = { tabPositions -> QkTabIndicator(tabPositions, selectedIndex, pagerState) },
                 ) {
                     labels.forEachIndexed { i, label ->
                         Box(modifier = Modifier.width(minTabWidth.dp)) {
@@ -149,24 +153,49 @@ fun QkTabRow(
 }
 
 @Composable
-private fun QkTabIndicator(tabPositions: List<TabPosition>, selectedIndex: Int) {
-    val current = tabPositions.getOrNull(selectedIndex) ?: return
-    val left by animateDpAsState(
-        targetValue = current.left,
-        animationSpec = QookiX.fastSpatialSpec(),
-        label = "tabIndLeft",
-    )
-    val width by animateDpAsState(
-        targetValue = current.width,
-        animationSpec = QookiX.layoutSpec(),
-        label = "tabIndWidth",
-    )
+private fun QkTabIndicator(
+    tabPositions: List<TabPosition>,
+    selectedIndex: Int,
+    pagerState: PagerState?,
+) {
+    if (tabPositions.isEmpty()) return
+    val position = if (pagerState == null) {
+        val current = tabPositions.getOrNull(selectedIndex) ?: return
+        val left by animateDpAsState(
+            targetValue = current.left,
+            animationSpec = QookiX.fastSpatialSpec(),
+            label = "tabIndLeft",
+        )
+        val width by animateDpAsState(
+            targetValue = current.width,
+            animationSpec = QookiX.layoutSpec(),
+            label = "tabIndWidth",
+        )
+        Modifier.offset { IntOffset(left.roundToPx(), 0) }.width(width)
+    } else {
+        Modifier.layout { measurable, constraints ->
+            // Read the offset in layout so dragging doesn't recompose the tab row.
+            // This coordinate stays continuous when the pager changes its nearest page.
+            val page = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                .coerceIn(0f, tabPositions.lastIndex.toFloat())
+            val startIndex = page.toInt()
+            val start = tabPositions[startIndex]
+            val end = tabPositions[(startIndex + 1).coerceAtMost(tabPositions.lastIndex)]
+            val fraction = page - startIndex
+            val left = lerp(start.left, end.left, fraction).roundToPx()
+            val width = lerp(start.width, end.width, fraction).roundToPx()
+                .coerceIn(constraints.minWidth, constraints.maxWidth)
+            val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+            layout(placeable.width, placeable.height) {
+                placeable.placeRelative(left, 0)
+            }
+        }
+    }
     Box(
         Modifier
             .fillMaxWidth()
             .wrapContentSize(Alignment.BottomStart)
-            .offset { IntOffset(left.roundToPx(), 0) }
-            .width(width)
+            .then(position)
             .height(3.dp)
             .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
             .background(MaterialTheme.colorScheme.primary),

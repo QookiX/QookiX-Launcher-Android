@@ -99,6 +99,7 @@ fun HomePage(
     // ⚠️ 用缩放感知的宽度：界面缩放 125% 时 853dp 横屏实际只剩 682dp，
     // 按原始 screenWidthDp 判断会让左栏（42%）算得过宽、右栏溢出。
     val scaledW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp()
+    val compactHero = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 430
     val wideEnough = scaledW >= 600
 
     if (wideEnough) {
@@ -126,6 +127,7 @@ fun HomePage(
                         onLaunch = onLaunch,
                         onSwitch = onSwitchInstance,
                         onCreateInstance = onCreateInstance,
+                        compact = compactHero,
                     )
                 }
             }
@@ -333,9 +335,12 @@ private fun TaskRow(t: TaskUi, onCancel: () -> Unit = {}) {
                     Text(stringResource(R.string.common_cancel))
                 }
             }
+            if (isLoaderInstallStage(t.stage) && t.message.isNotBlank()) {
+                Text(t.message, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             Spacer(Modifier.height(QkSpacing.xs))
             QkProgressBar(
-                progress = t.fraction,
+                progress = t.displayFraction,
                 modifier = Modifier.height(4.dp),
             )
         }

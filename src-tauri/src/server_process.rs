@@ -10,20 +10,7 @@
 //!
 //! 独立进程后：服务端崩了主进程还活着，UI 里能读到退出原因并提示。
 //!
-//! # 进程间通信
-//!
-//! 不做 AIDL/Binder（要额外 AIDL 编译），用最省事的 **localhost HTTP + 文件**：
-//!
-//! ```text
-//! 主进程(Rust)                      :server 进程(Rust + Kotlin Service)
-//!   │ 写 launch.json（启动参数）           │ onStartCommand 读 launch.json
-//!   │ 调 Kotlin startServerService(id) ──→ │
-//!   │                                     ├─ 起后台线程 JvmLauncher::launch()（阻塞）
-//!   │                                     └─ 主线程跑 IPC HTTP：/status /stop /console
-//!   │ 读 runtime.json（ipc 端口 + token）←──┤ 启动成功后写
-//!   │ GET /status、POST /stop ────────────→ │
-//!   │ 读 logs/latest.log（Paper 自己写的）   │
-//! ```
+//! 启动参数和同轮运行记录由文件跨进程传递；运行查询走本机 IPC，正常停服走 RCON。
 
 use jni::objects::{JClass, JString};
 use jni::sys::jint;
@@ -33,7 +20,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 /// 启动参数：主进程写进 `launch.json`，`:server` 进程读。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,12 +38,7 @@ pub struct LaunchSpec {
     pub token: String,
 }
 
-/// 运行态：`:server` 进程启动成功后写 `runtime.json`，主进程据此判断「在跑」并找到 IPC 端口。
-///
-/// **字段名必须是 camelCase**：这份文件由 Kotlin（`ServerService`）先写、
-/// Rust 之后可能再改写，两边都用 camelCase 才能互通。
-/// 之前 Rust 侧按 snake_case（`ipc_port`）反序列化，读 Kotlin 写的文件直接失败，
-/// 于是 `hosted_server_runtime` 永远返回 null —— 表现为「服明明在跑，UI 说没在跑」。
+/// 跨进程运行记录；Kotlin 与 Rust 统一使用 camelCase。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RuntimeInfo {
@@ -67,6 +49,9 @@ pub struct RuntimeInfo {
     pub started_at: u64,
     /// 退出码 / 错误（JVM 结束后补写，UI 显示「已停止：xxx」）
     pub exit: Option<String>,
+    /// Only written when JLI returned successfully, not when IPC merely disconnected.
+    pub clean_exit: bool,
+    pub effective_max_memory_mb: Option<u32>,
 }
 
 impl Default for RuntimeInfo {
@@ -78,6 +63,8 @@ impl Default for RuntimeInfo {
             token: String::new(),
             started_at: 0,
             exit: None,
+            clean_exit: false,
+            effective_max_memory_mb: None,
         }
     }
 }
@@ -210,7 +197,7 @@ pub fn device_available_memory_mb() -> Option<u64> {
 ///
 /// 60% 是留给非服务端的余量；下限 512MB —— 低于这个数的 Minecraft 服务端基本跑不动
 /// （加载世界就 OOM），与其让它起来就崩，不如给一个能活的最小值。
-fn clamp_server_heap_mb(requested_mb: u32) -> u32 {
+pub(crate) fn clamp_server_heap_mb(requested_mb: u32) -> u32 {
     const MIN_HEAP_MB: u32 = 512;
     // 读不到就**不干预**：宁可按用户填的值启动（顶多被杀），也不要凭空砍配置。
     let Some(avail_mb) = device_available_memory_mb() else {
@@ -689,13 +676,13 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         if chosen != 0 {
-            if let Ok(dir) = server_dir(&spec.id) {
-                let rt = dir.join("runtime.json");
-                if let Ok(text) = std::fs::read_to_string(&rt) {
-                    if let Ok(mut info) = serde_json::from_str::<RuntimeInfo>(&text) {
+            let rt = Path::new(&spec.work_dir).join("runtime.json");
+            if let Ok(text) = std::fs::read_to_string(&rt) {
+                if let Ok(mut info) = serde_json::from_str::<RuntimeInfo>(&text) {
+                    if info.token == spec.token {
                         info.ipc_port = chosen;
                         if let Ok(t) = serde_json::to_string_pretty(&info) {
-                            let _ = std::fs::write(rt, t);
+                            let _ = crate::fsutil::write_text_atomic(&rt, &t);
                         }
                     }
                 }
@@ -703,6 +690,8 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
         } else {
             tracing::warn!("[server] IPC 未能在 3 秒内监听，状态查询与停服会不可用");
         }
+
+        crate::server_exit_record::arm(Path::new(&spec.work_dir).join("runtime.json"), spec.token.clone(), stop_flag.clone());
 
         // JVM 线程（阻塞到服停）
         let spec2 = spec.clone();
@@ -729,6 +718,16 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
             // 堆上限按**设备当前可用内存**钳制，不照抄用户填的值（理由见 clamp_server_heap_mb）。
             // 钳制后的真实值会出现在下面的启动日志里，所以「实际跑了多少内存」始终查得到。
             let xmx_mb = clamp_server_heap_mb(spec2.xmx_mb);
+            let path = Path::new(&spec2.work_dir).join("runtime.json");
+            if let Ok(mut info) = std::fs::read_to_string(&path)
+                .ok().and_then(|s| serde_json::from_str::<RuntimeInfo>(&s).ok()).ok_or(()) {
+                if info.token == spec2.token {
+                    info.effective_max_memory_mb = Some(xmx_mb);
+                    if let Ok(text) = serde_json::to_string(&info) {
+                        let _ = crate::fsutil::write_text_atomic(&path, &text);
+                    }
+                }
+            }
             if xmx_mb != spec2.xmx_mb {
                 tracing::warn!(
                     "[server] -Xmx 由 {}M 钳到 {xmx_mb}M：设备可用内存不足，避免被 lowmemorykiller 杀",
@@ -862,15 +861,16 @@ pub extern "C" fn Java_com_zhayi_qookix_services_ServerService_nativeStart(
             // 进程没了 = 启动阶段必须收尾：正常停止、崩溃、起不来都走这里。
             // 不清的话界面会永远停在「正在启动服务端进程…」（审查 17 号问题）。
             crate::progress::emit_server_stage(&spec2.id, "");
-            if let Ok(dir) = server_dir(&spec2.id) {
-                // 同时落一份纯文本：JVM 崩溃（abort/segfault）时 runtime.json
-                // 可能来不及更新，launch-error.txt 是唯一能看到的线索。
-                let _ = std::fs::write(dir.join("launch-error.txt"), format!("{note}\n"));
-                if let Ok(rt) = std::fs::read_to_string(dir.join("runtime.json")) {
-                    if let Ok(mut info) = serde_json::from_str::<RuntimeInfo>(&rt) {
+            let dir = Path::new(&spec2.work_dir);
+            let _ = std::fs::write(dir.join("launch-error.txt"), format!("{note}\n"));
+            let runtime_path = dir.join("runtime.json");
+            if let Ok(rt) = std::fs::read_to_string(&runtime_path) {
+                if let Ok(mut info) = serde_json::from_str::<RuntimeInfo>(&rt) {
+                    if info.token == spec2.token {
                         info.exit = Some(note);
+                        info.clean_exit = matches!(r, Ok(0));
                         if let Ok(t) = serde_json::to_string_pretty(&info) {
-                            let _ = std::fs::write(dir.join("runtime.json"), t);
+                            let _ = crate::fsutil::write_text_atomic(&runtime_path, &t);
                         }
                     }
                 }

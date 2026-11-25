@@ -24,6 +24,8 @@ mod launch_gen;
 #[cfg(target_os = "android")]
 mod gl_brand;
 mod download;
+/// 下载落盘的最后一步：同目录临时文件 + 校验 + 原子替换（H7 修复，单测在文件内）。
+mod download_publish;
 mod java;
 mod accounts;
 mod yggdrasil;
@@ -34,6 +36,8 @@ mod modpack_install;
 /// ZIP 解压预算（zip bomb 防护，审计 B13）。
 mod zip_guard;
 mod hangar;
+/// 服务端插件/内容的「核心兼容 + 版本选择」纯函数（Hangar/browse 共用，带单测）。
+mod server_install_guard;
 mod frp;
 mod servers;
 /// 服务器根目录定位与列表读取（从 `servers` 拆出，Q2 体量棘轮）。
@@ -42,6 +46,7 @@ mod server_list;
 mod sleep;
 mod server_process;
 mod server_state;
+mod server_exit_record;
 mod server_files;
 mod instance_files;
 mod rcon;

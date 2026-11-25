@@ -1,21 +1,23 @@
 package com.zhayi.qookix.compose.pages
 
-import com.zhayi.qookix.compose.theme.QkSpacing
-
+import android.content.res.Configuration
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -26,21 +28,24 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zhayi.qookix.R
 import com.zhayi.qookix.compose.bridge.*
+import com.zhayi.qookix.compose.theme.QkSpacing
 import com.zhayi.qookix.compose.ui.QkFieldLabel
 import com.zhayi.qookix.compose.ui.QkGroupTitle
 import com.zhayi.qookix.compose.ui.QkListHeader
@@ -93,7 +98,35 @@ data class ServerCreateUiState(
     val versionsError: String? = null,
     val creating: Boolean = false,
     val createError: String? = null,
-)
+    internal val versionsGeneration: Long = 0,
+) {
+    internal val versionsRequest get() = ServerVersionsRequest(core, versionsGeneration)
+    internal val canCreate get() = !creating && !loadingVersions && versionsError == null &&
+        name.isNotBlank() && version.isNotBlank() && version in versions
+
+    internal fun reloadVersions(core: String = this.core) = copy(
+        core = core,
+        version = "",
+        versions = emptyList(),
+        loadingVersions = true,
+        versionsError = null,
+        versionsGeneration = versionsGeneration + 1,
+    )
+
+    internal fun finishVersions(
+        request: ServerVersionsRequest,
+        result: Result<List<String>>,
+        formatError: (Throwable) -> String,
+    ): ServerCreateUiState {
+        if (request != versionsRequest || !loadingVersions) return this
+        return result.fold(
+            onSuccess = { copy(loadingVersions = false, versions = it) },
+            onFailure = { copy(loadingVersions = false, versionsError = formatError(it)) },
+        )
+    }
+}
+
+internal data class ServerVersionsRequest(val core: String, val generation: Long)
 
 /**
  * 新建服务器页面。
@@ -102,6 +135,7 @@ data class ServerCreateUiState(
  * @param onNameChange 名称变化
  * @param onCoreChange 核心变化（会触发重新拉版本清单）
  * @param onVersionChange **只能**由右侧列表调用
+ * @param onRetryVersions 重新加载当前核心的版本清单
  * @param onBack 返回服务器列表
  * @param onCreate 提交
  */
@@ -111,149 +145,245 @@ fun ServerCreatePage(
     onNameChange: (String) -> Unit,
     onCoreChange: (String) -> Unit,
     onVersionChange: (String) -> Unit,
+    onRetryVersions: () -> Unit,
     onBack: () -> Unit,
     onCreate: () -> Unit,
 ) {
-    // 缩放感知：界面缩放拉大时按等效宽度判窄屏（算法见 ui/ScreenMetrics.kt）
-    val screenW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().dp
-    // 窄屏（竖屏手机）时左栏占比小一点，保证右边版本列表还能看到几行。
-    // 与 CreateInstancePage 用同一个比例/宽度 —— 两页并排看要对齐
-    // 与 CreateInstancePage 同步：竖屏 42% → 50%，表单不再挤成一团
-    val leftW = if (screenW < 600.dp) (screenW * 0.50f) else 360.dp
-
-    Row(modifier = Modifier.fillMaxSize()) {
-        // ── 左：表单 ────────────────────────────────────────────────────
-        Column(
-            modifier = Modifier
-                .width(leftW)
-                .verticalScroll(rememberScrollState())
-                .padding(start = QkSpacing.lg, end = 12.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
+    if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize().imePadding(),
+            contentAlignment = Alignment.TopCenter,
         ) {
-            OutlinedTextField(
-                value = state.name,
-                onValueChange = onNameChange,
-                label = { Text(stringResource(R.string.create_server_name)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.small,
-            )
-
-            QkFieldLabel(stringResource(R.string.create_server_core))
-            // ⚠️ FlowRow 而非 Row：竖屏下三个 chip 可能放不下。
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+            // 用实际页面宽度（外壳可能还有侧边导航栏），并给上限，别把表单拉成通栏。
+            val contentWidth = minOf(maxWidth, 1000.dp)
+            val leftWidth = minOf(contentWidth * 0.48f, 360.dp)
+            // 键盘很高时让操作跟着表单滚动，而不是把名称输入框顶没
+            val pinActions = maxHeight >= 128.dp
+            Column(
+                modifier = Modifier.width(contentWidth).fillMaxHeight()
+                    .padding(horizontal = QkSpacing.md),
             ) {
-                ServerCore.entries.forEach { c ->
-                    FilterChip(
-                        selected = state.core == c.id,
-                        onClick = { onCoreChange(c.id) },
-                        label = { Text(stringResource(c.labelRes)) },
-                    )
-                }
-            }
-            Text(
-                // 把「为什么只有三个」说清楚，避免用户以为是漏做了
-                // 同 InstanceSettingsTab 的坑：core 若是空串/旧值，first{} 会抛
-                // NoSuchElementException 把整页干掉。firstOrNull 兜底到第一个核心。
-                text = stringResource(
-                    (ServerCore.entries.firstOrNull { it.id == state.core } ?: ServerCore.entries.first()).hintRes,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-
-            QkFieldLabel(stringResource(R.string.create_server_version))
-            // ⚠️ **只读**。版本只能从右侧列表选（见文件头注释）。
-            //
-            // 用纯文字而不是带框的假输入框（2026-10-18 修）：
-            // 原来我做成了一个「看起来像输入框但点不动」的 Surface，
-            // 用户对比实例页后指出不好看。实例页这里就是一行文字 ——
-            // 选中后变成主题色，一眼看出「这是结果」。带框反而暗示"可以点"。
-            Text(
-                text = state.version.ifBlank {
-                    stringResource(R.string.create_server_version_not_selected)
-                },
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (state.version.isBlank()) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
-            )
-
-            state.createError?.let { err ->
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                    ),
+                Row(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(QkSpacing.md),
                 ) {
-                    Text(
-                        text = err,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(QkSpacing.sm),
-                    )
-                }
-            }
-
-            // ⚠️ 2026-10-28（竖屏审计）：左栏只有 screenW*0.42（约 172dp），
-            // 「取消 + 创建服务器」两个按钮放不下 —— 原来是 Row，会把「创建服务器」
-            // 四个字挤成竖排两行、按钮缩成一个圆球。改 FlowRow：放不下就整块换行。
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-                verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-            ) {
-                OutlinedButton(onClick = onBack, enabled = !state.creating) {
-                    Text(
-                        stringResource(R.string.create_server_cancel),
-                        maxLines = 1,
-                    )
-                }
-                Button(
-                    onClick = onCreate,
-                    // 名称与版本都必填 —— 缺任何一个 Rust 都会拒绝
-                    enabled = state.name.trim().isNotEmpty() &&
-                        state.version.isNotBlank() &&
-                        !state.creating,
-                ) {
-                    if (state.creating) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Spacer(Modifier.width(8.dp))
+                    ServerCreateForm(
+                        state = state,
+                        onNameChange = onNameChange,
+                        onCoreChange = onCoreChange,
+                        modifier = Modifier.width(leftWidth),
+                        spacing = QkSpacing.xs,
+                    ) {
+                        if (!pinActions) ServerCreateActions(state, onBack, onCreate)
                     }
-                    Text(
-                        stringResource(R.string.create_server_create),
-                        maxLines = 1,
+                    ServerVersionPanel(
+                        state = state,
+                        onVersionChange = onVersionChange,
+                        onRetryVersions = onRetryVersions,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
+                if (pinActions) {
+                    HorizontalDivider()
+                    ServerCreateActions(
+                        state = state,
+                        onBack = onBack,
+                        onCreate = onCreate,
+                        modifier = Modifier.padding(vertical = QkSpacing.xs),
+                        endAligned = true,
                     )
                 }
             }
         }
+    } else {
+        // 竖屏保留原来的列宽比例与表单内滚动的操作，避免挤压版本列表。
+        val screenW = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().dp
+        val leftWidth = if (screenW < 600.dp) screenW * 0.50f else 360.dp
+        Row(modifier = Modifier.fillMaxSize()) {
+            ServerCreateForm(
+                state = state,
+                onNameChange = onNameChange,
+                onCoreChange = onCoreChange,
+                modifier = Modifier.width(leftWidth),
+                spacing = QkSpacing.md,
+                contentPadding = Modifier.padding(start = QkSpacing.lg, end = 12.dp, bottom = 20.dp),
+            ) {
+                ServerCreateActions(state, onBack, onCreate)
+            }
+            ServerVersionPanel(
+                state = state,
+                onVersionChange = onVersionChange,
+                onRetryVersions = onRetryVersions,
+                modifier = Modifier.weight(1f).fillMaxHeight()
+                    .padding(end = QkSpacing.lg, bottom = 20.dp),
+            )
+        }
+    }
+}
 
-        // ── 右：版本列表 ────────────────────────────────────────────────
-        //
-        // ⚠️ 必须是 Surface 而不是裸 Column（2026-10-18 修）。
-        //
-        // 用户对比两页截图后指出「实例的更好看，服务器的不好看」。
-        // 差异就在这一层：实例页右栏是带圆角 + surfaceContainerLow 底色的卡片，
-        // 版本行浮在浅色底上，层次分明；裸 Column 则是列表直接贴在页面背景上，
-        // 显得松散、没有「一块面板」的感觉。
-        Surface(
-            modifier = Modifier
-                // weight(1f) 而非 fillMaxSize()：左边是固定宽度的表单栏，
-                // fillMaxSize() 会和它抢宽度。
-                .weight(1f)
-                .fillMaxHeight()
-                .padding(end = QkSpacing.lg, bottom = 20.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+@Composable
+private fun ServerCreateForm(
+    state: ServerCreateUiState,
+    onNameChange: (String) -> Unit,
+    onCoreChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    spacing: Dp = QkSpacing.md,
+    contentPadding: Modifier = Modifier,
+    actions: @Composable () -> Unit,
+) {
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()).then(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(spacing),
+    ) {
+        OutlinedTextField(
+            value = state.name,
+            onValueChange = onNameChange,
+            enabled = !state.creating,
+            label = { Text(stringResource(R.string.create_server_name)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.small,
+        )
+
+        QkFieldLabel(stringResource(R.string.create_server_core))
+        // ⚠️ FlowRow 而非 Row：竖屏下三个 chip 可能放不下。
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
         ) {
-            Column {
+            ServerCore.entries.forEach { c ->
+                FilterChip(
+                    selected = state.core == c.id,
+                    onClick = { onCoreChange(c.id) },
+                    label = { Text(stringResource(c.labelRes)) },
+                    enabled = !state.creating,
+                )
+            }
+        }
+        Text(
+            // 把「为什么只有三个」说清楚，避免用户以为是漏做了
+            // 同 InstanceSettingsTab 的坑：core 若是空串/旧值，first{} 会抛
+            // NoSuchElementException 把整页干掉。firstOrNull 兜底到第一个核心。
+            text = stringResource(
+                (ServerCore.entries.firstOrNull { it.id == state.core } ?: ServerCore.entries.first()).hintRes,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
+
+        QkFieldLabel(stringResource(R.string.create_server_version))
+        // ⚠️ **只读**。版本只能从右侧列表选（见文件头注释）。
+        //
+        // 用纯文字而不是带框的假输入框（2026-10-18 修）：
+        // 原来我做成了一个「看起来像输入框但点不动」的 Surface，
+        // 用户对比实例页后指出不好看。实例页这里就是一行文字 ——
+        // 选中后变成主题色，一眼看出「这是结果」。带框反而暗示"可以点"。
+        Text(
+            text = state.version.ifBlank {
+                stringResource(R.string.create_server_version_not_selected)
+            },
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (state.version.isBlank()) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+        )
+
+        state.createError?.let { err ->
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+            ) {
+                Text(
+                    text = err,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(QkSpacing.sm),
+                )
+            }
+        }
+
+        actions()
+    }
+}
+
+@Composable
+private fun ServerCancelButton(enabled: Boolean, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, enabled = enabled) {
+        Text(stringResource(R.string.create_server_cancel), maxLines = 1)
+    }
+}
+
+@Composable
+private fun ServerSubmitButton(
+    enabled: Boolean,
+    creating: Boolean,
+    onClick: () -> Unit,
+) {
+    Button(onClick = onClick, enabled = enabled) {
+        if (creating) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(stringResource(R.string.create_server_create), maxLines = 1)
+    }
+}
+
+/**
+ * 取消 / 创建。
+ *
+ * [endAligned] 用于横屏固定在底部的操作栏；否则用 FlowRow 让窄栏自动换行
+ * （竖屏曾经把「创建服务器」四个字挤成竖排）。
+ */
+@Composable
+private fun ServerCreateActions(
+    state: ServerCreateUiState,
+    onBack: () -> Unit,
+    onCreate: () -> Unit,
+    modifier: Modifier = Modifier,
+    endAligned: Boolean = false,
+) {
+    if (endAligned) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ServerCancelButton(enabled = !state.creating, onClick = onBack)
+            Spacer(Modifier.width(QkSpacing.xs))
+            ServerSubmitButton(enabled = state.canCreate, creating = state.creating, onClick = onCreate)
+        }
+    } else {
+        FlowRow(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.xs),
+        ) {
+            ServerCancelButton(enabled = !state.creating, onClick = onBack)
+            ServerSubmitButton(enabled = state.canCreate, creating = state.creating, onClick = onCreate)
+        }
+    }
+}
+
+@Composable
+private fun ServerVersionPanel(
+    state: ServerCreateUiState,
+    onVersionChange: (String) -> Unit,
+    onRetryVersions: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // ⚠️ 必须是 Surface 而不是裸 Column（2026-10-18 修）。
+    // 用户对比两页截图后指出「实例的更好看，服务器的不好看」：
+    // 右侧版本行需要浮在一块带圆角的浅色面板上，而不是直接贴在页面背景。
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column {
             QkListHeader(
                 title = stringResource(R.string.create_server_version_list_title),
                 trailing = if (state.versions.isNotEmpty()) {
@@ -271,15 +401,20 @@ fun ServerCreatePage(
                     CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
                 }
 
-                state.versionsError != null -> Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(QkSpacing.lg),
-                    contentAlignment = Alignment.Center,
+                state.versionsError != null -> Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                        .verticalScroll(rememberScrollState()).padding(QkSpacing.lg),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = state.versionsError,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
+                    TextButton(onClick = onRetryVersions) {
+                        Text(stringResource(R.string.common_retry))
+                    }
                 }
 
                 state.versions.isEmpty() -> Box(
@@ -294,8 +429,7 @@ fun ServerCreatePage(
                 }
 
                 else -> LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    // 分组标题（与实例页一致）。
-                    // Paper 的清单后端已剔掉 rc/pre，全是正式版，所以只分一组。
+                    // 分组标题（与实例页一致）。Paper 的清单后端已剔掉 rc/pre，只分一组。
                     item(key = "hdr_release") {
                         QkGroupTitle(
                             stringResource(R.string.create_server_group_release),
@@ -306,8 +440,6 @@ fun ServerCreatePage(
                         QkVersionRow(
                             version = v,
                             selected = state.version == v,
-                            // 右侧「正式」标签 —— 实例页每行都有，服务器页原来缺，
-                            // 看起来就"不像同一套东西"
                             trailing = if (state.core == ServerCore.Paper.id) {
                                 stringResource(R.string.create_server_version_release)
                             } else {
@@ -317,7 +449,6 @@ fun ServerCreatePage(
                         )
                     }
                 }
-            }
             }
         }
     }
@@ -351,24 +482,21 @@ enum class ServerCore(
     ),
 }
 
-/**
- * 按核心类型加载版本清单。
- *
- * 放在这里而不是 Repo，是因为两条来源的返回形状不一样
- *（Paper 直接是 `Vec<String>`，Vanilla 是 version manifest 的对象），
- * 集中在一处更容易对照着看。
- */
-fun loadServerVersions(
+/** Paper 和 Fabric 各用后端支持清单；只有原版使用 Mojang 的正式版清单。 */
+internal fun loadServerVersions(
     api: QookixApi,
     core: String,
     onDone: (Result<List<String>>) -> Unit,
-) {
-    if (core == ServerCore.Paper.id) {
-        api.listPaperVersions(onDone)
-        return
+) = when (core) {
+    ServerCore.Paper.id -> api.listPaperVersions(onDone)
+    ServerCore.Fabric.id -> api.callArr("list_fabric_server_versions", null) { result ->
+        onDone(result.map { versions ->
+            (0 until versions.length()).mapNotNull { i ->
+                (versions.opt(i) as? String)?.takeIf { it.isNotBlank() }
+            }.distinct()
+        })
     }
-    // Vanilla / Fabric 都用官方 manifest 的正式版列表。
-    api.getVersionManifest { r ->
+    ServerCore.Vanilla.id -> api.getVersionManifest { r ->
         onDone(
             r.mapCatching { obj ->
                 val arr = obj.optJSONArray("versions")
@@ -382,7 +510,5 @@ fun loadServerVersions(
             },
         )
     }
+    else -> onDone(Result.failure(IllegalArgumentException("Unsupported server core: $core")))
 }
-
-
-

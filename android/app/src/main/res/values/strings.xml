@@ -962,6 +962,15 @@
     <string name="server_detail_untitled">服务器</string>
     <string name="server_detail_running">运行中</string>
     <string name="server_detail_stopped">未运行</string>
+    <string name="server_detail_starting">正在启动…</string>
+    <string name="server_detail_stopping">正在等待停服…</string>
+    <string name="server_detail_sleeping">已休眠，有连接时自动唤醒</string>
+    <string name="server_detail_wake">唤醒</string>
+    <string name="server_detail_wake_failed">自动休眠 / 唤醒失败：%1$s</string>
+    <string name="server_detail_state_unknown">状态读取中…</string>
+    <string name="server_detail_logs_failed">读取日志失败：%1$s</string>
+    <string name="server_detail_memory_effective">实际堆上限 %1$d MB（按设备可用内存调整）</string>
+    <string name="server_detail_command_no_output">（命令没有输出）</string>
     <string name="server_detail_connect_address">局域网连接地址</string>
     <string name="server_detail_setup_help">开服辅助</string>
     <string name="server_detail_suggested_memory">建议分配内存：%1$d ~ %2$d MB</string>

@@ -161,18 +161,9 @@ class ServerService : Service() {
             return START_NOT_STICKY
         }
 
-        // 有新的启动请求了：先撤掉「停服后杀进程」的待执行任务，
-        // 否则用户在停服后一两秒内重新启动时，新进程会被它顺手杀掉。
-        cancelPendingKill()
-
-        // 立刻发通知：Android 8+ 要求 startForegroundService 后 5 秒内 startForeground，
-        // 否则系统直接 ANR 掉这个服务。
+        if (!starting.compareAndSet(false, true)) return START_NOT_STICKY
+        currentServerId = serverId
         startForegroundCompat(buildNotification(serverId, "正在启动…"))
-
-        if (!starting.compareAndSet(false, true)) {
-            // 已经有一次启动在进行，重复请求直接忽略（防连点）
-            return START_STICKY
-        }
 
         val dir = DataDirs.serverDir(filesDir, serverId)
         val launchJson = File(dir, "launch.json")
@@ -190,11 +181,18 @@ class ServerService : Service() {
 
         // 立刻把 runtime.json 写出来，好让主进程能 stop/查询
         // （JVM 还在启动中，status 里 jvm=0，UI 显示「启动中」）
-        runCatching {
+        val record = runCatching {
             val token = org.json.JSONObject(launchJson.readText()).getString("token")
-            File(dir, "runtime.json").writeText(
-                """{"id":"$serverId","pid":${android.os.Process.myPid()},"ipcPort":$ipcPort,"token":"$token","startedAt":${System.currentTimeMillis()}}"""
-            )
+            val temp = File(dir, "runtime.json.pending")
+            temp.writeText(org.json.JSONObject().put("id", serverId)
+                .put("pid", android.os.Process.myPid()).put("ipcPort", ipcPort)
+                .put("token", token).put("startedAt", System.currentTimeMillis()).toString())
+            check(temp.renameTo(File(dir, "runtime.json"))) { "无法发布运行记录" }
+        }
+        if (record.isFailure) {
+            Log.e(TAG, "无法保存运行记录，取消启动", record.exceptionOrNull())
+            stopping("无法保存运行记录")
+            return START_NOT_STICKY
         }
 
         val rc = nativeStart(launchJson.absolutePath, ipcPort)
@@ -204,8 +202,10 @@ class ServerService : Service() {
             return START_NOT_STICKY
         }
 
-        // 通知改成「运行中」
-        notify(buildNotification(serverId, "运行中 · 端口见设置"))
+        // nativeStart only schedules the JVM. It may return later without
+        // terminating this Android service, including after a clean stop.
+        notify(buildNotification(serverId, "服务端进程已启动 · 就绪状态见控制台"))
+        watchJvmExit(serverId)
         // 不自动重启：服务端要用户显式启动（START_STICKY 会在进程被回收后偷偷复活，耗电且莫名其妙）
         return START_NOT_STICKY
     }
@@ -314,13 +314,13 @@ class ServerService : Service() {
     private val killHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingKill: Runnable? = null
 
-    /** 收到新的启动请求：撤销「停服后杀进程」的待执行任务。 */
-    private fun cancelPendingKill() {
-        pendingKill?.let {
-            runCatching { killHandler.removeCallbacks(it) }
-            pendingKill = null
-            Log.i(TAG, "收到新的启动请求，已撤销待执行的进程结束任务")
-        }
+    private fun watchJvmExit(serverId: String) {
+        killHandler.postDelayed({
+            if (currentServerId == serverId) {
+                if (nativeIsRunning() == 0) stopping("JVM 已退出")
+                else watchJvmExit(serverId)
+            }
+        }, 500L)
     }
 
     private fun stopping(reason: String) {

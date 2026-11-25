@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,25 +52,36 @@ import com.zhayi.qookix.compose.motion.qkShrinkVertically
 import com.zhayi.qookix.compose.theme.QkSpacing
 import kotlinx.coroutines.launch
 
-/** 点击与滑动共用页面的选中状态，手势停稳后才切换业务状态。 */
+/**
+ * 点击与滑动共用页面的选中状态，手势停稳后才切换业务状态。
+ * [pagerState] 可由调用方与页签栏共享，页数必须与 [tabs] 一致。
+ */
 @Composable
 fun <T> QkTabContent(
     tabs: List<T>,
     selected: T,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
+    skipInterveningPages: Boolean = false,
+    pagerState: PagerState? = null,
     content: @Composable (T) -> Unit,
 ) {
     val selectedIndex = tabs.indexOf(selected).coerceAtLeast(0)
-    val pager = rememberPagerState(initialPage = selectedIndex) { tabs.size }
+    val pager = pagerState ?: rememberPagerState(initialPage = selectedIndex) { tabs.size }
     val selectTab by rememberUpdatedState(onSelect)
     val currentTabs by rememberUpdatedState(tabs)
     LaunchedEffect(pager, selectedIndex) {
+        val distance = kotlin.math.abs(pager.settledPage - selectedIndex)
         if (pager.settledPage != selectedIndex) {
             // 触摸可以打断点击触发的滚动。独立子任务取消时，仍要继续观察手势。
             launch {
-                if (QkMotionPolicy.animationsEnabled) pager.animateScrollToPage(selectedIndex)
-                else pager.scrollToPage(selectedIndex)
+                when {
+                    // 隔了好几个页签的点击（横屏很常见）：直接定位。
+                    // 滚动过去会把途经的页整页扫一遍，看着像在晃整张桌面。
+                    skipInterveningPages && distance > 1 -> pager.scrollToPage(selectedIndex)
+                    QkMotionPolicy.animationsEnabled -> pager.animateScrollToPage(selectedIndex)
+                    else -> pager.scrollToPage(selectedIndex)
+                }
             }.join()
         }
         snapshotFlow { pager.settledPage }.collect { page ->

@@ -17,6 +17,7 @@ pub(crate) const HANDLED: &[&str] = &[
     "delete_hosted_server",
     "suggest_server_memory",
     "list_paper_versions",
+    "list_fabric_server_versions",
     "install_hosted_server_core",
     "start_hosted_server",
     "stop_hosted_server",
@@ -162,6 +163,10 @@ async fn run(cmd: &str, p: &Value) -> String {
             }
         }
         "suggest_server_memory" => ok(crate::servers::suggest_server_memory()),
+        "list_fabric_server_versions" => match crate::servers::list_fabric_server_versions().await {
+            Ok(v) => ok(v),
+            Err(e) => err(e),
+        },
         "list_paper_versions" => match crate::servers::list_paper_versions().await {
             Ok(v) => ok(v),
             Err(e) => err(e),
@@ -218,7 +223,10 @@ async fn run(cmd: &str, p: &Value) -> String {
             let Some(id) = sarg(p, &["id"]) else {
                 return err("缺少 id");
             };
-            ok(crate::servers::read_hosted_server_log(id))
+            match crate::servers::read_hosted_server_log(id) {
+                Ok(lines) => ok(lines),
+                Err(e) => err(e),
+            }
         }
         "server_console_command" => {
             let (Some(id), Some(command)) = (sarg(p, &["id"]), sarg(p, &["command"]))

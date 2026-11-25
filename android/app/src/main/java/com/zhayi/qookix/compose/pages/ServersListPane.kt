@@ -46,6 +46,7 @@ internal fun ServersListPane(
     onStopServer: (String) -> Unit,
     onOpenServer: (String) -> Unit,
     onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val paneState = when {
         // 只有「还没有数据」时才显示骨架屏；已有列表时刷新不该闪成空页。
@@ -57,7 +58,7 @@ internal fun ServersListPane(
     }
     QkStateCrossfade(
         targetState = paneState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         label = "serversPane",
     ) { mode ->
         when (mode) {

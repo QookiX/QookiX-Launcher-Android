@@ -200,13 +200,16 @@ async fn supervise(id: String, cancel: Cancel) {
             idle_since = None;
             continue;
         };
+        if cancel.flag.load(Ordering::SeqCst) {
+            return;
+        }
         if n > 0 {
             idle_since = None;
             continue;
         }
         let since = *idle_since.get_or_insert_with(std::time::Instant::now);
         if since.elapsed() >= Duration::from_secs(u64::from(s.sleep_timeout_min) * 60) {
-            sleep_now(&id).await;
+            sleep_now(&id, &cancel).await;
             return;
         }
     }
@@ -235,18 +238,18 @@ fn parse_list_count(out: &str) -> Option<u32> {
 /// 进入休眠：优雅停服 → 挂上唤醒监听。
 ///
 /// 顺序不能颠倒：服务端占着端口，不先停下来就 bind 不上监听。
-async fn sleep_now(id: &str) {
-    let Ok(s) = crate::servers::get_server(id) else {
-        return;
-    };
+async fn sleep_now(id: &str, cancel: &Cancel) {
+    let _operation = crate::server_state::host_operation().await;
+    let Ok(s) = crate::servers::get_server(id) else { return };
+    if s.sleep_timeout_min == 0 || cancel.flag.load(Ordering::SeqCst) { return; }
     crate::progress::emit_server_stage(id, "无人在线，正在休眠服务器…");
-    // 巡检任务马上就要 return，这里先取消掉，免得它再进来一次
-    cancel_supervisor(id);
-
-    // 复用「优雅停服」：RCON stop 让服务端自己存盘关世界。
-    // 直接杀进程会让玩家的建筑回档，休眠是自动行为，绝不能冒这个险。
-    match crate::servers::stop_hosted_server(id.to_string()).await {
-        Ok(msg) => tracing::info!("[sleep] {id} 进入休眠：{msg}"),
+    let outcome = crate::servers::stop_server_under_lock(id).await;
+    crate::progress::emit_server_stage(id, "");
+    if cancel.flag.load(Ordering::SeqCst)
+        || !crate::servers::get_server(id).is_ok_and(|s| s.sleep_timeout_min > 0) { return; }
+    match outcome {
+        Ok(true) => tracing::info!("[sleep] {id} 正常退出，进入休眠"),
+        Ok(false) => return,
         Err(e) => {
             // 停不掉就**不能**写「已休眠」：界面会显示「唤醒」，而服务器其实还在跑，
             // 点唤醒只会得到「已经在运行了」，用户彻底懵。
@@ -354,10 +357,19 @@ async fn listen(id: String, port: u16, cancel: Cancel) {
     drop(listener);
     tracing::info!("[sleep] {id} 收到来自 {addr} 的连接，开始唤醒");
 
-    // 从监听表里摘掉自己：后面要么成功启动（start_hosted_server 会重新挂巡检），
-    // 要么失败重挂监听，两条路都不该留着这个已死的条目。
-    lock(listeners()).remove(&id);
-    wake(id).await;
+    let _operation = crate::server_state::host_operation().await;
+    // A stop, delete or replacement may have won while accept or the lock was pending.
+    {
+        let mut active = lock(listeners());
+        if cancel.flag.load(Ordering::SeqCst)
+            || !active.get(&id).is_some_and(|entry| Arc::ptr_eq(&entry.flag, &cancel.flag)) {
+            return;
+        }
+        active.remove(&id);
+    }
+    if is_sleeping(&id) {
+        wake(id).await;
+    }
 }
 
 /// 唤醒：把服务端按正常流程拉起来。
@@ -367,25 +379,28 @@ async fn listen(id: String, port: u16, cancel: Cancel) {
 async fn wake(id: String) {
     clear_state(&id);
     crate::progress::emit_server_stage(&id, "有玩家连接，正在唤醒服务器…");
-    if let Err(e) = crate::servers::start_hosted_server(id.clone()).await {
+    if let Err(e) = crate::servers::start_server_under_lock(id.clone()).await {
         // 唤醒失败（核心被删、JRE 下载不到、内存不够……）时**把监听挂回去**：
         // 否则这台服就永久「睡着」了 —— 界面显示休眠、朋友连进来却石沉大海。
         // 同时把原因写进状态，界面直接显示出来。
         tracing::warn!("[sleep] {id} 唤醒失败：{e}");
         crate::progress::emit_server_stage(&id, &format!("唤醒失败：{e}"));
-        let port = crate::servers::get_server(&id).map(|s| s.port).unwrap_or(25565);
+        let Ok(server) = crate::servers::get_server(&id) else { return };
+        let port = server.port;
+        let sleeping = server.sleep_timeout_min > 0 && crate::servers::ensure_server_inactive(&id).is_ok();
         write_state(
             &id,
             &SleepState {
-                sleeping: true,
+                sleeping,
                 since: now_secs(),
                 error: Some(format!("唤醒失败：{e}")),
             },
         );
-        arm_wake_listener(&id, port);
+        if sleeping { arm_wake_listener(&id, port); }
     } else {
         tracing::info!("[sleep] {id} 已唤醒");
     }
+    crate::app_state::mark_servers_dirty();
 }
 
 // ── 进程重启后的恢复 ──────────────────────────────────────────────────

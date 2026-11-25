@@ -15,7 +15,29 @@ use crate::servers::server_dir;
 /// 与 `commands::list_instance_dir` 同构：把服务器的相对路径解析成真实路径
 fn resolve_server_path(id: &str, rel: &str) -> Result<std::path::PathBuf, String> {
     let base = server_dir(id)?;
-    fsutil::resolve_in_dir(&base, rel, "服务器")
+    let path = fsutil::resolve_in_dir(&base, rel, "服务器")?;
+    let root = base.canonicalize().map_err(|e| e.to_string())?;
+    if path.strip_prefix(&root).ok().and_then(|p| p.components().next())
+        .and_then(|p| p.as_os_str().to_str()).is_some_and(is_internal) {
+        return Err("这是启动器内部文件，请使用服务器设置管理".into());
+    }
+    Ok(path)
+}
+
+fn is_internal(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    ["server.json", "runtime.json", "launch.json", "sleep.json", "rcon.json", "eula.txt"]
+        .iter().any(|entry| name == *entry || name.strip_prefix(entry).is_some_and(|suffix| suffix.starts_with('.')))
+}
+
+#[cfg(test)]
+#[test]
+fn internal_metadata_names_are_reserved_without_hiding_world_files() {
+    assert!(is_internal("SERVER.JSON"));
+    assert!(is_internal("runtime.json.pending"));
+    assert!(is_internal("rcon.json"));
+    assert!(!is_internal("server.properties"));
+    assert!(!is_internal("level.dat"));
 }
 
 /// 列出目录内容
@@ -25,7 +47,8 @@ pub fn list_hosted_server_dir(id: String, rel: String) -> Result<serde_json::Val
         return Err("不是一个目录".into());
     }
     let base = rel.clone();
-    let entries = fsutil::list_dir(&dir, &base)?;
+    let mut entries = fsutil::list_dir(&dir, &base)?;
+    entries.retain(|entry| resolve_server_path(&id, &entry.rel).is_ok());
     Ok(json!({ "rel": rel, "entries": entries }))
 }
 
@@ -55,6 +78,7 @@ pub fn create_hosted_server_entry(
     rel: String,
     is_dir: bool,
 ) -> Result<serde_json::Value, String> {
+    resolve_server_path(&id, &rel)?;
     let base = server_dir(&id)?;
     fsutil::create_entry(&base, &rel, is_dir, "服务器")
 }
@@ -65,12 +89,18 @@ pub fn rename_hosted_server_path(
     rel: String,
     new_name: String,
 ) -> Result<serde_json::Value, String> {
+    let path = resolve_server_path(&id, &rel)?;
     let base = server_dir(&id)?;
+    let canonical = base.canonicalize().map_err(|e| e.to_string())?;
+    if path.parent() == Some(canonical.as_path()) && is_internal(new_name.trim()) {
+        return Err("不能重命名为启动器保留名称".into());
+    }
     fsutil::rename_entry(&base, &rel, &new_name, "服务器")
 }
 
 /// 删除服务器目录内的文件/文件夹（递归）。
 pub fn delete_hosted_server_path(id: String, rel: String) -> Result<(), String> {
+    resolve_server_path(&id, &rel)?;
     let base = server_dir(&id)?;
     fsutil::delete_entry(&base, &rel, "服务器")
 }
@@ -78,7 +108,7 @@ pub fn delete_hosted_server_path(id: String, rel: String) -> Result<(), String> 
 /// 服务器根目录下的常用配置文件（设置页用）
 pub fn list_hosted_server_config_files(id: String) -> Vec<serde_json::Value> {
     let Ok(dir) = server_dir(&id) else { return Vec::new() };
-    ["server.properties", "eula.txt", "ops.json", "whitelist.json", "banned-players.json"]
+    ["server.properties", "ops.json", "whitelist.json", "banned-players.json"]
         .iter()
         .filter_map(|name| {
             let p = dir.join(name);

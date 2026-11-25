@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -140,47 +141,62 @@ private fun NewsCard(n: NewsItemUi, onClick: () -> Unit) {
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Column(modifier = Modifier.padding(QkSpacing.sm)) {
-            // 配图：有图才显示（用 Coil，带淡入 + 骨架）
-            if (n.image.isNotBlank()) {
-                com.zhayi.qookix.compose.ui.QkImageWithSkeleton(
-                    model = n.image,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(160.dp),
-                    cornerRadius = 10.dp,
-                )
-                Spacer(Modifier.height(QkSpacing.sm))
+        val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        if (landscape) {
+            androidx.compose.foundation.layout.Row(
+                Modifier.padding(QkSpacing.sm),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(QkSpacing.sm),
+            ) {
+                if (n.image.isNotBlank()) NewsImage(n.image, Modifier.width(96.dp).height(68.dp))
+                Column(Modifier.weight(1f)) { NewsText(n) }
             }
-
-            Text(
-                text = n.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (n.description.isNotBlank()) {
-                Spacer(Modifier.height(QkSpacing.xs))
-                Text(
-                    text = n.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
+        } else {
+            Column(Modifier.padding(QkSpacing.sm)) {
+                if (n.image.isNotBlank()) {
+                    NewsImage(n.image, Modifier.fillMaxWidth().height(160.dp))
+                    Spacer(Modifier.height(QkSpacing.sm))
+                }
+                NewsText(n)
             }
-            Spacer(Modifier.height(QkSpacing.xs))
-            Text(
-                text = buildString {
-                    append(n.date)
-                    if (n.author.isNotBlank()) append(" · ").append(n.author)
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
         }
     }
+}
+
+@Composable
+private fun NewsImage(url: String, modifier: Modifier) {
+    com.zhayi.qookix.compose.ui.QkImageWithSkeleton(
+        model = url, contentDescription = null, modifier = modifier, cornerRadius = 10.dp,
+    )
+}
+
+@Composable
+private fun NewsText(n: NewsItemUi) {
+    Text(
+        text = n.title,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    if (n.description.isNotBlank()) {
+        Spacer(Modifier.height(QkSpacing.xs))
+        Text(
+            text = n.description,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 3,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
+    }
+    Spacer(Modifier.height(QkSpacing.xs))
+    Text(
+        text = buildString {
+            append(n.date)
+            if (n.author.isNotBlank()) append(" · ").append(n.author)
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline,
+    )
 }
 
 /** 新闻项（UI 模型，与 Rust 返回的 JSON 对应）。 */

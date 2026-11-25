@@ -99,6 +99,7 @@ async fn try_download_chunked(
     size: u64,
     threads: usize,
     cancels: &[Arc<AtomicBool>],
+    expected_sha1: Option<&str>,
 ) -> anyhow::Result<bool> {
     // 调用方传的是设置里的值，这里再夹一次：0 会让下面的循环一片都不下
     let threads = threads.max(1);
@@ -120,8 +121,10 @@ async fn try_download_chunked(
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).await.ok();
     }
-    // 预分配文件（各分片直接按偏移写，不追加）
-    let file = fs::File::create(dest).await?;
+    // H7 修复：**绝不先截断目标文件**。分片写进同目录的唯一临时文件，校验长度
+    // 与摘要通过后才原子 rename 顶替目标 —— 失败时旧的 JAR/旧版本原样保留。
+    let temp = crate::download_publish::temp_path_for(dest);
+    let file = fs::File::create(&temp).await?;
     file.set_len(size).await?;
 
     let chunk_size = size.div_ceil(threads as u64);
@@ -134,7 +137,7 @@ async fn try_download_chunked(
         let end = (start + chunk_size - 1).min(size - 1);
         let client = client.clone();
         let url = url.to_string();
-        let dest = dest.to_path_buf();
+        let temp = temp.clone();
         let cancels = cancels.to_vec();
         handles.push(tokio::spawn(async move {
             let mut resp = client
@@ -145,7 +148,7 @@ async fn try_download_chunked(
             if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
                 anyhow::bail!("分片请求未返回 206: {}", resp.status());
             }
-            let mut f = fs::OpenOptions::new().write(true).open(&dest).await?;
+            let mut f = fs::OpenOptions::new().write(true).open(&temp).await?;
             use tokio::io::AsyncSeekExt;
             f.seek(std::io::SeekFrom::Start(start)).await?;
             let want = end - start + 1;
@@ -165,7 +168,8 @@ async fn try_download_chunked(
         }));
     }
 
-    // 失败必须先 abort + await：drop JoinHandle 只是 detach，残留分片会与调用方回退的单流交错写同一文件
+    // 失败必须先 abort + await：drop JoinHandle 只是 detach，残留分片会与
+    // 调用方回退的单流交错写同一文件；临时文件也必须清掉（H7）。
     let mut failed = false;
     let mut rest = handles.into_iter();
     while let Some(h) = rest.next() {
@@ -176,9 +180,17 @@ async fn try_download_chunked(
     }
     if failed {
         for h in rest { h.abort(); let _ = h.await; }
+        crate::download_publish::cleanup_temp(&temp);
         return Ok(false);
     }
-    Ok(true)
+    // 长度 + 摘要都过 → 原子发布；失败只删临时文件，目标旧文件不动。
+    match crate::download_publish::publish_temp(&temp, dest, Some(size), expected_sha1) {
+        Ok(()) => Ok(true),
+        Err(e) => {
+            tracing::warn!("[download] 分片文件发布失败，回退单流：{e}");
+            Ok(false)
+        }
+    }
 }
 
 /// 带「所属安装任务取消标志」的下载。
@@ -241,11 +253,9 @@ pub async fn download_file_with_cancel(
     let dest_path = Path::new(dest).to_path_buf();
     let mut last_err: Option<anyhow::Error> = None;
 
-    // 大文件先试**分片并发**（桌面版早就有的能力，Android 之前没接）。
-    // 只在「服务端支持 Range」且内容够大时用；任何一片失败都会回落到下面的单流。
-    // `chunk_note` 记录实际走了哪条路（回传在 message 里，便于真机核对）。
-    // 用 `String` 而不是 `&'static str`：原来那几处 `Box::leak` 每下载一次就永久泄漏
-    // 一小段字符串（因为 `format!` 的产物没法变成 `&'static str`，只能 leak）。
+    // 大文件先试**分片并发**（只在服务端支持 Range 且内容够大时用）；任何一片
+    // 失败都会回落到下面的单流。`chunk_note` 记录实际走了哪条路，回传 message 便于核对。
+    // 用 `String` 而不是 `&'static str`：避免原实现每下载一次就 `Box::leak` 一小段。
     let mut chunk_note: String = "single(small)".to_string();
     for candidate in &urls {
         // 探「总长度 + 是否支持 Range」：用 1 字节的 Range 请求而不是 HEAD。
@@ -291,33 +301,20 @@ pub async fn download_file_with_cancel(
             .flatten()
             .collect();
         let threads = chunk_threads().await;
-        match try_download_chunked(&client, candidate, &dest_path, len, threads, &cancels).await {
+        match try_download_chunked(
+            &client,
+            candidate,
+            &dest_path,
+            len,
+            threads,
+            &cancels,
+            expected_sha1.as_deref(),
+        )
+        .await
+        {
+            // 分片路径已在 try_download_chunked 内部完成「长度 + 摘要校验 + 原子
+            // 替换目标」；这里只需要判定是否走了分片（H7）。
             Ok(true) => {
-                // 分片下完必须校验：并发写没法边写边算哈希
-                //
-                // ⚠️ `Some("")` 等价于「没有校验和」（加载器 profile 的
-                // libraries 就没有 sha1 —— 官方 Meta 不下发）。不特判的话，
-                // 每个文件都会算出一个真实 SHA1 去和空串比，必然不匹配，
-                // 于是**下载成功也会被删掉**，报 "SHA1 mismatch expected ",
-                // 最终表现为「加载器依赖一个都下不来」。
-                if let Some(expected) = expected_sha1.as_deref().filter(|s| !s.is_empty()) {
-                    match fs::read(&dest_path).await {
-                        Ok(content) => {
-                            let mut h = Sha1::new();
-                            h.update(&content);
-                            if format!("{:x}", h.finalize()) != expected {
-                                let _ = fs::remove_file(&dest_path).await;
-                                chunk_note = "single(bad-hash)".to_string();
-                                continue; // 校验不过，当作这个源失败，试下一个
-                            }
-                        }
-                        Err(_) => {
-                            let _ = fs::remove_file(&dest_path).await;
-                            chunk_note = "single(read-failed)".to_string();
-                            continue;
-                        }
-                    }
-                }
                 CANCEL_FLAGS.lock().await.remove(&task_id);
                 let task = DownloadProgress {
                     task_id: task_id.clone(),
@@ -330,8 +327,15 @@ pub async fn download_file_with_cancel(
                 DOWNLOAD_TASKS.lock().await.insert(task_id.clone(), task.clone());
                 return Ok(task);
             }
-            Ok(false) => chunk_note = "single(range-unsupported)".to_string(),
+            Ok(false) => chunk_note = "single(chunk-failed)".to_string(),
             Err(_) => chunk_note = "single(chunk-error)".to_string(),
+        }
+        // 分片失败后若用户已取消，不再继续试下一个源（避免取消后还打网络请求）
+        if cancel.load(Ordering::Relaxed)
+            || install_cancel.as_ref().is_some_and(|f| f.load(Ordering::Relaxed))
+        {
+            CANCEL_FLAGS.lock().await.remove(&task_id);
+            return Err(anyhow::anyhow!("下载已取消"));
         }
     }
     let chunk_note = chunk_note.to_string();
@@ -360,8 +364,9 @@ pub async fn download_file_with_cancel(
             }
             Err(StreamFail::Cancelled) => {
                 CANCEL_FLAGS.lock().await.remove(&task_id);
-                // 半截文件必须删掉：留着会被后续的 SHA1 校验/「已存在就跳过」误判成完整文件
-                let _ = fs::remove_file(&dest_path).await;
+                // 只清理半截的临时 `.part`；**绝不碰目标文件** —— 目标位置可能
+                // 有一份上一版可用的 JAR（H7：失败不能删掉可用旧文件）。
+                crate::download_publish::cleanup_temp(&part_path(&dest_path));
                 let by_install = install_cancel
                     .as_ref()
                     .is_some_and(|f| f.load(Ordering::Relaxed));
@@ -395,48 +400,45 @@ pub async fn download_files_concurrent(
     concurrency: usize,
     install_cancel: Option<Arc<AtomicBool>>,
 ) -> anyhow::Result<()> {
-    let n = concurrency.max(1);
-    let items = items.to_vec();
-    let install_cancel = install_cancel.clone();
-    let failed = std::sync::atomic::AtomicUsize::new(0);
-    let failed_ref = &failed;
+    download_files_reporting(items, concurrency, install_cancel, || {}).await
+}
 
-    futures::stream::iter(items.into_iter().map(|(url, dest, sha1)| {
+async fn download_files_reporting(
+    items: &[(String, String, Option<String>)],
+    concurrency: usize,
+    install_cancel: Option<Arc<AtomicBool>>,
+    mut on_success: impl FnMut(),
+) -> Result<()> {
+    let downloads = futures::stream::iter(items.iter().map(|(url, dest, sha1)| {
         let install_cancel = install_cancel.clone();
-        let failed_ref = failed_ref;
         async move {
-            // 取消后不再发起新请求
-            if let Some(c) = &install_cancel {
-                if c.load(Ordering::Relaxed) {
-                    return;
-                }
+            if install_cancel.as_ref().is_some_and(|c| c.load(Ordering::Relaxed)) {
+                return None;
             }
-            if let Some(parent) = Path::new(&dest).parent() {
+            if let Some(parent) = Path::new(dest).parent() {
                 let _ = fs::create_dir_all(parent).await;
             }
-            if let Err(e) = download_file_with_cancel(
-                &url,
-                &dest,
-                sha1.clone(),
-                install_cancel.clone(),
-            )
-            .await
-            {
-                failed_ref.fetch_add(1, Ordering::Relaxed);
+            let result = download_file_with_cancel(url, dest, sha1.clone(), install_cancel).await;
+            if let Err(e) = &result {
                 tracing::warn!("并发下载失败 {url}: {e}");
-                // 同时落盘：并发下载的 warning 只走 tracing，而本项目 tracing
-                // **没有接到日志文件/logcat**，等于什么都没留下。
-                //（加载器依赖下载失败时，用户只看得到「装了但起不来」。）
                 crate::util::log_line(&format!("[download] 失败 {url} → {e}"));
             }
+            Some(result.is_ok())
         }
     }))
-    .buffer_unordered(n)
-    .collect::<Vec<()>>()
-    .await;
+    .buffer_unordered(concurrency.max(1));
+    futures::pin_mut!(downloads);
 
-    if failed.load(Ordering::Relaxed) > 0 {
-        anyhow::bail!("{} 个文件下载失败", failed.load(Ordering::Relaxed));
+    let mut failed = 0;
+    while let Some(result) = downloads.next().await {
+        match result {
+            Some(true) => on_success(),
+            Some(false) => failed += 1,
+            None => {}
+        }
+    }
+    if failed > 0 {
+        anyhow::bail!("{failed} 个文件下载失败");
     }
     Ok(())
 }
@@ -629,13 +631,9 @@ async fn stream_to_file_once(
     let mut last_report = std::time::Instant::now();
 
     loop {
-        // ⚠️ 2026-10-27 真机：`chunk().await` 会**一直阻塞到有数据**。服务器把连接
-        // 挂起时（弱网/镜像抽风），循环开头的取消检查永远轮不到 —— 用户点
-        // 「取消」完全没反应。现象就是：下载卡在某个百分比，界面上的按钮点了全部无效。
-        //
-        // 改成 select!：同时等「下一块数据」和「取消轮询」，取消最多 200ms 生效。
-        // 两个取消来源都要看：本次下载自己的标志（`cancel_download`），
-        // 以及所属安装任务的标志（前端「下载中心」的取消按钮）。
+        // ⚠️ 2026-10-27 真机：`chunk().await` 会**一直阻塞到有数据**，服务器挂起连接时
+        // 循环开头的取消检查永远轮不到，用户点「取消」完全没反应。改成 select! 同时等
+        // 「下一块数据」和「取消轮询」（两个取消来源都要看），取消最多 200ms 生效。
         let chunk = tokio::select! {
             c = response.chunk() => match c {
                 Ok(Some(c)) => c,
@@ -753,50 +751,6 @@ pub async fn get_progress(task_id: &str) -> Result<DownloadProgress> {
         .ok_or_else(|| anyhow::anyhow!("Task not found: {}", task_id))
 }
 
-pub async fn download_libraries(
-    libraries: &[crate::version::Library],
-    data_dir: &str
-) -> Result<()> {
-    let libraries_dir = Path::new(data_dir).join("libraries");
-
-    // 串行 → N 并发（并发数读设置，见 file_concurrency）
-    let jobs: Vec<(String, String, Option<String>)> = libraries
-        .iter()
-        .filter_map(|lib| {
-            let a = lib.downloads.as_ref()?.artifact.as_ref()?;
-            let path = libraries_dir.join(&a.path);
-            // 已存在**且 SHA1 一致**才跳过。
-            //
-            // 这里曾经只判 `path.exists()`，于是**半截 jar 会永远留着**：实测
-            // `log4j-api-2.17.0.jar` 只有 196128 字节（应为 301776），
-            // 现象是 1.18.2 一启动就 `NoClassDefFoundError: org/apache/logging/log4j/Logger`，
-            // 而且点「安装游戏」也修不好 —— 因为文件「存在」，直接跳过了。
-            if path.exists() && file_sha1_matches(&path, &a.sha1) {
-                return None;
-            }
-            Some((a.url.clone(), path.to_string_lossy().to_string(), Some(a.sha1.clone())))
-        })
-        .collect();
-
-    download_files_concurrent(&jobs, file_concurrency().await, None).await
-}
-
-/// 本地文件是否与期望的 SHA1 一致（用于「已存在就跳过」之前的完整性校验）。
-///
-/// 读不到文件时返回 false（当作需要重下）。只在校验库文件时调用，
-/// 文件不大（几 MB），整file 读进来算哈希足够快。
-fn file_sha1_matches(path: &Path, expected_sha1: &str) -> bool {
-    // 没有校验和时，「匹配」按 true 处理（文件存在即可）——
-    // 否则加载器依赖会因为 sha1 为空而被反复判成「已损坏」重下。
-    if expected_sha1.is_empty() {
-        return path.exists();
-    }
-    let Ok(content) = std::fs::read(path) else {
-        return false;
-    };
-    let mut hasher = Sha1::new();
-    hasher.update(&content);
-    format!("{:x}", hasher.finalize()) == expected_sha1
-}
-
-
+#[path = "download_libraries.rs"]
+mod library_download;
+pub use library_download::{download_libraries, download_libraries_tracked, report_loader_libraries};

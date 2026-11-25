@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -684,7 +685,7 @@ private fun HslColorPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.settings_appearance_custom_color)) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
                         shape = CircleShape,
@@ -750,8 +751,3 @@ private fun SliderRow(
         )
     }
 }
-
-
-
-
-

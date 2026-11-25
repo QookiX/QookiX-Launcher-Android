@@ -28,7 +28,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,7 +38,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -67,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import com.zhayi.qookix.compose.ui.QkCompactSearchField
 import com.zhayi.qookix.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -403,7 +402,7 @@ data class BrowseUiState(
  * 塞进 TopAppBar 的 title 槽位后，**和标题共用同一行**，这 60dp 全部还给列表。
  *
  * 四个元素宽度分配：
- *   - 搜索框 `weight(1f)`：占满剩余
+ *   - 搜索框沿用剩余宽度，压低纵向高度
  *   - 筛选 / 排序 / 紧凑：固定 40dp 图标按钮
  * 窄屏（竖屏 384dp）时搜索框会自动收窄，但四个按钮始终可见。
  */
@@ -446,28 +445,11 @@ fun BrowseToolbar(
             maxLines = 1,
         )
 
-        OutlinedTextField(
+        QkCompactSearchField(
             value = query,
             onValueChange = onQueryChange,
             modifier = Modifier.weight(1f),
-            placeholder = {
-                // maxLines = 1：窄屏 + 界面缩放放大时，也不让它折成两行被裁掉
-                Text(
-                    stringResource(R.string.browse_search),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                )
-            },
-            leadingIcon = {
-                Icon(
-                    Icons.Filled.Search,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            },
-            singleLine = true,
-            shape = MaterialTheme.shapes.extraLarge,
-            textStyle = MaterialTheme.typography.bodySmall,
+            placeholder = stringResource(R.string.browse_search),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = {
                 focusManager.clearFocus()

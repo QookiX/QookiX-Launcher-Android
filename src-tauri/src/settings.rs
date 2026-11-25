@@ -505,7 +505,7 @@ pub async fn update_settings_patch(patch: Value) -> Result<()> {
 /// Android 上运行进程对应的包名（`/proc/self/cmdline` 的首段，形如 `com.zhayi.qookix`）。
 /// debug 变体带 `.debug` 后缀，因此不能把包名写死。
 #[cfg(target_os = "android")]
-fn android_package_name() -> Option<String> {
+pub(crate) fn android_package_name() -> Option<String> {
     let raw = std::fs::read("/proc/self/cmdline").ok()?;
     let first = raw.split(|b| *b == 0).next()?;
     let name = String::from_utf8_lossy(first).to_string();

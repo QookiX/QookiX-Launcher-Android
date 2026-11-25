@@ -369,9 +369,9 @@ class GameActivity : AppCompatActivity(), ControlButtonMenuListener, EditorExita
                 2 -> mControlLayout.addJoystickButton(ControlJoystickData())
                 3 -> { drawerLayout.closeDrawers(); MouseWheelControls.showAddDialog(mControlLayout) }
                 4 -> mControlLayout.openLoadDialog()
-                5 -> mControlLayout.openSaveDialog(this)
+                5 -> mControlLayout.openSaveDialog()
                 6 -> mControlLayout.openSetDefaultDialog()
-                7 -> mControlLayout.openExitDialog(this)
+                7 -> mControlLayout.askToExit(this)
                 8 -> { drawerLayout.closeDrawers(); ControlSceneDialog.show(mControlLayout) }
                 9 -> mControlLayout.addDirectionPad()
                 10 -> mControlLayout.addTextLabel()

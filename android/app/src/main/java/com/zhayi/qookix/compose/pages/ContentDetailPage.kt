@@ -20,6 +20,7 @@ import com.zhayi.qookix.compose.bridge.projectInfo
 import com.zhayi.qookix.compose.bridge.reportTranslationQuality
 import com.zhayi.qookix.compose.bridge.reportTranslationStale
 import com.zhayi.qookix.compose.bridge.translateProjectBody
+import com.zhayi.qookix.compose.ui.QkFeedback
 
 /**
  * 内容中心里「当前正在看哪一项」。
@@ -165,8 +166,12 @@ fun ContentDetailRoute(
 
     // ── 正文翻译（沿用 translate_project_body，别另造一套）────────────────
     var bodyZh by remember(project.id) { mutableStateOf<String?>(null) }
-    var translating by remember(project.id) { mutableStateOf(false) }
+    var translationRequest by remember(api, project.provider, project.id) { mutableStateOf<Any?>(null) }
+    val translating = translationRequest != null
     var notice by remember(project.id) { mutableStateOf<String?>(null) }
+    DisposableEffect(api, project.provider, project.id) {
+        onDispose { translationRequest = null }
+    }
     // 译文拿到后还能切回原文看（术语 / 代码块翻坏了可以对照）
     var showZh by remember(project.id) { mutableStateOf(true) }
 
@@ -179,12 +184,13 @@ fun ContentDetailRoute(
     // 这里加前端兜底：15 秒没结果就放弃并提示，至少能恢复可操作状态。
     // （根治要在 Rust 侧给 translate 命令加超时，但那是另一条链路，
     //   前端兜底能先把"卡死"变成"失败可重试"。）
-    LaunchedEffect(translating) {
-        if (translating) {
+    val activeRequest = translationRequest
+    LaunchedEffect(activeRequest) {
+        if (activeRequest != null) {
             kotlinx.coroutines.delay(15_000)
-            if (translating) {
-                translating = false
-                notice = context.getString(R.string.browse_translate_failed, "超时")
+            if (translationRequest === activeRequest) {
+                translationRequest = null
+                QkFeedback.showError(context.getString(R.string.browse_translate_failed, "超时"))
             }
         }
     }
@@ -221,7 +227,6 @@ fun ContentDetailRoute(
     DisposableEffect(Unit) { onDispose { onRegisterToolbar(null) } }
 
     ContentDetailLayout(
-        project = project,
         info = info,
         bodyLoading = bodyLoading,
         bodyError = bodyError,
@@ -247,13 +252,16 @@ fun ContentDetailRoute(
         onToggleTranslation = { showZh = !showZh },
         onTranslateBody = {
             val slug = info?.slug.orEmpty()
+            if (translationRequest != null) return@ContentDetailLayout
             if (slug.isBlank()) {
                 notice = context.getString(R.string.browse_body_translate_empty)
             } else {
-                translating = true
+                val request = Any()
+                translationRequest = request
                 notice = null
                 api.translateProjectBody(project.provider, slug, true) { r ->
-                    translating = false
+                    if (translationRequest !== request) return@translateProjectBody
+                    translationRequest = null
                     r.fold(
                         onSuccess = { o ->
                             val supported = o.optBoolean("supported", false)
@@ -266,7 +274,7 @@ fun ContentDetailRoute(
                                     showZh = true
                                     notice = null
                                 }
-                                err != null -> notice = err
+                                err != null -> QkFeedback.showError(err)
                                 !supported -> notice =
                                     context.getString(R.string.browse_body_translate_unsupported)
                                 else -> notice =
@@ -274,10 +282,7 @@ fun ContentDetailRoute(
                             }
                         },
                         onFailure = { e ->
-                            notice = context.getString(
-                                R.string.browse_translate_failed,
-                                e.message ?: "",
-                            )
+                            QkFeedback.showError(context.getString(R.string.browse_translate_failed, e.message ?: ""))
                         },
                     )
                 }
@@ -285,11 +290,11 @@ fun ContentDetailRoute(
         },
         onReportBadTranslation = {
             api.reportTranslationQuality(project.provider, info?.slug.orEmpty(), "inaccurate") { }
-            notice = context.getString(R.string.browse_body_report_thanks)
+            QkFeedback.show(context.getString(R.string.browse_body_report_thanks))
         },
         onReportStaleTranslation = {
             api.reportTranslationStale(project.provider, info?.slug.orEmpty()) { }
-            notice = context.getString(R.string.browse_body_report_stale_thanks)
+            QkFeedback.show(context.getString(R.string.browse_body_report_stale_thanks))
         },
         onCancelTask = onCancelTask,
     )

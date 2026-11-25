@@ -281,9 +281,8 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 		mExternalSource = source;
 		refreshControlVisibility();
 	}
-	// 说明：`setExternalInput(boolean)` 等价于鼠标/键盘来源，保留给旧调用点。
 
-	/** 按钮里的「切到 GUI 层」：强制场景直到游戏重新抓住鼠标（见 onGrabState）。 */
+	public final HudKeyOwners hudKeys = new HudKeyOwners();
 	public void forceScene(ControlScene scene) {
 		if (mModifiable || mForcedScene == scene) return;
 		mForcedScene = scene;
@@ -423,11 +422,12 @@ public class ControlLayout extends FrameLayout implements GrabListener {
     @Override
     public void onViewRemoved(View child) {
         super.onViewRemoved(child);
-        if (child instanceof ControlInterface) mButtons = null;
-        if(child instanceof ControlInterface && mControlDialog != null){
-			mControlDialog.disappearColor();
-            mControlDialog.disappear(false);
-        }
+        if (!(child instanceof ControlInterface)) return;
+        ((ControlInterface) child).cancelControlInput();
+        mButtons = null;
+        if (mControlDialog == null) return;
+        mControlDialog.disappearColor();
+        mControlDialog.disappear(false);
     }
 
     /**
@@ -474,8 +474,9 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	public void onTouch(View v, MotionEvent ev) {
 		ControlInterface lastControlButton = mapTable.get(v);
 
-		// Map location to screen coordinates
-		ev.offsetLocation(v.getX(), v.getY());
+		// Use layout-relative coordinates without mutating the event owned by the child.
+		final float x = ev.getX() + v.getX();
+		final float y = ev.getY() + v.getY();
 
 
 		//Check if the action is cancelling, reset the lastControl button associated to the view
@@ -489,14 +490,12 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 
 		if (ev.getActionMasked() != MotionEvent.ACTION_MOVE) return;
 
-
 		//Optimization pass to avoid looking at all children again
 		if (lastControlButton != null) {
-			System.out.println("last control button check" + ev.getX() + "-" + ev.getY() + "-" + lastControlButton.getControlView().getX() + "-" + lastControlButton.getControlView().getY());
-			if (ev.getX() > lastControlButton.getControlView().getX()
-					&& ev.getX() < lastControlButton.getControlView().getX() + lastControlButton.getControlView().getWidth()
-					&& ev.getY() > lastControlButton.getControlView().getY()
-					&& ev.getY() < lastControlButton.getControlView().getY() + lastControlButton.getControlView().getHeight()) {
+			if (x >= lastControlButton.getControlView().getX()
+					&& x < lastControlButton.getControlView().getX() + lastControlButton.getControlView().getWidth()
+					&& y >= lastControlButton.getControlView().getY()
+					&& y < lastControlButton.getControlView().getY() + lastControlButton.getControlView().getHeight()) {
 				return;
 			}
 		}
@@ -509,10 +508,10 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 		for (ControlInterface button : getButtonChildren()) {
 			if (!button.getProperties().isSwipeable || button.getControlView().getVisibility() != VISIBLE) continue;
 
-			if (ev.getX() > button.getControlView().getX()
-					&& ev.getX() < button.getControlView().getX() + button.getControlView().getWidth()
-					&& ev.getY() > button.getControlView().getY()
-					&& ev.getY() < button.getControlView().getY() + button.getControlView().getHeight()) {
+			if (x >= button.getControlView().getX()
+					&& x < button.getControlView().getX() + button.getControlView().getWidth()
+					&& y >= button.getControlView().getY()
+					&& y < button.getControlView().getY() + button.getControlView().getHeight()) {
 
 				//Press the new key
 				if (!button.equals(lastControlButton)) {
@@ -612,11 +611,8 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	}
 
 	public void askToExit(EditorExitable editorExitable) {
-		if(mIsModified) {
-			openSaveDialog(editorExitable);
-		}else{
-			openExitDialog(editorExitable);
-		}
+		if (mIsModified) dialogs.confirmUnsaved(editorExitable::exitEditor);
+		else openExitDialog(editorExitable);
 	}
 
 	public void updateLoadedFileName(String path) {
@@ -633,7 +629,11 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 
 	private final ControlEditorDialogs dialogs = new ControlEditorDialogs(this);
 
-	public void openSaveDialog(EditorExitable editor) { dialogs.openSaveDialog(editor); }
+	void beforeReplacingLayout(Runnable replace) {
+		if (mIsModified) dialogs.confirmUnsaved(replace);
+		else replace.run();
+	}
+	public void openSaveDialog() { dialogs.openSaveDialog(null); }
 	public void openLoadDialog() { dialogs.openLoadDialog(); }
 	public void openSetDefaultDialog() { dialogs.openSetDefaultDialog(); }
 	public void openExitDialog(EditorExitable editor) { dialogs.openExitDialog(editor); }

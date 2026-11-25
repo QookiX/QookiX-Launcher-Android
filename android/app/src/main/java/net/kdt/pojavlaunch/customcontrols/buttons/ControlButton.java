@@ -50,8 +50,11 @@ public class ControlButton extends TextView implements ControlInterface {
 
     protected boolean mIsToggled = false;
     protected boolean mIsPointerOutOfBounds = false;
+    private final net.kdt.pojavlaunch.customcontrols.mouse.PointerTracker passthrough =
+            new net.kdt.pojavlaunch.customcontrols.mouse.PointerTracker();
     private MouseWheelGesture wheelGesture;
     private GestureDetector actionGestures;
+    private final Object longPressOwner = new Object();
     private int[] heldLongPressKeys;
     private int[] repeatingLongPressKeys;
     private final Runnable repeatScroll = new Runnable() {
@@ -61,10 +64,11 @@ public class ControlButton extends TextView implements ControlInterface {
             postDelayed(this, 50);
         }
     };
+    private ControlPress activePress;
     private final Runnable repeatClick = new Runnable() {
         @Override public void run() {
-            if (!isActivated() || !isShown()) return;
-            pulseRepeatableKeys(mProperties.keycodes);
+            if (activePress == null || !isShown()) return;
+            pulseRepeatableKeys(activePress.keys);
             postDelayed(this, 20);
         }
     };
@@ -243,15 +247,19 @@ public class ControlButton extends TextView implements ControlInterface {
         dispatchActionGesture(event);
         switch (event.getActionMasked()){
             case MotionEvent.ACTION_MOVE:
-                //Send the event to be taken as a mouse action
-                if(getProperties().passThruEnabled && CallbackBridge.isGrabbing()){
-                    View gameSurface = getControlLayoutParent().getGameSurface();
-                    if(gameSurface != null) gameSurface.dispatchTouchEvent(event);
+                if (mProperties.passThruEnabled && CallbackBridge.isGrabbing()) {
+                    passthrough.trackEvent(event);
+                    float[] delta = passthrough.getMotionVector();
+                    net.kdt.pojavlaunch.MinecraftGLSurface surface = mControlLayout.getGameSurface();
+                    if (surface != null) surface.moveCameraFromControl(delta[0], delta[1]);
+                } else {
+                    passthrough.cancelTracking();
                 }
 
                 //If out of bounds
-                if(event.getX() < getControlView().getLeft() || event.getX() > getControlView().getRight() ||
-                        event.getY() < getControlView().getTop()  || event.getY() > getControlView().getBottom()){
+                // Android delivers coordinates relative to this button, not its parent.
+                if (event.getX() < 0 || event.getX() >= getWidth() ||
+                        event.getY() < 0 || event.getY() >= getHeight()) {
                     if(getProperties().isSwipeable && !mIsPointerOutOfBounds){
                         //Remove keys
                         if(!triggerToggle()) {
@@ -274,25 +282,25 @@ public class ControlButton extends TextView implements ControlInterface {
                 mIsPointerOutOfBounds = false;
                 break;
 
-            case MotionEvent.ACTION_DOWN: // 0
-            case MotionEvent.ACTION_POINTER_DOWN: // 5
+            // Additional fingers on the same button share the press started by DOWN.
+            // POINTER_UP is not the end of that press; only UP or CANCEL ends it.
+            case MotionEvent.ACTION_POINTER_DOWN:
+            case MotionEvent.ACTION_POINTER_UP:
+                break;
+
+            case MotionEvent.ACTION_DOWN:
+                if (mProperties.passThruEnabled && CallbackBridge.isGrabbing()) passthrough.startTracking(event);
                 animatePressFeedback(true);
                 if(!getProperties().isToggle){
                     sendKeyPresses(true);
                 }
-                if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                    runActionExtras(mProperties.pressAction);
-                }
+                runActionExtras(mProperties.pressAction);
                 break;
 
-            case MotionEvent.ACTION_UP: // 1
-            case MotionEvent.ACTION_CANCEL: // 3
-            case MotionEvent.ACTION_POINTER_UP: // 6
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
                 animatePressFeedback(false);
-                if(getProperties().passThruEnabled){
-                    View gameSurface = getControlLayoutParent().getGameSurface();
-                    if(gameSurface != null) gameSurface.dispatchTouchEvent(event);
-                }
+                passthrough.cancelTracking();
                 if(mIsPointerOutOfBounds) getControlLayoutParent().onTouch(this, event);
                 mIsPointerOutOfBounds = false;
                 releaseLongPressKeys();
@@ -333,11 +341,14 @@ public class ControlButton extends TextView implements ControlInterface {
                         heldLongPressKeys = action.keys;
                     }
                     if (heldLongPressKeys != null) {
-                        for (int key : heldLongPressKeys) dispatchKey(key, true, true);
+                        for (int key : heldLongPressKeys) {
+                             if (heldLongPressKeys == null) break;
+                             dispatchKey(longPressOwner, key, true, true);
+                         }
                     }
                     if (repeatingLongPressKeys != null) {
                         for (int key : repeatingLongPressKeys) {
-                            if (!isRepeatableKey(key)) dispatchKey(key, true, true);
+                            if (!isRepeatableKey(key)) dispatchKey(this, key, true, true);
                         }
                     }
                     runActionExtras(action);
@@ -357,8 +368,12 @@ public class ControlButton extends TextView implements ControlInterface {
     private void runAction(ControlData.Action action) {
         if (action == null || !isShown() || mControlLayout.getModifiable()) return;
         if (action.keys != null) {
-            for (int key : action.keys) dispatchKey(key, true, true);
-            for (int i = action.keys.length - 1; i >= 0; i--) dispatchKey(action.keys[i], false, false);
+            Object pulse = new Object();
+            try {
+                for (int key : action.keys) dispatchKey(pulse, key, true, true);
+            } finally {
+                for (int i = action.keys.length - 1; i >= 0; i--) dispatchKey(pulse, action.keys[i], false, false);
+            }
         }
         runActionExtras(action);
     }
@@ -386,7 +401,7 @@ public class ControlButton extends TextView implements ControlInterface {
         if (heldLongPressKeys == null) return;
         int[] keys = heldLongPressKeys;
         heldLongPressKeys = null;
-        for (int i = keys.length - 1; i >= 0; i--) dispatchKey(keys[i], false, false);
+        for (int i = keys.length - 1; i >= 0; i--) dispatchKey(longPressOwner, keys[i], false, false);
     }
 
     private boolean onWheelTouch(MotionEvent event) {
@@ -465,26 +480,23 @@ public class ControlButton extends TextView implements ControlInterface {
     }
 
     public void sendKeyPresses(boolean isDown){
-        boolean startsPress = isDown && !isActivated();
+        if (isDown == (activePress != null)) return;
+        ControlPress press = isDown
+                ? new ControlPress(mProperties.keycodes, mProperties.autoClick, () -> McBindingKeys.resolve(mProperties.binding))
+                : activePress;
+        activePress = isDown ? press : null;
         setActivated(isDown);
         if (!isDown) {
             removeCallbacks(repeatScroll);
             removeCallbacks(repeatClick);
         }
-        if (startsPress && mProperties.scrollWhileHeld != 0) repeatScroll.run();
-        if (startsPress && mProperties.autoClick) repeatClick.run();
-        int[] keys = mProperties.keycodes;
-        // 内置布局标了功能绑定（key.inventory 之类）：按玩家当前改键发。
-        // 只替换第一个普通键，解析失败（返回 0）时原样回落到硬编码键码。
-        if (keys.length > 0 && keys[0] >= 0) {
-            int resolved = McBindingKeys.resolve(mProperties.binding);
-            if (resolved > 0 && resolved != keys[0]) {
-                keys = keys.clone();
-                keys[0] = resolved;
-            }
+        for (int keycode : press.keys) {
+            if (isDown && activePress != press) break; // A special key can synchronously change the scene.
+            if (!press.autoClick || !isRepeatableKey(keycode)) dispatchKey(this, keycode, isDown, isDown);
         }
-        for (int keycode : keys) {
-            if (!mProperties.autoClick || !isRepeatableKey(keycode)) dispatchKey(keycode, isDown, startsPress);
+        if (isDown && activePress == press) {
+            if (mProperties.scrollWhileHeld != 0) repeatScroll.run();
+            if (press.autoClick) repeatClick.run();
         }
     }
 
@@ -495,14 +507,22 @@ public class ControlButton extends TextView implements ControlInterface {
     }
 
     private void pulseRepeatableKeys(int[] keys) {
-        for (int key : keys) if (isRepeatableKey(key)) dispatchKey(key, true, true);
-        for (int i = keys.length - 1; i >= 0; i--) {
-            if (isRepeatableKey(keys[i])) dispatchKey(keys[i], false, false);
+        Object pulse = new Object();
+        try {
+            for (int key : keys) if (isRepeatableKey(key)) dispatchKey(pulse, key, true, true);
+        } finally {
+            for (int i = keys.length - 1; i >= 0; i--) {
+                if (isRepeatableKey(keys[i])) dispatchKey(pulse, keys[i], false, false);
+            }
         }
     }
 
-    private void dispatchKey(int keycode, boolean isDown, boolean startsPress) {
+    private void dispatchKey(Object owner, int keycode, boolean isDown, boolean startsPress) {
         if (keycode == 0) return;
+        int sharedKey = keycode == ControlData.SPECIALBTN_WHEEL_GESTURE ? ControlData.SPECIALBTN_MOUSEMID : keycode;
+        if ((sharedKey > 0 || sharedKey == ControlData.SPECIALBTN_MOUSEPRI ||
+                sharedKey == ControlData.SPECIALBTN_MOUSESEC || sharedKey == ControlData.SPECIALBTN_MOUSEMID) &&
+                !mControlLayout.hudKeys.update(sharedKey, owner, isDown)) return;
         if (keycode >= GLFW_KEY_UNKNOWN) {
             sendKeyPress(keycode, CallbackBridge.getCurrentMods(), isDown);
             CallbackBridge.setModifiers(keycode, isDown);

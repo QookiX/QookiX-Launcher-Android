@@ -2,11 +2,15 @@ package com.zhayi.qookix.compose.pages
 
 import com.zhayi.qookix.compose.theme.QkSpacing
 
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.widthIn
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,20 +25,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
@@ -44,7 +48,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import com.zhayi.qookix.compose.ui.QkBannerVisibility
 import com.zhayi.qookix.compose.ui.QkTabContent
 import com.zhayi.qookix.compose.ui.QkTabRow
 import androidx.compose.material3.OutlinedTextField
@@ -60,6 +63,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -84,8 +89,6 @@ fun ServerDetailPage(
     onStop: () -> Unit,
     onCommandInput: (String) -> Unit,
     onCommandSend: () -> Unit,
-    /** 快捷命令（list / save-all）—— 直接下发，不经过输入框。 */
-    onQuickCommand: (String) -> Unit = {},
     onInstallCore: () -> Unit,
     onOpenDirectory: () -> Unit,
     onOpenFiles: () -> Unit,
@@ -127,188 +130,65 @@ fun ServerDetailPage(
 ) {
     // 删除服务器的二次确认放在页面级：文件 tab 与设置 tab 两个入口共用同一个
     var confirmDeleteServer by remember { mutableStateOf(false) }
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // ── 顶栏已上移（2026-10-17）────────────────────────────────────
-        //
-        // 和外层 TopAppBar 重复显示返回箭头 + 标题，现在搬进 title 槽位
-        // （见 PageHost 注册的 ServerDetailToolbar）。
+    val pagerState = rememberPagerState(initialPage = state.tab.ordinal) { ServerTab.entries.size }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            QkTabRow(
+                labels = ServerTab.entries.map {
+                    stringResource(if (it == ServerTab.Settings) R.string.nav_settings else it.labelRes)
+                },
+                selectedIndex = state.tab.ordinal,
+                onSelect = { onTabChange(ServerTab.entries[it]) },
+                pagerState = pagerState,
+            )
 
-        // ── 操作失败提示（启动/停止等）────────────────────────────────
-        //
-        // ⚠️ 2026-10-16 补：`state.error` 原来只在「配置」页当作空态文案用，
-        // 其他页面上**完全看不到**。真机实测：服务器没装核心时点「启动」，
-        // 后端返回「还没下载服务端核心」，界面却毫无反应 —— 用户会以为按钮坏了。
-        //
-        // ⚠️ 2026-10-22 调位置：原来放在 TabRow **下面**，把控制台日志区
-        // 往下挤了一截 —— 而日志区恰恰是开服时最需要空间的地方
-        // （横屏尤其明显，日志被压到只剩一两行）。
-        // 现在挪到 TabRow **上面**：标题栏下方本来就是空白，
-        // 提示放那儿不占日志区的地方。
-        var lastError by remember { mutableStateOf("") }
-        if (!state.error.isNullOrBlank()) lastError = state.error
-        QkBannerVisibility(visible = !state.error.isNullOrBlank()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = QkSpacing.md, vertical = 6.dp),
-                shape = MaterialTheme.shapes.small,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(QkSpacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Filled.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = lastError,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.weight(1f),
-                    )
-                    // 关闭按钮：提示不该一直占着位置（用户反馈位置问题时
-                    // 想立刻把它收起来看日志）。
-                    IconButton(
-                        onClick = onDismissError,
-                        modifier = Modifier.size(28.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.common_close),
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(16.dp),
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                QkTabContent(
+                    tabs = ServerTab.entries,
+                    selected = state.tab,
+                    onSelect = onTabChange,
+                    modifier = Modifier.fillMaxSize(),
+                    skipInterveningPages = landscape,
+                    pagerState = pagerState,
+                ) { tab ->
+                    when (tab) {
+                        ServerTab.Console -> ConsoleTab(
+                            state = state,
+                            onInputChange = onCommandInput,
+                            onSend = onCommandSend,
+                            onRequestBatteryUnrestricted = onRequestBatteryUnrestricted,
+                            landscape = landscape,
+                        )
+                        ServerTab.Files -> FilesTab(
+                            state = state,
+                            onOpenDirectory = onOpenDirectory,
+                            onOpenFiles = onOpenFiles,
+                            onRefreshLogs = onRefreshLogs,
+                            onSetMemory = onSetMemory,
+                            onDeleteServer = { confirmDeleteServer = true },
+                        )
+                        ServerTab.Plugins -> PluginsTab(
+                            state = state,
+                            onOpenPluginFolder = onOpenPluginFolder,
+                            onAskDeletePlugin = onAskDeletePlugin,
+                        )
+                        ServerTab.Config -> ConfigTab(state, onSetProperty, onToggleProperty)
+                        // 服务器设置：EULA 同意 + 对外分享（陶瓦联机）
+                        ServerTab.Settings -> SettingsTab(
+                            state = state,
+                            onToggleShare = onToggleShare,
+                            onCopyRoom = onCopyRoom,
+                            onSetEula = onSetEula,
+                            onRequestBatteryUnrestricted = onRequestBatteryUnrestricted,
+                            onDeleteServer = { confirmDeleteServer = true },
                         )
                     }
                 }
             }
         }
-
-        // 和设置页 / 实例详情用同一套 tab 容器（2026-10-17 统一）
-        // 统一 tab 组件（2026-10-17）：4 个 tab 在横屏会自动等分填满，
-        // 不再像原来那样右边空一片。
-        QkTabRow(
-            labels = ServerTab.entries.map { stringResource(it.labelRes) },
-            selectedIndex = state.tab.ordinal,
-            onSelect = { onTabChange(ServerTab.entries[it]) },
-        )
-
-        // ── 上次运行的结束原因 ────────────────────────────────────────
-        //
-        // ⚠️ 2026-10-19 补：服务端「关服后再也起不来」时，唯一能说明原因的就是
-        // Rust 写进 `runtime.json.exit` / `launch-error.txt` 的那句话。
-        // 以前界面完全不显示它 —— 用户只能看到「点了没反应」，
-        // 而唯一的日志页也没有入口，等于断了所有排查手段。
-        var lastExitNote by remember { mutableStateOf("") }
-        if (!state.exitNote.isNullOrBlank()) lastExitNote = state.exitNote
-        QkBannerVisibility(visible = !state.exitNote.isNullOrBlank()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = QkSpacing.md, vertical = 4.dp),
-                shape = MaterialTheme.shapes.small,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(QkSpacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Filled.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = lastExitNote,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-
-        // ── 操作成功提示 ──────────────────────────────────────────────
-        var lastNotice by remember { mutableStateOf("") }
-        if (!state.notice.isNullOrBlank()) lastNotice = state.notice
-        QkBannerVisibility(visible = !state.notice.isNullOrBlank()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = QkSpacing.md, vertical = 4.dp),
-                shape = MaterialTheme.shapes.small,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(QkSpacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = lastNotice,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = onDismissNotice) { Text(stringResource(R.string.server_detail_notice_ok)) }
-                }
-            }
-        }
-
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            QkTabContent(
-                tabs = ServerTab.entries,
-                selected = state.tab,
-                onSelect = onTabChange,
-                modifier = Modifier.fillMaxSize(),
-            ) { tab ->
-                when (tab) {
-                    ServerTab.Console -> ConsoleTab(
-                        state = state,
-                        onInputChange = onCommandInput,
-                        onSend = onCommandSend,
-                        onToggleShare = onToggleShare,
-                        onCopyRoom = onCopyRoom,
-                        onRefreshLogs = onRefreshLogs,
-                        onRequestBatteryUnrestricted = onRequestBatteryUnrestricted,
-                        onQuickCommand = onQuickCommand,
-                    )
-                    ServerTab.Files -> FilesTab(
-                        state = state,
-                        onOpenDirectory = onOpenDirectory,
-                        onOpenFiles = onOpenFiles,
-                        onRefreshLogs = onRefreshLogs,
-                        onSetMemory = onSetMemory,
-                        onDeleteServer = { confirmDeleteServer = true },
-                    )
-                    ServerTab.Plugins -> PluginsTab(
-                        state = state,
-                        onOpenPluginFolder = onOpenPluginFolder,
-                        onAskDeletePlugin = onAskDeletePlugin,
-                    )
-                    ServerTab.Config -> ConfigTab(state, onSetProperty, onToggleProperty)
-                    // 服务器设置：EULA 同意 + 对外分享（陶瓦联机）
-                    ServerTab.Settings -> SettingsTab(
-                        state = state,
-                        onToggleShare = onToggleShare,
-                        onCopyRoom = onCopyRoom,
-                        onSetEula = onSetEula,
-                        onDeleteServer = { confirmDeleteServer = true },
-                    )
-                }
-            }
-        }
+        ServerDetailFeedback(state, onDismissNotice, onDismissError, Modifier.align(Alignment.TopEnd))
     }
 
     // ── 删除插件的确认框 ───────────────────────────────────────────────
@@ -359,18 +239,13 @@ private fun ConsoleTab(
     state: ServerDetailUiState,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
-    onToggleShare: (Boolean) -> Unit,
-    onCopyRoom: (String) -> Unit,
-    onRefreshLogs: () -> Unit,
     onRequestBatteryUnrestricted: () -> Unit = {},
-    /** 快捷命令：直接下发，不经过输入框（list / save-all）。 */
-    onQuickCommand: (String) -> Unit = {},
+    landscape: Boolean,
 ) {
     val listState = rememberLazyListState()
     // ⚠️ 2026-10-21 真机修：用户反馈「开服务器连着 WiFi 的话，有个连接地址，
     // 顶部地址卡片常显 + 复制按钮（朋友要连的就是这个地址）。
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    val ctx = androidx.compose.ui.platform.LocalContext.current
     var copied by remember { mutableStateOf(false) }
     // 点过「复制」后 2 秒复原，否则文案永久停在「已复制」、再点没反馈
     LaunchedEffect(copied) {
@@ -391,8 +266,26 @@ private fun ConsoleTab(
             listState.animateScrollToItem(state.logs.size - 1)
         }
     }
+    val ready = state.running && (!landscape || state.runtimeCurrent)
+    val copyAddress = {
+        clipboard.setText(androidx.compose.ui.text.AnnotatedString(state.address))
+        copied = true
+    }
     Column(modifier = Modifier.fillMaxSize()) {
-        if (state.address.isNotBlank()) {
+        if (landscape && ready && state.address.isNotBlank()) {
+            Row(
+                modifier = Modifier.padding(horizontal = QkSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
+            ) {
+                Text(stringResource(R.string.server_detail_connect_address), style = MaterialTheme.typography.labelMedium)
+                Text(state.address, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false))
+                TextButton(onClick = copyAddress) {
+                    Text(stringResource(if (copied) R.string.server_detail_address_copied else R.string.server_detail_copy_address))
+                }
+            }
+        } else if (!landscape && state.address.isNotBlank()) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -428,10 +321,7 @@ private fun ConsoleTab(
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
-                    TextButton(onClick = {
-                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(state.address))
-                        copied = true
-                    }) {
+                    TextButton(onClick = copyAddress) {
                         Text(
                             if (copied) stringResource(R.string.server_detail_address_copied)
                             else stringResource(R.string.server_detail_copy_address),
@@ -442,7 +332,8 @@ private fun ConsoleTab(
         }
 
         // ── 开服辅助（2026-10-21 补：suggestServerMemory/requestBatteryUnrestricted 一直没 UI）───
-        if (state.suggestedMemMax > 0) {
+        // 运行中不占地方：横屏下这块 + 地址卡会把日志区压成 0 高。
+        if (!landscape && !state.running && state.suggestedMemMax > 0) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -485,10 +376,14 @@ private fun ConsoleTab(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (state.running) stringResource(R.string.server_detail_waiting_output)
-                        else stringResource(R.string.server_detail_not_running),
+                        text = when {
+                            state.logsError != null -> stringResource(R.string.server_detail_logs_failed, state.logsError)
+                            ready || (landscape && (state.jvmUp || state.stage.isNotBlank())) -> stringResource(R.string.server_detail_waiting_output)
+                            else -> stringResource(R.string.server_detail_not_running)
+                        },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (state.logsError != null) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             } else {
@@ -512,56 +407,55 @@ private fun ConsoleTab(
             }
         }
 
-        // ── 快捷命令（D10）──────────────────────────────────────────────
-        //
-        // `server_console_command` 后端一直有，但界面上要手打全称才能用。
-        // 开服的人高频就这两条：list（谁在线）/ save-all（手动存档，防崩溃回档）。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = QkSpacing.sm)
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-        ) {
-            AssistChip(
-                onClick = { onQuickCommand("list") },
-                enabled = state.running,
-                label = { Text(stringResource(R.string.server_detail_quick_list)) },
-            )
-            AssistChip(
-                onClick = { onQuickCommand("save-all") },
-                enabled = state.running,
-                label = { Text(stringResource(R.string.server_detail_quick_save)) },
-            )
-        }
-
-        // 命令输入行
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = QkSpacing.sm, end = 12.dp, bottom = 12.dp),
+                .padding(start = QkSpacing.sm, end = QkSpacing.sm, bottom = QkSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedTextField(
+            val enabled = ready && !state.commandPending
+            var focused by remember { mutableStateOf(false) }
+            val colors = MaterialTheme.colorScheme
+            val textColor = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = 0.38f)
+            BasicTextField(
                 value = state.commandInput,
                 onValueChange = onInputChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text(stringResource(R.string.server_detail_command_placeholder)) },
+                modifier = Modifier.weight(1f).onFocusChanged { focused = it.isFocused },
                 singleLine = true,
-                enabled = state.running,
-                shape = MaterialTheme.shapes.extraLarge,
+                enabled = enabled,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = textColor),
+                cursorBrush = SolidColor(colors.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                // 键盘上的「发送」与右侧按钮走同一条路
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
+                decorationBox = { innerTextField ->
+                    val border = when {
+                        !enabled -> colors.onSurface.copy(alpha = 0.12f)
+                        focused -> colors.primary
+                        else -> colors.outline
+                    }
+                    Box(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 38.dp)
+                            .border(1.dp, border, MaterialTheme.shapes.extraLarge)
+                            .padding(horizontal = 14.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (state.commandInput.isEmpty()) {
+                            Text(
+                                stringResource(R.string.server_detail_command_compact),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (enabled) colors.onSurfaceVariant else textColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
             )
             Spacer(Modifier.width(8.dp))
-            // 手动刷新日志：轮询是 2 秒一次，但用户刚发了命令时想立刻看到回显
-            IconButton(onClick = onRefreshLogs) {
-                Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.server_detail_refresh_logs_cd))
-            }
             IconButton(
                 onClick = onSend,
-                enabled = state.running && state.commandInput.isNotBlank(),
+                enabled = ready && !state.commandPending && state.commandInput.isNotBlank(),
             ) {
                 Icon(Icons.Filled.Send, contentDescription = stringResource(R.string.server_detail_send_cd))
             }
@@ -569,26 +463,6 @@ private fun ConsoleTab(
     }
 }
 
-/**
- * 「分享给朋友」卡片（缺陷 1）。
- *
- * 对应旧 Vue `ServerDetailView.vue:810-827` 的那块 UI + `:548-609` 的逻辑。
- *
- * 为什么放在**控制台**这一页而不是别处：开完服第一件事就是把它分享出去，
- * 而控制台是打开详情页的默认页签 —— 放在这里用户不用切页就能看到。
- */
-/**
- * 「服务器设置」tab（2026-10-18 新增）。
- *
- * ⚠️ 为什么加这个 tab：
- *   Rust 的 `start_hosted_server` 在 EULA 未同意时会拒绝启动，并提示
- *   「请先在『服务器设置』里勾选同意 Minecraft EULA」—— 但界面里**根本没有**
- *   这个 tab（只有控制台/文件/插件/配置文件），用户被指到一个不存在的地方。
- *
- * 同时把原来挤在「控制台」顶部的「对外开放（陶瓦联机）」卡片移进来 ——
- * 用户要求「这四个给它放到服务器设置里，而不是这儿」。
- * 控制台应该只放日志和命令输入。
- */
 @Composable
 private fun SettingsTab(
     state: ServerDetailUiState,
@@ -596,15 +470,51 @@ private fun SettingsTab(
     onCopyRoom: (String) -> Unit,
     onSetEula: (Boolean) -> Unit,
     onDeleteServer: () -> Unit,
+    onRequestBatteryUnrestricted: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = QkSpacing.sm),
-        verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-    ) {
-        // ── EULA 同意 ────────────────────────────────────────────────
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    if (!landscape) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = QkSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
+            ServerEulaCard(state, onSetEula)
+            ShareCard(state, onToggleShare, onCopyRoom)
+            DeleteServerCard(running = state.running, onDelete = onDeleteServer)
+        }
+        return
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        BoxWithConstraints(Modifier.widthIn(max = 900.dp).fillMaxWidth()
+            .verticalScroll(rememberScrollState()).padding(vertical = QkSpacing.sm)) {
+            val preparation: @Composable () -> Unit = {
+                ServerEulaCard(state, onSetEula)
+                if (state.suggestedMemMax > 0) {
+                    Column(Modifier.padding(horizontal = QkSpacing.md)) {
+                        Text(stringResource(R.string.server_detail_suggested_memory, state.suggestedMemMin, state.suggestedMemMax),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = onRequestBatteryUnrestricted) {
+                            Text(stringResource(R.string.server_detail_request_battery))
+                        }
+                    }
+                }
+            }
+            val sharing: @Composable () -> Unit = {
+                ShareCard(state, onToggleShare, onCopyRoom)
+                DeleteServerCard(running = state.running, onDelete = onDeleteServer)
+            }
+            if (maxWidth >= 680.dp) {
+                Row {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(QkSpacing.sm)) { preparation() }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(QkSpacing.sm)) { sharing() }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(QkSpacing.sm)) { preparation(); sharing() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerEulaCard(state: ServerDetailUiState, onSetEula: (Boolean) -> Unit) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -663,16 +573,7 @@ private fun SettingsTab(
                 }
             }
         }
-
-        // ── 对外开放（陶瓦联机）──────────────────────────────────────
-        // 从「控制台」移过来的，逻辑完全不变。
-        ShareCard(state, onToggleShare, onCopyRoom)
-
-        // ── 危险操作：删除服务器（设置页也放一个入口，见 ServerDangerActions.kt）
-        DeleteServerCard(running = state.running, onDelete = onDeleteServer)
-    }
 }
-
 
 @Composable
 private fun ShareCard(
@@ -961,6 +862,13 @@ private fun MemoryCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            state.effectiveMaxMemoryMb?.let { effective ->
+                Text(
+                    text = stringResource(R.string.server_detail_memory_effective, effective),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             Spacer(Modifier.height(QkSpacing.sm))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1176,7 +1084,11 @@ private fun ConfigTab(
                             PropertyLabel(p)
                         }
                         Spacer(Modifier.width(12.dp))
-                        PropertyValue(p, onSetProperty, onToggleProperty)
+                        if (p.kind == PropKind.Choice) {
+                            Box(Modifier.weight(2f)) { PropertyValue(p, onSetProperty, onToggleProperty) }
+                        } else {
+                            PropertyValue(p, onSetProperty, onToggleProperty)
+                        }
                     }
                 }
             }
@@ -1216,10 +1128,8 @@ private fun PropertyValue(
             checked = p.value.equals("true", ignoreCase = true),
             onCheckedChange = { onToggleProperty(p.key, it) },
         )
-        PropKind.Choice -> Row(
+        PropKind.Choice -> androidx.compose.foundation.layout.FlowRow(
             horizontalArrangement = Arrangement.spacedBy(QkSpacing.xs),
-            // 选项多时（如 gameMode 4 个）窄屏会溢出，允许横向滚动
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
         ) {
             p.choices.forEach { c ->
                 FilterChip(
@@ -1347,6 +1257,20 @@ data class ServerDetailUiState(
      * 现在直接显示在详情页顶部，不用再去找日志。
      */
     val exitNote: String? = null,
+    /** JVM 是否活着（可能还在启动，尚未监听游戏端口）。 */
+    val jvmUp: Boolean = false,
+    /** 空闲休眠：JVM 已停，唤醒监听占着端口。 */
+    val sleeping: Boolean = false,
+    /** 最近一次自动休眠 / 唤醒失败的原因。 */
+    val wakeError: String? = null,
+    /** 最近一次运行态读取是否成功（false = 状态未知，不能据此启停）。 */
+    val runtimeCurrent: Boolean = false,
+    /** 启动时按设备可用内存钳制后的实际堆上限。 */
+    val effectiveMaxMemoryMb: Int? = null,
+    val logsError: String? = null,
+    val commandPending: Boolean = false,
+    val commandFeedback: String? = null,
+    val commandFailed: Boolean = false,
     val address: String = "",
     val suggestedMemMin: Int = 0,
     val suggestedMemMax: Int = 0,
@@ -1383,100 +1307,3 @@ data class ServerDetailUiState(
     /** 操作成功提示（如「已复制房间码」「插件已删除」）。 */
     val notice: String? = null,
 )
-
-
-
-
-
-
-
-/**
- * 服务器详情的**顶栏内容**（2026-10-17 新增）。
- *
- * 和 [InstanceDetailToolbar] 同样的改法：页面内那套自绘标题栏
- * （返回箭头 + 服务器名 + 状态点 + 启停按钮）和外层 TopAppBar 重复，
- * 现在整体搬进 title 槽位。
- *
- * 布局：`服务器名 / ● 地址（或「已停止」）  [启动|停止]`
- */
-@Composable
-fun ServerDetailToolbar(
-    name: String,
-    running: Boolean,
-    address: String,
-    /** 启动阶段文案（`server://stage` 推来）。空串 = 没有进行中的阶段。 */
-    stage: String,
-    coreInstalled: Boolean,
-    installing: Boolean,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onInstallCore: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = name.ifBlank { stringResource(R.string.server_detail_untitled) },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 状态点：MD3 惯例，一眼看出在不在跑
-                Surface(
-                    modifier = Modifier.size(8.dp),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = if (running) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant,
-                ) {}
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = if (running) {
-                        address.ifBlank { stringResource(R.string.server_detail_running) }
-                    } else {
-                        stringResource(R.string.server_detail_stopped)
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-
-        Spacer(Modifier.width(8.dp))
-
-        when {
-            !coreInstalled -> Button(onClick = onInstallCore, enabled = !installing) {
-                Text(
-                    if (installing) stringResource(R.string.server_detail_installing)
-                    else stringResource(R.string.server_detail_install_core),
-                )
-            }
-            running -> FilledTonalButton(onClick = onStop) {
-                Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.server_detail_stop))
-            }
-            else -> Button(onClick = onStart) {
-                if (stage.isNotBlank()) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(stage, maxLines = 1)
-                } else {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.server_detail_start))
-                }
-            }
-        }
-    }
-}
-

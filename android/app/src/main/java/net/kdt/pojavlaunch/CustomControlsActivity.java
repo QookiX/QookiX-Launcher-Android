@@ -137,7 +137,7 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 						case 2: mControlLayout.addJoystickButton(new ControlJoystickData()); break;
 						case 3: MouseWheelControls.showAddDialog(mControlLayout); break;
 						case 4: mControlLayout.openLoadDialog(); break;
-						case 5: mControlLayout.openSaveDialog(this); break;
+						case 5: mControlLayout.openSaveDialog(); break;
 						case 6: mControlLayout.openSetDefaultDialog(); break;
 						case 8: ControlSceneDialog.show(mControlLayout); break;
 						case 9: mControlLayout.addDirectionPad(); break;
@@ -148,9 +148,11 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 					try {
 						// QookiX 没有 Pojav 的 scoped.FolderProvider，改用本项目已有的 FileProvider
 			//  （authorities = <applicationId>.fileprovider，路径见 res/xml/file_paths.xml）。
-					String jsonPath = mControlLayout.saveToDirectory(mControlLayout.mLayoutFileName);
+					// Share a snapshot of the draft, without saving over the source or marking it clean.
+					File snapshot = File.createTempFile("control-layout-", ".json", getCacheDir());
+					mControlLayout.getLayout().save(snapshot.getAbsolutePath());
 					Uri contentUri = androidx.core.content.FileProvider.getUriForFile(
-							this, getPackageName() + ".fileprovider", new java.io.File(jsonPath));
+							this, getPackageName() + ".fileprovider", snapshot);
 
 						Intent shareIntent = new Intent();
 						shareIntent.setAction(Intent.ACTION_SEND);

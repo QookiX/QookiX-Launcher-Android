@@ -80,6 +80,20 @@ fun ContentInstallHost(
     var descLoading by remember(start.id) { mutableStateOf(false) }
     var installing by remember(start.id) { mutableStateOf(false) }
     var error by remember(start.id) { mutableStateOf<String?>(null) }
+    var externalPluginUrl by remember(target.id) { mutableStateOf<String?>(null) }
+    externalPluginUrl?.let { url ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { externalPluginUrl = null },
+            title = { androidx.compose.material3.Text("需手动下载安装") },
+            text = { androidx.compose.material3.Text("这个插件未安装。可前往浏览器下载，再将 JAR 放入对应的 Paper 服务器插件目录。") },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = {
+                externalPluginUrl = null
+                runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                    .onFailure { error = "无法打开浏览器：${it.localizedMessage.orEmpty()}" }
+            }) { androidx.compose.material3.Text("打开浏览器") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { externalPluginUrl = null }) { androidx.compose.material3.Text("取消") } },
+        )
+    }
     // 版本请求序号：并发只认最后一次，避免「选好了又跳回默认」
     var versionsSeq by remember(start.id) { mutableStateOf(0) }
     // 目标候选（实例 / 服务器列表）
@@ -106,15 +120,16 @@ fun ContentInstallHost(
         versions = emptyList()
         error = null
         val inst = if (isModpack) null else instances.firstOrNull { it.id == instanceId }
-        val mc = inst?.mcVersion ?: ""
-        val loader = inst?.loader?.takeUnless { it == "vanilla" } ?: ""
+        val server = servers.firstOrNull { it.id == serverId }
+        val mc = server?.mcVersion ?: inst?.mcVersion.orEmpty()
+        val loader = server?.core ?: inst?.loader?.takeUnless { it == "vanilla" }.orEmpty()
         api.projectVersions(target.provider, target.id, mc, loader) { r ->
             if (seq != versionsSeq) return@projectVersions
             r.fold(
                 onSuccess = { json ->
                     var list = parseContentVersions(context, json)
                     // 上游按实例筛选无结果时，回退拉全部版本供选择
-                    if (list.isEmpty() && (mc.isNotBlank() || loader.isNotBlank())) {
+                    if (server == null && list.isEmpty() && (mc.isNotBlank() || loader.isNotBlank())) {
                         api.projectVersions(target.provider, target.id, "", "") { r2 ->
                             if (seq != versionsSeq) return@projectVersions
                             r2.onSuccess { all ->
@@ -158,7 +173,7 @@ fun ContentInstallHost(
                     // 默认目标：只有插件才预选服务器。模组默认装实例 ——
                     // 两边都预选的话 serverId/instanceId 同时非空，
                     // 安装会静默走「服务器」分支（用户以为装进了实例）。
-                    if (isPlugin) serverId = servers.firstOrNull()?.id
+                    if (isPlugin) serverId = servers.firstOrNull { it.core.equals("paper", ignoreCase = true) }?.id
                 }
             }
         }
@@ -239,9 +254,16 @@ fun ContentInstallHost(
                 api.installServerPlugin(sid!!, target.id, target.title) { r ->
                     installing = false
                     r.fold(
-                        onSuccess = {
-                            QkFeedback.show(context.getString(R.string.install_started))
-                            onDismiss()
+                        onSuccess = { result ->
+                            if (result.optBoolean("installed")) {
+                                QkFeedback.show(if (result.optBoolean("compatVerified")) "插件安装完成" else "插件已安装，上游未声明兼容版本")
+                                onDismiss()
+                            } else {
+                                externalPluginUrl = result.optText("externalUrl")?.takeIf { url ->
+                                    android.net.Uri.parse(url).scheme.equals("https", ignoreCase = true)
+                                }
+                                if (externalPluginUrl == null) error = "这个插件没有可用的下载链接"
+                            }
                         },
                         onFailure = { e -> error = context.getString(R.string.install_failed, e.message) },
                     )
@@ -311,7 +333,7 @@ fun ContentInstallHost(
     )
     val gameOptions = remember(versions) { gameVersionOptions(versions) }
     val visibleServers = when {
-        isPlugin -> servers
+        isPlugin -> servers.filter { it.core.equals("paper", ignoreCase = true) }
         effectiveKind == "mod" -> servers.filter { it.supportsMods() }
         else -> emptyList()
     }
@@ -357,6 +379,7 @@ fun ContentInstallHost(
     val onSelectServer: (String?) -> Unit = { sid ->
         serverId = sid
         instanceId = null
+        if (!isPlugin) loadVersions()
     }
     val onOpenDependency: (DependencyUi) -> Unit = { d ->
         // 切到那个依赖项目继续装（依赖自身也可能有前置，LaunchedEffect 会重拉）

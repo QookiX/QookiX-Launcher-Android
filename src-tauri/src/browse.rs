@@ -1046,10 +1046,8 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
         if loader != "vanilla" {
             let mut loader_version = instance["loader_version"].as_str().unwrap_or("").to_string();
             println!("[install] 加载器分支: loader={loader} 版本参数='{loader_version}'");
-            // 老实例（以及创建时没让用户选版本的那批）`loader_version` 是空的：
-            // 这里补一次「取最新」并写回 instance.json，否则加载器装不上，
-            // 「补全文件」也会因为拿不到版本号而判成修不了。
             if loader_version.is_empty() {
+                crate::progress::emit_install(&ctx, "loader", "正在解析加载器版本…", 0, 0);
                 if let Some(latest) = get_loader_versions(loader.clone(), mc_version.clone())
                     .await
                     .unwrap_or_default()
@@ -1057,46 +1055,10 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
                     .next()
                 {
                     loader_version = latest;
-                    // ⚠️ 只记下来，最后写盘时再合并（见函数尾部）：
-                    // 安装全程可能持续数分钟，期间用户完全可能改实例设置，
-                    // 用开头那份快照整体覆写会把用户的改动回滚掉。
                     resolved_loader_version = Some(loader_version.clone());
                 }
             }
-            if !loader_version.is_empty() {
-                crate::progress::emit_install(&ctx, "loader", "正在安装加载器…", 2, 3);
-                println!("[install] 调用 install_loader: {loader} {mc_version} {loader_version}");
-                match install_loader(&loader, &mc_version, &loader_version, &instance_path).await {
-                    Ok(()) => println!("[install] install_loader 完成"),
-                    Err(e) => {
-                        println!("[install] install_loader 失败: {e:#}");
-                        // ⚠️ 2026-10-23 真机修：这里原来直接 `return Err` ✗，**没有发终止事件**。
-                        // 后果（用户实测）：
-                        //   ① 顶部任务横幅永远停在「正在安装加载器…885.1/885.1 MB」✗
-                        //   ② `TasksRepo` 里一直挂着一个"活跃任务" → 之后点「补全」被
-                        //      `hasActiveTaskFor` 防重入判断直接跳过 → **点了没反应** ✗✗
-                        crate::progress::emit_install_done(
-                            &ctx,
-                            false,
-                            &format!("加载器安装失败：{e:#}"),
-                            2,
-                            3,
-                        );
-                        return Err(e);
-                    }
-                }
-            } else {
-                // ⚠️⚠️ 2026-10-20 真机修（阻断性缺陷）。
-                //
-                // 以前这里是**静默跳过**：`loader_version` 为空就什么都不装，
-                // 接着往下把实例标记成 `installed = true`。真机实测后果：
-                //   1. 弱网下 `get_loader_versions` 失败（meta.fabricmc.net 单程 1.1s）
-                //   2. loader_version 取不到 → 跳过安装
-                //   3. 实例显示「已安装」，实际一个加载器库都没有
-                //   4. 启动 → `加载器依赖缺失 7 个（已就绪 0 / 共 7）` → 加载界面闪退
-                // 也就是用户报的「Fabric 26.3 在加载界面会闪退」。
-                //
-                // 现在明确失败：宁可让用户看到「装不上」，也不能给一个注定闪退的实例。
+            if loader_version.is_empty() {
                 crate::util::log_line(&format!(
                     "[launcher] 加载器版本号为空，拒绝把 {loader} {mc_version} 标记为已安装"
                 ));
@@ -1104,8 +1066,15 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
                     "拿不到 {loader} 的版本号，加载器没装成。请检查网络后重新点「补全游戏文件」"
                 ));
             }
+            crate::progress::emit_install(&ctx, "loader", "正在安装加载器…", 0, 0);
+            println!("[install] 调用 install_loader: {loader} {mc_version} {loader_version}");
+            install_loader(&loader, &mc_version, &loader_version, &instance_path, &ctx)
+                .await
+                .context("加载器安装失败")?;
+            println!("[install] install_loader 完成");
         }
 
+        ctx.check_cancelled()?;
         let total_bytes: i64 = calculate_dir_size(&instance_path).await;
         let file_count = count_files(&instance_path).await;
 
@@ -1137,7 +1106,7 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
 
     match &result {
         Ok(_) => crate::progress::emit_install_done(&ctx, true, "安装完成", 3, 3),
-        Err(e) => crate::progress::emit_install_done(&ctx, false, &format!("安装失败：{e}"), 0, 3),
+        Err(e) => crate::progress::emit_install_done(&ctx, false, &format!("安装失败：{e:#}"), 0, 3),
     }
     result
 }
@@ -1145,7 +1114,14 @@ pub async fn install_game(instance_id: &str) -> Result<serde_json::Value> {
 /// 把加载器本体下到共享 `libraries/`。
 ///
 /// 落盘路径必须与 [`loader_jar_path`] 一致，否则「安装说已装好、检查说还缺」。
-async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, instance_path: &std::path::Path) -> Result<()> {
+async fn install_loader(
+    loader: &str,
+    mc_version: &str,
+    loader_version: &str,
+    instance_path: &std::path::Path,
+    ctx: &crate::progress::TaskCtx,
+) -> Result<()> {
+    ctx.check_cancelled()?;
     // 诊断日志：双通道（println 进 logcat，log_line 落文件）。
     // 安装链路长且跨网络，真机上「卡住」时必须有痕迹可查。
     crate::util::log_line(&format!(
@@ -1226,7 +1202,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
             "neoforge" => format!("https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"),
             other => return Err(anyhow::anyhow!("不支持的加载器：{other}")),
         };
-        download::download_file(&url, &dest.to_string_lossy(), None).await?;
+        download::download_file_with_cancel(&url, &dest.to_string_lossy(), None, Some(ctx.cancel_flag())).await?;
         crate::util::log_line("[loader] installer jar 下载完成");
     }
 
@@ -1246,27 +1222,8 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
         }
     }
 
-    // ── 跑一次官方 installer 的 processors 链（Forge / NeoForge）──────
-    //
-    // ⚠️ 2026-10-23 关键修复（NeoForge 1.21.1「一个模组都不加载 / 闪退」的根）。
-    //
-    // 之前这里**只**调 `install_forge_like` —— 它从 installer 里解出 version.json
-    // 就完事，**从不执行 processors 链** ✗。于是 `libraries/` 里没有打过补丁的客户端、
-    // 也没有 `client-extra.jar` → FML 的 ModList 里 `minecraft` / `neoforge`
-    // 两个模组**根本不存在** → 每个模组的依赖都判 `[MISSING]`
-    // → `ModSorter: Missing or unsupported mandatory dependencies`
-    // → `NoSuchElementException` → 闪退。
-    //（真机证据：所有 `Found mod file` 都来自 mods 文件夹；libraries 里找不到
-    //  client-extra/neoform 产物；1.21.1.jar 一直是原版大小。）
-    //
-    // 桌面端是**重写整套 processors**（见 QookiX-Launcher/src-tauri/src/install.rs
-    // ::run_forge_processors）；安卓这边更省事：直接跑官方 installer 的
-    // `--installClient`，它自己会解包 data/、下工具、跑 processors，产出打补丁的
-    // client 与 client-extra.jar（Pojav 也是这么做的 ✓）。
-    //
-    // ⚠️ **必须在 `if !profile_exists` 外面**：老实例的 profile 早就存在了
-    //（之前"只解包"那版生成的），但 processors 从没跑过 —— 放在里面会被整段跳过 ✗
-    //（2026-10-23 就因为这个白跑了一轮）。用标记文件记录"本机成功跑过 processors"。
+    // 官方 installer 生成打过补丁的客户端和 client-extra.jar。
+    // 旧版可能只解包了 profile，不能用 profile 是否存在来判断 processors 已运行。
     if matches!(loader, "forge" | "neoforge") {
         let needs_processors = crate::loader_install::find_loader_profile_exact(
             &versions_dir,
@@ -1279,7 +1236,9 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
             .join("libraries")
             .join(format!(".qookix-processors-{loader}-{loader_version}.done"));
         if needs_processors && !patch_marker.exists() {
+            ctx.check_cancelled()?;
             if find_jre(std::path::Path::new(&data_dir)).is_none() {
+                crate::progress::emit_install(ctx, "loader", "正在准备加载器所需的 Java 运行时…", 0, 0);
                 crate::util::log_line("[loader] 没有可用的 Java 运行时，先下载");
                 let instance_id =
                     instance_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
@@ -1290,6 +1249,8 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                     )),
                 }
             }
+            ctx.check_cancelled()?;
+            crate::progress::emit_install(ctx, "loader", "正在运行加载器安装器并生成补丁…", 0, 0);
             run_official_installer(
                 std::path::Path::new(&data_dir),
                 &dest,
@@ -1334,7 +1295,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
             // 至少让补全流程能走完、让用户看到结果。
             match tokio::time::timeout(
                 std::time::Duration::from_secs(180),
-                download::download_libraries(&libs, &data_dir),
+                download::download_libraries_tracked(&libs, &data_dir, Some(ctx)),
             )
             .await
             {
@@ -1366,6 +1327,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                             .cloned()
                             .collect();
                         if !retry_libs.is_empty() {
+                            ctx.check_cancelled()?;
                             match tokio::time::timeout(
                                 std::time::Duration::from_secs(120),
                                 download::download_libraries(&retry_libs, &data_dir),
@@ -1379,6 +1341,7 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                                     crate::util::log_line("[loader] 定向重试未全部成功");
                                 }
                             }
+                            download::report_loader_libraries(ctx, &libs, &deps_dir);
                         }
                         let (ok2, left2) =
                             crate::loader_install::profile_library_paths(&profile, &deps_dir);
@@ -1423,6 +1386,8 @@ async fn install_loader(loader: &str, mc_version: &str, loader_version: &str, in
                     return Err(e).context("下载加载器依赖库失败");
                 }
                 Err(_) => {
+                    ctx.check_cancelled()?;
+                    download::report_loader_libraries(ctx, &libs, &deps_dir);
                     // 超时不当成致命错误：已下载的库仍是有效缓存，
                     // 下次补全会跳过它们、只重试缺的。
                     let (ok, left) =
@@ -2953,21 +2918,18 @@ pub async fn install_content_to_server(
     version_id: &str,
     kind: &str,
 ) -> Result<Value> {
-    let folder = match kind {
-        "mod" => "mods",
-        "plugin" => "plugins",
-        other => {
-            return Err(anyhow::anyhow!(
-                "「{other}」不能安装到服务器，只有模组和插件可以"
-            ))
-        }
-    };
-
-    let server_path = crate::servers::server_dir(server_id).map_err(|e| anyhow::anyhow!(e))?;
-    let content_dir = server_path.join(folder);
-    tokio::fs::create_dir_all(&content_dir).await.ok();
-
-    let (file_url, file_name) = resolve_content_file(provider, version_id).await?;
+    let _operation = crate::server_state::try_host_operation().map_err(anyhow::Error::msg)?;
+    crate::servers::ensure_server_inactive(server_id).map_err(anyhow::Error::msg)?;
+    let server = crate::servers::get_server(server_id).map_err(anyhow::Error::msg)?;
+    let folder = crate::server_install_guard::server_content_folder(kind, server.core).map_err(anyhow::Error::msg)?;
+    let loader = if kind == "plugin" { "paper" } else { server.core.as_str() };
+    let versions = project_versions(provider, project_id, &server.mc_version, loader).await?;
+    let version = versions.into_iter().find(|v| v.id == version_id
+        && v.game_versions.iter().any(|v| v == &server.mc_version)
+        && v.loaders.iter().any(|v| v.eq_ignore_ascii_case(loader)))
+        .ok_or_else(|| anyhow::anyhow!("所选文件未声明兼容 {} / {}，请选择匹配版本", server.mc_version, loader))?;
+    let content_dir = crate::servers::server_sub_dir(server_id, folder).map_err(anyhow::Error::msg)?;
+    let (file_url, file_name) = (version.download_url, version.filename);
     let project_title = if provider == "modrinth" {
         project_info("modrinth", project_id)
             .await

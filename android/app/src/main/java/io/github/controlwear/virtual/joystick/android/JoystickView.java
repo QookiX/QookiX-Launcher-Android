@@ -75,7 +75,7 @@ public class JoystickView extends View {
     private float mButtonX;
     private float mButtonY;
 
-    private boolean mTracking = false;
+    private int mTrackingPointerId = -1;
     private boolean mForwardLocked = false;
     private double mAngle = 0;
     private int mStrength = 0;
@@ -181,7 +181,7 @@ public class JoystickView extends View {
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        if (mFixedCenter || !mTracking) {
+        if (mFixedCenter || mTrackingPointerId == -1) {
             mCenterX = w / 2f;
             mCenterY = h / 2f;
             resetButton();
@@ -231,7 +231,7 @@ public class JoystickView extends View {
 
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                mTracking = true;
+                mTrackingPointerId = event.getPointerId(0);
                 if (mFixedCenter || (mCenterFollow && !isCenterTouch(event))) {
                     mCenterX = getWidth() / 2f;
                     mCenterY = getHeight() / 2f;
@@ -244,13 +244,21 @@ public class JoystickView extends View {
                 return true;
 
             case MotionEvent.ACTION_MOVE:
-                if (!mTracking) return false;
-                moveButton(event.getX(), event.getY());
+                if (mTrackingPointerId != -1) {
+                    int index = event.findPointerIndex(mTrackingPointerId);
+                    if (index == -1) resetJoystickInput();
+                    else moveButton(event.getX(index), event.getY(index));
+                }
                 return true;
 
+            case MotionEvent.ACTION_POINTER_DOWN:
+                return true;
+            case MotionEvent.ACTION_POINTER_UP:
+                if (event.getPointerId(event.getActionIndex()) == mTrackingPointerId) resetJoystickInput();
+                return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                resetJoystickInput();
+                if (mTrackingPointerId != -1) resetJoystickInput();
                 return true;
 
             default:
@@ -265,7 +273,7 @@ public class JoystickView extends View {
     }
 
     protected void resetJoystickInput() {
-        mTracking = false;
+        mTrackingPointerId = -1;
         if (mForwardLocked) {
             mForwardLocked = false;
             if (mOnMoveListener != null) mOnMoveListener.onForwardLock(false);

@@ -2,6 +2,8 @@ package com.zhayi.qookix.compose.pages
 
 import com.zhayi.qookix.compose.theme.QkSpacing
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -461,7 +463,7 @@ private fun OfflineAddDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit)
         onDismissRequest = { if (name.isBlank()) onDismiss() },
         title = { Text(stringResource(R.string.account_add_offline_title)) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 val len = name.trim().length
                 OutlinedTextField(
                     value = name,

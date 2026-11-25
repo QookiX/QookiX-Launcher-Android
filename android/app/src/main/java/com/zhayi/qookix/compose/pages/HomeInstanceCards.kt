@@ -130,6 +130,7 @@ internal fun CurrentInstanceCard(
     onLaunch: () -> Unit,
     onSwitch: () -> Unit,
     onCreateInstance: () -> Unit = {},
+    compact: Boolean = false,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -152,7 +153,7 @@ internal fun CurrentInstanceCard(
         // 「上挤下空」。ZL2 那张主卡是居中英雄式的：图标居中、名字居中、
         // 按钮压底撑满，重心落在卡片中央，看起来"实"。
         Column(
-            modifier = Modifier.padding(QkSpacing.lg),
+            modifier = Modifier.padding(if (compact) QkSpacing.sm else QkSpacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (inst == null) {
@@ -161,7 +162,7 @@ internal fun CurrentInstanceCard(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(QkSpacing.md))
+                Spacer(Modifier.height(if (compact) QkSpacing.xs else QkSpacing.md))
                 Button(onClick = onCreateInstance) {
                     Text(stringResource(R.string.home_no_instances_hint))
                 }
@@ -171,7 +172,7 @@ internal fun CurrentInstanceCard(
             // 实例图标（大）
             Surface(
                 modifier = Modifier
-                    .size(96.dp)
+                    .size(if (compact) 64.dp else 96.dp)
                     .clip(RoundedCornerShape(QkRadius.card)),
                 color = MaterialTheme.colorScheme.primaryContainer,
             ) {
@@ -188,7 +189,7 @@ internal fun CurrentInstanceCard(
                 }
             }
 
-            Spacer(Modifier.height(QkSpacing.md))
+            Spacer(Modifier.height(if (compact) QkSpacing.xs else QkSpacing.md))
             Text(
                 text = inst.name,
                 style = MaterialTheme.typography.headlineSmall,
@@ -209,7 +210,7 @@ internal fun CurrentInstanceCard(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
 
-            Spacer(Modifier.height(QkSpacing.lg))
+            Spacer(Modifier.height(if (compact) QkSpacing.sm else QkSpacing.lg))
 
             // 启动按钮：整屏最强的视觉元素
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -221,7 +222,7 @@ internal fun CurrentInstanceCard(
                     interactionSource = launchSource,
                     modifier = Modifier
                         .weight(1f)
-                        .height(56.dp),
+                        .height(if (compact) 48.dp else 56.dp),
                     shape = MaterialTheme.shapes.extraLarge,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -262,7 +263,7 @@ internal fun CurrentInstanceCard(
                 ) {
                     IconButton(
                         onClick = onSwitch,
-                        modifier = Modifier.size(56.dp),
+                        modifier = Modifier.size(if (compact) 48.dp else 56.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.SwapHoriz,

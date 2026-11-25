@@ -1,28 +1,25 @@
 package com.zhayi.qookix.compose.pages
 
-import com.zhayi.qookix.compose.theme.QkSpacing
-
+import android.content.res.Configuration
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.runtime.remember
-import com.zhayi.qookix.compose.motion.pressScale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
@@ -42,18 +39,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
+import com.zhayi.qookix.compose.ui.QkCompactSearchField
 import com.zhayi.qookix.R
+import com.zhayi.qookix.compose.motion.pressScale
+import com.zhayi.qookix.compose.theme.QkSpacing
 import com.zhayi.qookix.compose.ui.QkTabContent
 import com.zhayi.qookix.compose.ui.QkTabRow
-import com.zhayi.qookix.compose.ui.SkeletonList
 
 /**
  * 多人游戏。
@@ -143,7 +144,8 @@ private fun FrpRoomsEntryTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(QkSpacing.xl),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = QkSpacing.lg, vertical = QkSpacing.sm),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -186,35 +188,30 @@ private fun ServersTab(
     onPingServer: (String, (Result<String>) -> Unit) -> Unit = { _, _ -> },
     onRetry: () -> Unit = {},
 ) {
-    // ⚠️ 2026-10-21 真机修：用户反馈「UI 更新前这个界面有个搜索栏」。
-    // 旧 Vue 版多人页顶部有搜索框，Compose 版漏了。服务器多了没法找，
-    // 现在补回来：按名称过滤（大小写不敏感）。
     var query by remember { mutableStateOf("") }
-    // 直接连接（2026-10-21 补：pingMcServer 一直没 UI）。放在搜索行里，
-    // 横屏 2400px 宽时没必要独占一行（原来会挤到第二行，看着像布局错位）。
     var showDirectConnect by remember { mutableStateOf(false) }
     val filtered = remember(state.servers, query) {
         if (query.isBlank()) state.servers
         else state.servers.filter { it.name.contains(query, ignoreCase = true) }
     }
 
+    // 横屏时让工具栏和卡片共用居中的宽度上限，避免拉成通栏。
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val contentWidth = if (landscape) {
+        Modifier.fillMaxWidth().wrapContentWidth().widthIn(max = 680.dp)
+    } else Modifier
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier
+            modifier = contentWidth
                 .fillMaxWidth()
                 .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedTextField(
+            QkCompactSearchField(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text(stringResource(R.string.multiplayer_search_servers)) },
-                singleLine = true,
-                shape = MaterialTheme.shapes.extraLarge,
-                leadingIcon = {
-                    Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
-                },
+                placeholder = stringResource(R.string.multiplayer_search_servers),
             )
             Spacer(Modifier.width(8.dp))
             TextButton(onClick = { showDirectConnect = true }) {
@@ -285,6 +282,7 @@ private fun ServersTab(
             onStopServer = onStopServer,
             onOpenServer = onOpenServer,
             onRetry = onRetry,
+            modifier = contentWidth,
         )
     }
 }

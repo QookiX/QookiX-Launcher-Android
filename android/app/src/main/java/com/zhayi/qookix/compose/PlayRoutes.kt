@@ -907,7 +907,7 @@ internal fun CreateRoute(
                         onCreated()
                     },
                     onFailure = { e ->
-                        QkFeedback.show(context.getString(R.string.import_failed, e.message))
+                        QkFeedback.showError(context.getString(R.string.import_failed, e.message))
                     },
                 )
             }
@@ -992,7 +992,7 @@ internal fun CreateRoute(
                                         "PageHost",
                                         "自动安装实例 $instId 失败: ${e.message}",
                                     )
-                                    QkFeedback.show(
+                                    QkFeedback.showError(
                                         context.getString(R.string.create_install_failed, e.message ?: ""),
                                     )
                                 }

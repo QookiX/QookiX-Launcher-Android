@@ -151,7 +151,6 @@ internal fun ContentDetailTopBar(
  */
 @Composable
 internal fun ContentDetailLayout(
-    project: ProjectUi,
     info: ContentDetailUi?,
     bodyLoading: Boolean,
     bodyError: String?,
@@ -188,8 +187,8 @@ internal fun ContentDetailLayout(
         )
     }
 
-    val wideScreen = com.zhayi.qookix.compose.ui.scaledScreenWidthDp() >= 720
-    if (wideScreen) {
+    if (LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
+        com.zhayi.qookix.compose.ui.scaledScreenWidthDp() >= 720) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
@@ -198,8 +197,9 @@ internal fun ContentDetailLayout(
             // ── 左：安装（进行中的任务贴在最上面，装完能立刻看到进度）────
             Column(modifier = Modifier.weight(0.85f).fillMaxHeight()) {
                 if (tasks.isNotEmpty()) {
-                    SectionTitle(stringResource(R.string.content_detail_tasks))
-                    tasks.forEach { t -> TaskCard(t, onCancel = { onCancelTask(t.id) }) }
+                    LazyColumn(Modifier.weight(0.45f, fill = false).fillMaxWidth()) {
+                        taskItems(tasks, onCancelTask)
+                    }
                     Spacer(Modifier.height(QkSpacing.xs))
                 }
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {

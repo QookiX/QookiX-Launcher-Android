@@ -133,8 +133,7 @@ public class ControlDrawer extends ControlButton {
     public boolean onTouchEvent(MotionEvent event) {
         if(!getControlLayoutParent().getModifiable()){
             switch (event.getActionMasked()){
-                case MotionEvent.ACTION_UP: // 1
-                case MotionEvent.ACTION_POINTER_UP: // 6
+                case MotionEvent.ACTION_UP:
                     switchButtonVisibility();
                     break;
             }

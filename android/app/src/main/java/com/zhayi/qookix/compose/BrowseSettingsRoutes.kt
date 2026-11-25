@@ -932,7 +932,7 @@ internal fun BrowseRoute(
             }
             if (showingFavorites == forFavorites) {
                 when {
-                    error != null -> QkFeedback.show(context.getString(R.string.browse_translate_failed, error))
+                    error != null -> QkFeedback.showError(context.getString(R.string.browse_translate_failed, error))
                     translations.size < items.size -> QkFeedback.show(context.getString(R.string.browse_translate_unavailable))
                 }
             }

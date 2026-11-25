@@ -26,8 +26,9 @@ fun rememberWindowSize(): WindowSize {
     // 按原始 screenWidthDp 判断会落进 Compact（底部导航），而实际横屏空间够用。
     // 这一处决定整个 shell 的导航形态，比任何单页布局都关键。
     val w = com.zhayi.qookix.compose.ui.scaledScreenWidthDp().toInt()
+    val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     return when {
-        w < 600 -> WindowSize.Compact
+        w < 600 && !(landscape && w >= 440) -> WindowSize.Compact
         w < 840 -> WindowSize.Medium
         else -> WindowSize.Expanded
     }
