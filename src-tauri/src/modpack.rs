@@ -341,10 +341,298 @@ struct PackFile {
     sha1: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CfFileRef {
+    project_id: u64,
+    file_id: u64,
+}
+
+fn curseforge_cdn_fallback_url(file_id: u64, file_name: &str) -> String {
+    format!(
+        "https://edge.forgecdn.net/files/{}/{}/{}",
+        file_id / 1000,
+        file_id % 1000,
+        urlencoding::encode(file_name)
+    )
+}
+
+fn extract_cf_sha1(item: &Value) -> Option<String> {
+    item["hashes"]
+        .as_array()?
+        .iter()
+        .find(|h| h["algo"].as_i64() == Some(1))
+        .and_then(|h| h["value"].as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+}
+
+fn parse_manifest_files(
+    modpack_info: &Value,
+    instance_dir: &Path,
+) -> (Vec<PackFile>, Vec<CfFileRef>, usize) {
+    let mut pack_files: Vec<PackFile> = Vec::new();
+    let mut cf_refs: Vec<CfFileRef> = Vec::new();
+    let mut no_url_files = 0usize;
+
+    let Some(arr) = modpack_info["files"].as_array() else {
+        return (pack_files, cf_refs, no_url_files);
+    };
+
+    for it in arr {
+        let rel = it["path"].as_str().unwrap_or("").trim().to_string();
+        if !rel.is_empty() {
+            let url = it["downloads"]
+                .as_array()
+                .and_then(|a| a.iter().find_map(|u| u.as_str()))
+                .or_else(|| it["downloadUrl"].as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if url.is_empty() {
+                no_url_files += 1;
+                continue;
+            }
+            // ⚠️ 2026-11-04（审计 BE-02）：原来这里只判 `is_err()` 就丢掉
+            // `resolve_in_dir` 返回的规范路径，下载时仍用**原始 rel** 去
+            // `root.join(&rel)`。而 `resolve_in_dir` 内部会
+            // `trim_start_matches('/')`，让 `/data/data/...` 这种绝对路径「校验通过」；
+            // Rust 的 `Path::join` 遇到绝对路径又会丢掉 root → 清单能写任意文件。
+            // 现在先把 rel 净化成纯粹的相对路径，校验与落盘用同一个值。
+            let rel = match sanitize_pack_rel(&rel) {
+                Some(r) => r,
+                None => {
+                    tracing::warn!("跳过不安全的整合包条目 {rel}");
+                    continue;
+                }
+            };
+            if crate::fsutil::resolve_in_dir(instance_dir, &rel, "实例").is_err() {
+                tracing::warn!("跳过不安全的整合包条目 {rel}");
+                continue;
+            }
+            let sha1 = it["hashes"]["sha1"]
+                .as_str()
+                .map(|s| s.to_string())
+                .or_else(|| it["sha1"].as_str().map(|s| s.to_string()));
+            pack_files.push(PackFile {
+                rel_path: rel,
+                url,
+                sha1,
+            });
+        } else if let Some(file_id) = it["fileID"].as_u64() {
+            let project_id = it["projectID"].as_u64().unwrap_or(0);
+            cf_refs.push(CfFileRef {
+                project_id,
+                file_id,
+            });
+        } else {
+            no_url_files += 1;
+        }
+    }
+
+    (pack_files, cf_refs, no_url_files)
+}
+
+async fn cf_post_json(
+    client: &reqwest::Client,
+    mcim_url: &str,
+    official_url: &str,
+    body: &Value,
+    api_key: Option<&str>,
+) -> Option<Value> {
+    let mcim_resp = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        client.post(mcim_url).json(body).send(),
+    )
+    .await;
+    if let Ok(Ok(resp)) = mcim_resp {
+        if resp.status().is_success() {
+            if let Ok(val) = resp.json::<Value>().await {
+                return Some(val);
+            }
+        }
+    }
+
+    let key = api_key?;
+    let off_resp = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        client
+            .post(official_url)
+            .header("x-api-key", key)
+            .json(body)
+            .send(),
+    )
+    .await;
+    if let Ok(Ok(resp)) = off_resp {
+        if resp.status().is_success() {
+            if let Ok(val) = resp.json::<Value>().await {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+async fn resolve_curseforge_files(
+    ctx: &crate::progress::TaskCtx,
+    cf_refs: &[CfFileRef],
+    instance_dir: &Path,
+) -> (Vec<PackFile>, usize) {
+    let mut unique_ids: Vec<u64> = Vec::with_capacity(cf_refs.len());
+    let mut seen_ids = std::collections::HashSet::with_capacity(cf_refs.len());
+    for r in cf_refs {
+        if seen_ids.insert(r.file_id) {
+            unique_ids.push(r.file_id);
+        }
+    }
+
+    let total = unique_ids.len().max(1);
+    crate::progress::emit_install(
+        ctx,
+        "resolve",
+        &format!("正在解析模组清单… 0%（0/{total}）"),
+        0,
+        total,
+    );
+
+    let api_key = crate::settings::get_settings()
+        .await
+        .ok()
+        .and_then(|s| s.curseforge_api_key)
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty());
+
+    let client = crate::util::http_client().await;
+    let mut file_map: HashMap<u64, Value> = HashMap::new();
+    let mut resolved_count = 0usize;
+
+    for chunk in unique_ids.chunks(100) {
+        if ctx.check_cancelled().is_err() {
+            break;
+        }
+        let body = serde_json::json!({ "fileIds": chunk });
+        if let Some(val) = cf_post_json(
+            &client,
+            "https://mod.mcimirror.top/curseforge/v1/mods/files",
+            "https://api.curseforge.com/v1/mods/files",
+            &body,
+            api_key.as_deref(),
+        )
+        .await
+        {
+            if let Some(arr) = val["data"].as_array() {
+                for item in arr {
+                    if let Some(id) = item["id"].as_u64() {
+                        file_map.insert(id, item.clone());
+                    }
+                }
+            }
+        }
+        resolved_count = (resolved_count + chunk.len()).min(total);
+        let pct = ((resolved_count * 100) / total).min(100);
+        crate::progress::emit_install(
+            ctx,
+            "resolve",
+            &format!("正在解析模组清单… {pct}%（{resolved_count}/{total}）"),
+            resolved_count,
+            total,
+        );
+    }
+
+    let mut non_jar_mod_ids: Vec<u64> = Vec::new();
+    let mut seen_mods = std::collections::HashSet::new();
+    for item in file_map.values() {
+        let fname = item["fileName"].as_str().unwrap_or("");
+        if !fname.to_ascii_lowercase().ends_with(".jar") {
+            if let Some(mid) = item["modId"].as_u64() {
+                if seen_mods.insert(mid) {
+                    non_jar_mod_ids.push(mid);
+                }
+            }
+        }
+    }
+
+    let mut class_map: HashMap<u64, u64> = HashMap::new();
+    for chunk in non_jar_mod_ids.chunks(100) {
+        if ctx.check_cancelled().is_err() {
+            break;
+        }
+        let body = serde_json::json!({ "modIds": chunk });
+        if let Some(val) = cf_post_json(
+            &client,
+            "https://mod.mcimirror.top/curseforge/v1/mods",
+            "https://api.curseforge.com/v1/mods",
+            &body,
+            api_key.as_deref(),
+        )
+        .await
+        {
+            if let Some(arr) = val["data"].as_array() {
+                for m in arr {
+                    if let (Some(id), Some(cid)) = (m["id"].as_u64(), m["classId"].as_u64()) {
+                        class_map.insert(id, cid);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::with_capacity(cf_refs.len());
+    let mut unresolved = 0usize;
+    for r in cf_refs {
+        let Some(item) = file_map.get(&r.file_id) else {
+            unresolved += 1;
+            crate::util::log_line(&format!(
+                "[modpack] CurseForge 文件解析失败: projectID={}, fileID={}",
+                r.project_id, r.file_id
+            ));
+            continue;
+        };
+        let file_name = item["fileName"].as_str().unwrap_or("").trim();
+        if file_name.is_empty() {
+            unresolved += 1;
+            continue;
+        }
+        let folder = if file_name.to_ascii_lowercase().ends_with(".jar") {
+            "mods"
+        } else {
+            let mod_id = item["modId"].as_u64().unwrap_or(r.project_id);
+            match class_map.get(&mod_id).copied() {
+                Some(12) => "resourcepacks",
+                Some(6552) => "shaderpacks",
+                _ => "mods",
+            }
+        };
+        let raw_rel = format!("{folder}/{file_name}");
+        let Some(rel) = sanitize_pack_rel(&raw_rel) else {
+            unresolved += 1;
+            continue;
+        };
+        if crate::fsutil::resolve_in_dir(instance_dir, &rel, "实例").is_err() {
+            unresolved += 1;
+            continue;
+        }
+        let dl_url = item["downloadUrl"].as_str().unwrap_or("").trim();
+        let url = if dl_url.is_empty() {
+            curseforge_cdn_fallback_url(r.file_id, file_name)
+        } else {
+            dl_url.to_string()
+        };
+        out.push(PackFile {
+            rel_path: rel,
+            url,
+            sha1: extract_cf_sha1(item),
+        });
+    }
+
+    (out, unresolved)
+}
+
 /// 把 zip 里 `prefix` 下的条目**流式**解压到实例目录，返回文件数。
 ///
 /// 同步实现，由 `spawn_blocking` 调用（原因见 `import_modpack` 里那段注释）。
 fn extract_overrides_sync(
+    ctx: &crate::progress::TaskCtx,
     zip_path: &Path,
     instance_dir: &Path,
     prefix: &str,
@@ -352,17 +640,48 @@ fn extract_overrides_sync(
     let file = std::fs::File::open(zip_path).map_err(|e| format!("打开整合包失败: {e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("解析整合包失败: {e}"))?;
 
+    let mut total_files = 0usize;
+    let mut total_bytes = 0u64;
+    for i in 0..archive.len() {
+        let Ok(entry) = archive.by_index_raw(i) else {
+            continue;
+        };
+        if entry.is_dir() {
+            continue;
+        }
+        let entry_name = entry.name().replace('\\', "/");
+        let Some(rel) = entry_name.strip_prefix(prefix) else {
+            continue;
+        };
+        if !rel.trim_start_matches('/').is_empty() {
+            total_files += 1;
+            total_bytes = total_bytes.saturating_add(entry.size());
+        }
+    }
+
+    let total_units = if total_bytes > 0 { 1000 } else { total_files.max(1) };
+    crate::progress::emit_install(
+        ctx,
+        "extract",
+        &format!("正在解压整合包内容… 0%（0/{total_files}）"),
+        0,
+        total_units,
+    );
+
     // 2026-10-29（审计 B13）：整合包是**用户从网上下载**的东西，最容易被塞
     // zip bomb（解压后几十 GB / 上百万个小文件）把手机存储写满。
     let mut budget = crate::zip_guard::ZipBudget::new();
 
     let mut extracted = 0usize;
+    let mut extracted_bytes = 0u64;
+    let mut last_emit = std::time::Instant::now();
     for i in 0..archive.len() {
+        ctx.check_cancelled().map_err(|e| e.to_string())?;
         let mut entry = match archive.by_index(i) {
             Ok(e) => e,
             Err(_) => continue,
         };
-        let entry_name = entry.name().to_string();
+        let entry_name = entry.name().replace('\\', "/");
         let Some(rel) = entry_name.strip_prefix(prefix) else {
             continue;
         };
@@ -389,10 +708,43 @@ fn extract_overrides_sync(
             }
             let mut out = std::fs::File::create(&dest_path)
                 .map_err(|e| format!("创建文件失败 {}: {e}", dest_path.display()))?;
-            budget.copy_entry(&mut entry, &mut out)?;
+            let files_so_far = extracted;
+            budget.copy_entry_with_progress(&mut entry, &mut out, |n| {
+                extracted_bytes = extracted_bytes.saturating_add(n);
+                if last_emit.elapsed() >= std::time::Duration::from_millis(150) {
+                    last_emit = std::time::Instant::now();
+                    let pct = if total_bytes > 0 {
+                        ((extracted_bytes * 100) / total_bytes).min(100)
+                    } else if total_files > 0 {
+                        ((files_so_far * 100) / total_files).min(100) as u64
+                    } else {
+                        100
+                    };
+                    let done = if total_bytes > 0 {
+                        ((extracted_bytes * 1000) / total_bytes).min(1000) as usize
+                    } else {
+                        files_so_far
+                    };
+                    crate::progress::emit_install(
+                        ctx,
+                        "extract",
+                        &format!("正在解压整合包内容… {pct}%（{files_so_far}/{total_files}）"),
+                        done,
+                        total_units,
+                    );
+                }
+            })?;
             extracted += 1;
         }
     }
+
+    crate::progress::emit_install(
+        ctx,
+        "extract",
+        &format!("解压完成 100%（{extracted}/{total_files}）"),
+        total_units,
+        total_units,
+    );
     Ok(extracted)
 }
 
@@ -523,55 +875,9 @@ pub async fn import_modpack(file_path: &str) -> Result<ModpackImportResult> {
 
     // ── 解析 `files[]`（以前完全没有这一步 → 装出来是个空整合包）──────────
     // Modrinth 的条目带真实直链（`downloads[]`）；
-    // CurseForge 的条目只有 projectID/fileID，换直链需要官方 API 且第三方客户端受限，
-    // 那部分只能统计数量后**如实提示**，不能假装装好了。
-    let mut pack_files: Vec<PackFile> = Vec::new();
-    let mut no_url_files = 0usize;
-    if let Some(arr) = modpack_info["files"].as_array() {
-        for it in arr {
-            let rel = it["path"].as_str().unwrap_or("").trim().to_string();
-            if rel.is_empty() {
-                continue;
-            }
-            let url = it["downloads"]
-                .as_array()
-                .and_then(|a| a.iter().find_map(|u| u.as_str()))
-                .or_else(|| it["downloadUrl"].as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if url.is_empty() {
-                no_url_files += 1;
-                continue;
-            }
-            // ⚠️ 2026-11-04（审计 BE-02）：原来这里只判 `is_err()` 就丢掉
-            // `resolve_in_dir` 返回的规范路径，下载时仍用**原始 rel** 去
-            // `root.join(&rel)`。而 `resolve_in_dir` 内部会
-            // `trim_start_matches('/')`，让 `/data/data/...` 这种绝对路径「校验通过」；
-            // Rust 的 `Path::join` 遇到绝对路径又会丢掉 root → 清单能写任意文件。
-            // 现在先把 rel 净化成纯粹的相对路径，校验与落盘用同一个值。
-            let rel = match sanitize_pack_rel(&rel) {
-                Some(r) => r,
-                None => {
-                    tracing::warn!("跳过不安全的整合包条目 {rel}");
-                    continue;
-                }
-            };
-            if crate::fsutil::resolve_in_dir(&instance_dir, &rel, "实例").is_err() {
-                tracing::warn!("跳过不安全的整合包条目 {rel}");
-                continue;
-            }
-            let sha1 = it["hashes"]["sha1"]
-                .as_str()
-                .map(|s| s.to_string())
-                .or_else(|| it["sha1"].as_str().map(|s| s.to_string()));
-            pack_files.push(PackFile {
-                rel_path: rel,
-                url,
-                sha1,
-            });
-        }
-    }
+    // CurseForge 的条目只有 projectID/fileID，通过 MCIM（免 API Key）或用户自配 Key 批量换取直链。
+    let (mut pack_files, cf_refs, mut no_url_files) =
+        parse_manifest_files(&modpack_info, &instance_dir);
 
     // 解压 overrides。三件事：
     //   1. **zip-slip**：目标路径经 `fsutil::resolve_in_dir` 校验，条目名里的 `../..`
@@ -583,18 +889,30 @@ pub async fn import_modpack(file_path: &str) -> Result<ModpackImportResult> {
     // 这里重新打开一次 zip 而不是把 `archive` move 进闭包：闭包要求 `Send`，
     // 而重开只读一次目录头，代价可忽略。
     let ctx = crate::progress::TaskCtx::new(&instance_id, &instance_name, "整合包导入");
-    crate::progress::emit_install(&ctx, "extract", "正在解压整合包内容…", 0, 1);
     let zip_path = std::path::PathBuf::from(file_path);
     let instance_dir_for_extract = instance_dir.clone();
     let prefix_for_extract = prefix.clone();
+    let ctx_for_extract = ctx.clone();
     let extracted = tokio::task::spawn_blocking(move || {
-        extract_overrides_sync(&zip_path, &instance_dir_for_extract, &prefix_for_extract)
+        extract_overrides_sync(
+            &ctx_for_extract,
+            &zip_path,
+            &instance_dir_for_extract,
+            &prefix_for_extract,
+        )
     })
     .await
     .map_err(|e| anyhow::anyhow!("解压任务失败: {e}"))?
     // `String` 不是 `StdError`，anyhow 不会自动转换，得显式包一层
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     tracing::info!("整合包 overrides 解压完成：{extracted} 个文件");
+
+    if !cf_refs.is_empty() {
+        let (cf_pack_files, unresolved) =
+            resolve_curseforge_files(&ctx, &cf_refs, &instance_dir).await;
+        pack_files.extend(cf_pack_files);
+        no_url_files += unresolved;
+    }
 
     // ── 下载 `files[]` 里的远程内容（mods / resourcepacks / shaderpacks…）──
     // 走 `download::download_file` 而不是自己发请求，是为了复用镜像改写、SHA1 校验
@@ -607,6 +925,7 @@ pub async fn import_modpack(file_path: &str) -> Result<ModpackImportResult> {
     let mut failed = 0usize;
     if !pack_files.is_empty() {
         let total = pack_files.len();
+        crate::progress::emit_install(&ctx, "content", "正在下载模组与资源…", 0, total);
         // **并发下载**（这里原先是逐个 `.await` 的串行循环）：整合包动辄几十上百个内容
         // 文件，串行意味着每个都要等一次完整往返 —— 几十个文件就是几分钟白等。
         // 桌面端同一段走的就是并发（`download_many`），安卓这边落下了。
@@ -655,7 +974,7 @@ pub async fn import_modpack(file_path: &str) -> Result<ModpackImportResult> {
                     crate::progress::emit_install(
                         &ctx,
                         "content",
-                        &format!("已下载 {n}/{total} 个内容文件"),
+                        "正在下载模组与资源…",
                         n,
                         total,
                     );
@@ -1096,4 +1415,77 @@ pub async fn get_installed_mods(instance_id: &str) -> Result<Vec<InstalledConten
         }
     }
     Ok(mods)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn curseforge_cdn_fallback_url_encodes_filename() {
+        assert_eq!(
+            curseforge_cdn_fallback_url(4672226, "waystones-fabric-1.20-14.1.19.jar"),
+            "https://edge.forgecdn.net/files/4672/226/waystones-fabric-1.20-14.1.19.jar"
+        );
+        assert_eq!(
+            curseforge_cdn_fallback_url(123456, "My Mod [1.20.1].jar"),
+            "https://edge.forgecdn.net/files/123/456/My%20Mod%20%5B1.20.1%5D.jar"
+        );
+    }
+
+    #[test]
+    fn extract_cf_sha1_picks_algo_1() {
+        let with_sha1 = serde_json::json!({
+            "hashes": [
+                { "algo": 2, "value": "md5val" },
+                { "algo": 1, "value": "abc123sha1" }
+            ]
+        });
+        assert_eq!(extract_cf_sha1(&with_sha1).as_deref(), Some("abc123sha1"));
+
+        let only_md5 = serde_json::json!({
+            "hashes": [{ "algo": 2, "value": "md5val" }]
+        });
+        assert_eq!(extract_cf_sha1(&only_md5), None);
+        assert_eq!(extract_cf_sha1(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn parse_manifest_files_handles_modrinth_and_curseforge() {
+        let dir = std::env::temp_dir().join(format!("qookix_mp_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let manifest = serde_json::json!({
+            "files": [
+                {
+                    "path": "mods/sodium.jar",
+                    "downloads": ["https://cdn.modrinth.com/data/x/sodium.jar"],
+                    "hashes": { "sha1": "deadbeef" }
+                },
+                {
+                    "projectID": 245755,
+                    "fileID": 4672226,
+                    "required": true
+                },
+                {
+                    "unknown": true
+                }
+            ]
+        });
+
+        let (pack_files, cf_refs, no_url) = parse_manifest_files(&manifest, &dir);
+        assert_eq!(pack_files.len(), 1);
+        assert_eq!(pack_files[0].rel_path, "mods/sodium.jar");
+        assert_eq!(pack_files[0].sha1.as_deref(), Some("deadbeef"));
+        assert_eq!(
+            cf_refs,
+            vec![CfFileRef {
+                project_id: 245755,
+                file_id: 4672226
+            }]
+        );
+        assert_eq!(no_url, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -408,6 +408,7 @@ private fun InstanceCard(
     val activeTask = task?.takeIf { !it.finished }
     // 按下缩放：combinedClickable 必须显式接收这个 source，
     // 否则它内部自建一个，pressScale 永远收不到按压事件
+    val compactHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 500
     val pressSource = remember { MutableInteractionSource() }
 
     // ── 共享元素：起飞点（2026-10-27）─────────────────────────────────
@@ -440,7 +441,8 @@ private fun InstanceCard(
                             label = inst.name.take(1).uppercase(),
                             background = iconBg,
                             foreground = iconFg,
-                            estimate = estimatedLanding(density),
+                            estimate = estimatedLanding(density, compactHeight),
+                            iconPath = inst.iconPath?.takeIf { it.isNotBlank() && java.io.File(it).isFile },
                         )
                         // ⚠️ 不要在这里启动飞行循环：卡片马上会被切页销毁，
                         // `rememberCoroutineScope` 一取消循环就死，图标会永远卡住。

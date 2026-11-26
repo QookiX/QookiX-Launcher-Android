@@ -8,7 +8,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.zhayi.qookix.R
@@ -56,9 +55,6 @@ fun ServerDetailRoute(
     DisposableEffect(scope) { onDispose { scope.active = false } }
     var serverName by remember(scope) { mutableStateOf("") }
     var serverConfigLoaded by remember(scope) { mutableStateOf(false) }
-    var renameDraft by rememberSaveable(serverId) { mutableStateOf<String?>(null) }
-    var renamePending by remember(scope) { mutableStateOf(false) }
-    var renameError by remember(scope) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(scope) {
         if (!bridgeReady) return@LaunchedEffect
@@ -352,54 +348,13 @@ fun ServerDetailRoute(
         }
     }
 
-    fun saveServerName() {
-        val requestedName = renameDraft?.trim().orEmpty()
-        if (!serverConfigLoaded || renamePending || requestedName.isBlank() || requestedName == serverName) return
-        renamePending = true
-        renameError = null
-        api.updateHostedServer(org.json.JSONObject().put("id", serverId).put("name", requestedName)) { result ->
-            result.onSuccess { config ->
-                val savedName = config.optString("name", requestedName)
-                if (TunnelSharing.ownerServerId == serverId) TunnelSharing.ownerServerName = savedName
-                if (scope.active) {
-                    serverName = savedName
-                    renameDraft = null
-                    state = state.copy(notice = ctx.getString(R.string.server_detail_name_saved))
-                }
-            }.onFailure {
-                if (scope.active) {
-                    renameError = ctx.getString(R.string.server_detail_rename_failed, friendlyError(ctx, it))
-                }
-            }
-            if (scope.active) renamePending = false
-        }
+    val rename = rememberServerRenameAction(api, serverId, serverName, serverConfigLoaded, { scope.active }) { name ->
+        serverName = name
+        state = state.copy(notice = ctx.getString(R.string.server_detail_name_saved))
     }
-
-    renameDraft?.let { draft ->
-        ServerRenameDialog(
-            draft = draft,
-            pending = renamePending,
-            error = renameError,
-            canSave = serverConfigLoaded && draft.isNotBlank() && draft.trim() != serverName,
-            onChange = {
-                renameDraft = it
-                renameError = null
-            },
-            onSave = ::saveServerName,
-            onDismiss = {
-                if (!renamePending) renameDraft = null
-            },
-        )
-    }
-
     ServerDetailPage(
         state = state.copy(name = serverName.ifBlank { ctx.getString(R.string.server_detail_untitled) }),
-        onRename = if (serverConfigLoaded) {
-            {
-                renameDraft = serverName
-                renameError = null
-            }
-        } else null,
+        onRename = rename,
         onTabChange = { state = state.copy(tab = it) },
         onBack = onBack,
         onStart = startAction,

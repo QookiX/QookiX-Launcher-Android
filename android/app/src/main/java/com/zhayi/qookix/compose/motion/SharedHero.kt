@@ -2,6 +2,7 @@ package com.zhayi.qookix.compose.motion
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -188,7 +189,13 @@ object SharedHero {
  * 详情页 hero 固定在「内容区左上 + 页面内边距」处（48dp 图标）。
  * 误差几十 dp 无妨：真实落点到达后目标会变，指数趋近自动追。
  */
-fun estimatedLanding(density: Density): Rect = with(density) {
+fun estimatedLanding(density: Density, compactHeight: Boolean = false): Rect = with(density) {
+    if (compactHeight) {
+        val size = 26.dp.toPx()
+        val left = SharedHero.contentOrigin.x + 20.dp.toPx()
+        val top = (SharedHero.contentOrigin.y - 40.dp.toPx()).coerceAtLeast(8.dp.toPx())
+        return@with Rect(left, top, left + size, top + size)
+    }
     // 侧栏与顶栏已经在 contentOrigin 里了：以前写死 168dp / 64dp，
     // 横屏默认收起（88dp）时会偏右 80dp，竖屏没有侧栏会偏右 168dp。
     val pagePad = 20.dp.toPx()
@@ -208,8 +215,6 @@ fun estimatedLanding(density: Density): Rect = with(density) {
 @Composable
 fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
     val launch = SharedHero.pending
-    // 估算落点要按内容区真实原点算（侧栏宽度会变、竖屏没有侧栏）
-    androidx.compose.runtime.SideEffect { SharedHero.contentOrigin = origin }
     // 浮层销毁（旋转 / Activity 重建）时强制收尾：协程被取消后全局状态不能留着
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { SharedHero.finish() } }
     // ⚠️ 飞行循环必须由**浮层**驱动，不能由卡片启动：
@@ -223,6 +228,8 @@ fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
     val rect = SharedHero.current.value ?: return
     val density = LocalDensity.current
 
+    val hasIcon = !launch.iconPath.isNullOrBlank() && java.io.File(launch.iconPath).isFile
+    Box(modifier = Modifier.fillMaxSize()) {
     Box(
         modifier = modifier
             .offset {
@@ -236,15 +243,15 @@ fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
                 height = with(density) { rect.height.coerceAtLeast(1f).toDp() },
             )
             .clip(RoundedCornerShape(QkRadius.medium))
-            .background(launch.background),
+            .then(if (hasIcon) Modifier else Modifier.background(launch.background)),
         contentAlignment = Alignment.Center,
     ) {
-        if (!launch.iconPath.isNullOrBlank()) {
-            com.zhayi.qookix.compose.ui.QkImage(
-                model = java.io.File(launch.iconPath),
+        if (hasIcon) {
+            coil3.compose.AsyncImage(
+                model = java.io.File(launch.iconPath!!),
                 contentDescription = null,
-                modifier = Modifier.size(with(density) { rect.width.coerceAtLeast(1f).toDp() }),
-                cornerRadius = QkRadius.medium,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             )
         } else {
             Text(
@@ -254,5 +261,6 @@ fun SharedHeroOverlay(origin: Offset, modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.Bold,
             )
         }
+    }
     }
 }

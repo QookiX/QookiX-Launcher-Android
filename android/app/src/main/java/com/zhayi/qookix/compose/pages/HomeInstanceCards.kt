@@ -170,22 +170,32 @@ internal fun CurrentInstanceCard(
             }
 
             // 实例图标（大）
+            val heroIconFile = inst.iconPath?.takeIf { it.isNotBlank() }?.let { java.io.File(it) }?.takeIf { it.isFile }
             Surface(
                 modifier = Modifier
                     .size(if (compact) 64.dp else 96.dp)
                     .clip(RoundedCornerShape(QkRadius.card)),
-                color = MaterialTheme.colorScheme.primaryContainer,
+                color = if (heroIconFile != null) androidx.compose.ui.graphics.Color.Transparent else MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        // ⚠️ 取「首个字母或数字」而不是 take(1)：
-                        // 实例名常以版本号开头（如「26.3」），take(1) 只会得到 "2"，
-                        // 看起来像页码而不是图标。这里取首个字母/数字组成的短标记。
-                        text = iconGlyph(inst.name),
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+                    if (heroIconFile != null) {
+                        coil3.compose.AsyncImage(
+                            model = heroIconFile,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                    } else {
+                        Text(
+                            // ⚠️ 取「首个字母或数字」而不是 take(1)：
+                            // 实例名常以版本号开头（如「26.3」），take(1) 只会得到 "2"，
+                            // 看起来像页码而不是图标。这里取首个字母/数字组成的短标记。
+                            text = iconGlyph(inst.name),
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
                 }
             }
 
@@ -304,19 +314,29 @@ internal fun RecentInstanceCard(inst: InstanceUi, onClick: () -> Unit) {
         ),
     ) {
         Column(modifier = Modifier.padding(QkSpacing.md)) {
+            val recentIconFile = inst.iconPath?.takeIf { it.isNotBlank() }?.let { java.io.File(it) }?.takeIf { it.isFile }
             Surface(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(QkRadius.medium)),
-                color = MaterialTheme.colorScheme.secondaryContainer,
+                color = if (recentIconFile != null) androidx.compose.ui.graphics.Color.Transparent else MaterialTheme.colorScheme.secondaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = inst.name.take(1).uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
+                    if (recentIconFile != null) {
+                        coil3.compose.AsyncImage(
+                            model = recentIconFile,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                    } else {
+                        Text(
+                            text = inst.name.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(QkSpacing.sm))

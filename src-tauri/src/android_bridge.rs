@@ -254,17 +254,6 @@ pub fn start_jvm_install_service(json: &str) -> Option<()> {
     )
 }
 
-/// 导出（分享）某个目录里的日志：原生侧打成 zip 再弹系统分享。
-#[cfg(target_os = "android")]
-pub fn share_logs_zip(archive_name: &str, dir: &str) {
-    let _ = android::call_activity2(
-        "shareLogsZip",
-        "(Ljava/lang/String;Ljava/lang/String;)V",
-        archive_name,
-        dir,
-    );
-}
-
 /// 把**已经存在的文件**交给系统分享（导出的整合包等）。
 ///
 /// `path` 必须落在 FileProvider 映射过的目录里（见 `res/xml/file_paths.xml`），

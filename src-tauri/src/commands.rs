@@ -310,8 +310,7 @@ async fn resolve_launch_account(instance_id: &str) -> Option<Account> {
     accounts.into_iter().next()
 }
 pub async fn launch_game(instance_id: String, world: Option<String>, server: Option<String>) -> Result<GameStatus, String> {
-    // 安卓端暂不支持「快速进入世界/服务器」，参数保留以兼容前端签名
-    let _ = (world, server);
+    launch::set_pending_quick_play(&instance_id, world, server);
 
     // 安卓：游戏必须跑在带 SurfaceView 的 GameActivity 里（GL4ES 需要真正的 Surface）。
     // 这里只负责把界面拉起来；真正的 JVM 启动由 GameActivity → TauriBridge.launchGame 触发。

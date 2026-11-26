@@ -46,6 +46,9 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 	private boolean mIsModified;
 	private boolean mControlVisible = false;
 	private boolean mReadOnlyPreview;
+	private boolean mEditorPreview = false;
+	private boolean mPreviewMouse = false;
+	private Runnable mEditorPreviewListener;
 	private boolean mExternalInput;
 	private int mExternalSource = ControlInputSource.SOURCE_NONE;
 	private boolean mGrabbing;
@@ -266,6 +269,48 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 
 	public void setReadOnlyPreview(boolean preview) { mReadOnlyPreview = preview; refreshControlVisibility(); }
 	public boolean isReadOnlyPreview() { return mReadOnlyPreview; }
+	public boolean isEditorPreview() { return mEditorPreview; }
+	public void setEditorPreview(boolean enabled) {
+		if (mReadOnlyPreview || mEditorPreview == enabled) return;
+		mEditorPreview = enabled;
+		if (enabled) {
+			removeEditWindow();
+			mModifiable = false;
+			if (mEditorScene == ControlScene.ALL) mEditorScene = ControlScene.GAMEPLAY;
+		} else {
+			releaseHeldControls();
+			mModifiable = true;
+			mPreviewMouse = false;
+		}
+		refreshControlVisibility();
+		if (mEditorPreviewListener != null) mEditorPreviewListener.run();
+	}
+	public boolean isPreviewMouse() { return mPreviewMouse; }
+	public void setPreviewMouse(boolean mouse) { mPreviewMouse = mouse; refreshControlVisibility(); }
+	public void setEditorPreviewListener(Runnable listener) { mEditorPreviewListener = listener; }
+	public void resetGroupVisibility() {
+		groupVisibility.clear();
+		refreshControlVisibility();
+	}
+	public void setAllGroupsVisible(boolean visible) {
+		if (mLayout == null) return;
+		if (mLayout.mLayerDataList != null) {
+			for (ControlLayerData layer : mLayout.mLayerDataList) {
+				if (layer != null && layer.id != null && !layer.id.isEmpty()) groupVisibility.put(layer.id, visible);
+			}
+		}
+		if (mLayout.mControlDataList != null) {
+			for (ControlData data : mLayout.mControlDataList) {
+				if (data.groupId != null && !data.groupId.isEmpty()) groupVisibility.put(data.groupId, visible);
+			}
+		}
+		if (mLayout.mJoystickDataList != null) {
+			for (ControlJoystickData data : mLayout.mJoystickDataList) {
+				if (data.groupId != null && !data.groupId.isEmpty()) groupVisibility.put(data.groupId, visible);
+			}
+		}
+		refreshControlVisibility();
+	}
 	public ControlScene getEditorScene() { return mEditorScene; }
 	public void setEditorScene(ControlScene scene) { removeEditWindow(); mEditorScene = scene; refreshControlVisibility(); }
 
@@ -284,6 +329,12 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 
 	public final HudKeyOwners hudKeys = new HudKeyOwners();
 	public void forceScene(ControlScene scene) {
+		if (mEditorPreview) {
+			if (mEditorScene == scene) return;
+			mEditorScene = scene;
+			refreshControlVisibility();
+			return;
+		}
 		if (mModifiable || mForcedScene == scene) return;
 		mForcedScene = scene;
 		refreshControlVisibility();
@@ -313,21 +364,28 @@ public class ControlLayout extends FrameLayout implements GrabListener {
 
 	public void refreshControlVisibility() {
 		if (mLayout == null) return;
-		boolean preview = mModifiable || mReadOnlyPreview;
-		ControlScene scene = preview ? mEditorScene
+		boolean inEditorOrPreview = mModifiable || mReadOnlyPreview || mEditorPreview;
+		ControlScene scene = inEditorOrPreview ? mEditorScene
 				: (mForcedScene != null ? mForcedScene : (mGrabbing ? ControlScene.GAMEPLAY : ControlScene.MENU));
-		boolean hideForDevice = !preview && mExternalInput && mLayout.hideTouchControlsWithExternalInput;
+		boolean effectiveExternal = mEditorPreview ? mPreviewMouse : (!inEditorOrPreview && mExternalInput);
+		int effectiveSource = mEditorPreview
+				? (mPreviewMouse ? ControlInputSource.SOURCE_MOUSE : ControlInputSource.SOURCE_NONE)
+				: mExternalSource;
+		boolean applyLayerRules = !mModifiable || mEditorScene != ControlScene.ALL;
+		boolean hideForDevice = (!inEditorOrPreview || mEditorPreview)
+				&& effectiveExternal && mLayout.hideTouchControlsWithExternalInput;
 		// 手柄例外（ZL2 的 hideWhenGamepad）：接了手柄但只想藏一半时仍保留触控键
-		if (hideForDevice && mExternalSource == ControlInputSource.SOURCE_GAMEPAD
+		if (hideForDevice && effectiveSource == ControlInputSource.SOURCE_GAMEPAD
 				&& mLayout.keepTouchControlsWithGamepad) hideForDevice = false;
 		for (ControlInterface button : getButtonChildren()) {
 			if (button instanceof ControlSubButton) continue;
 			ControlData data = button.getProperties();
 			boolean included = scene.shows(data.displayInGame, data.displayInMenu);
 			boolean visible = ControlLayerVisibility.visible(mLayout, data.groupId, !data.groupInitiallyHidden,
-					groupVisibility, scene, !preview || mReadOnlyPreview, preview, mExternalInput, mExternalSource);
-			button.setVisible(preview ? included && (!mReadOnlyPreview || visible)
-					: visible && !hideForDevice && (!data.isHideable || (mControlVisible && included)));
+					groupVisibility, scene, applyLayerRules, mModifiable, effectiveExternal, effectiveSource);
+			button.setVisible(inEditorOrPreview
+					? (included && visible && !hideForDevice)
+					: (visible && !hideForDevice && (!data.isHideable || (mControlVisible && included))));
 		}
 		if (mVisibilityListener != null) mVisibilityListener.run();
 	}

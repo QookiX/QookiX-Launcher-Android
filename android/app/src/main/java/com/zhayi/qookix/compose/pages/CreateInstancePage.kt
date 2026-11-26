@@ -202,10 +202,15 @@ fun CreateInstancePage(
                             modifier = barMod,
                         )
                         Spacer(Modifier.height(QkSpacing.xs))
+                        val pct = if (importTotal > 0) {
+                            ((importDone.toLong() * 100) / importTotal).coerceIn(0, 100)
+                        } else null
+                        val stageLabel = importStage.ifBlank { "正在导入…" }
                         Text(
-                            text = buildString {
-                                append(importStage.ifBlank { "正在导入…" })
-                                if (importTotal > 0) append("（$importDone/$importTotal）")
+                            text = when {
+                                stageLabel.contains("%") -> stageLabel
+                                pct != null -> "$stageLabel ${pct}%（$importDone/$importTotal）"
+                                else -> stageLabel
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

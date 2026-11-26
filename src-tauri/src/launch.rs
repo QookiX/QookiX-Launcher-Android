@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use tokio::fs;
@@ -11,6 +11,46 @@ use crate::natives::NativesExtractor;
 use crate::jvm_launcher::JvmLauncher;
 
 static GAME_STATUS: OnceLock<Mutex<GameStatus>> = OnceLock::new();
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuickPlayTarget {
+    pub instance_id: String,
+    pub world: Option<String>,
+    pub server: Option<String>,
+}
+
+static PENDING_QUICK_PLAY: OnceLock<Mutex<Option<QuickPlayTarget>>> = OnceLock::new();
+
+pub fn set_pending_quick_play(instance_id: &str, world: Option<String>, server: Option<String>) {
+    let world = world.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let server = server.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let slot = PENDING_QUICK_PLAY.get_or_init(|| Mutex::new(None));
+    if let Ok(mut guard) = slot.lock() {
+        *guard = if world.is_some() || server.is_some() {
+            Some(QuickPlayTarget {
+                instance_id: instance_id.to_string(),
+                world,
+                server,
+            })
+        } else {
+            None
+        };
+    }
+}
+
+fn take_pending_quick_play(instance_id: &str) -> Option<QuickPlayTarget> {
+    let slot = PENDING_QUICK_PLAY.get_or_init(|| Mutex::new(None));
+    let mut guard = slot.lock().ok()?;
+    let matched = guard.as_ref().map(|t| t.instance_id == instance_id).unwrap_or(false);
+    if matched { guard.take() } else { None }
+}
+
+fn supports_quick_play(mc_version: &str) -> bool {
+    let mut parts = mc_version.split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty());
+    let Some(major) = parts.next().and_then(|s| s.parse::<u32>().ok()) else { return false };
+    let minor = parts.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+    major > 1 || (major == 1 && minor >= 20)
+}
 
 /// 本次启动的时间戳（epoch 秒），用来判断「起来没几秒就退出」。
 ///
@@ -357,6 +397,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             _ => None,
         };
         let game_dir = instance_dir.to_string_lossy().to_string();
+        let quick_play = take_pending_quick_play(instance_id);
         let mut game_args = build_game_args(
             &instance,
             account,
@@ -364,6 +405,7 @@ pub async fn launch_game(instance_id: &str, account: Option<&Account>) -> Result
             &game_dir,
             ms_token.as_deref(),
             skin_session.as_ref(),
+            quick_play.as_ref(),
         )?;
 
         normalize_options_txt(Path::new(&game_dir));
@@ -1239,51 +1281,15 @@ pub async fn read_instance_log(instance_id: &str) -> anyhow::Result<String> {
 /// 电脑 MTP 也看不到。实测表现就是 MT 报「该文件被设置了私有权限」，玩家根本没法把日志发出来。
 /// 打包 zip 后走系统分享（FileProvider 的 `cache-path`）是唯一稳定的出路。
 pub async fn export_instance_logs(instance_id: &str) -> anyhow::Result<()> {
-    let root = crate::settings::instances_root_sync().ok_or_else(|| {
-        anyhow::anyhow!("实例目录还没准备好，先启动一次游戏")
-    })?;
-    let dir = std::path::Path::new(&root).join(instance_id).join("logs");
-    if !dir.is_dir() {
-        anyhow::bail!("这个实例还没有日志");
-    }
-    // 归档名带版本名，方便对方一眼看出是哪台设备的日志
-    let tag = crate::settings::instances_root_sync()
-        .and_then(|r| {
-            std::fs::read_to_string(
-                std::path::Path::new(&r).join(instance_id).join("instance.json"),
-            )
-            .ok()
-        })
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .and_then(|v| v.get("version_name").and_then(|x| x.as_str()).map(String::from))
-        .unwrap_or_else(|| "minecraft".to_string());
-    // 把**启动器自身**的崩溃记录也带上。
-    //
-    // 用户报「点设置闪退 / 启动游戏几秒后闪退」时，只有游戏日志是没用的 ——
-    // 崩溃发生在 Kotlin 侧，栈写在私有目录的 crash-last.txt（见
-    // ComposeMainActivity.installCrashHandler）。拷进 logs 目录后，
-    // 现成的分享流程就能把它带出来，不用让用户折腾 adb。
-    if let Some(data) = crate::settings::data_dir_sync() {
-        let crash = std::path::Path::new(&data).join("crash-last.txt");
-        if crash.is_file() {
-            let _ = std::fs::copy(&crash, dir.join("launcher-crash.txt"));
-        }
-    }
-
-    let archive = format!("qookix-logs-{}-{}.zip", sanitize(&tag), instance_id);
-    // 系统分享面板只有安卓有；桌面端（以及跑单测的宿主目标）没有这一步
-    #[cfg(target_os = "android")]
-    crate::android_bridge::share_logs_zip(&archive, &dir.to_string_lossy());
-    #[cfg(not(target_os = "android"))]
-    let _ = &archive;
+    crate::fsutil::validate_id(instance_id, "实例").map_err(anyhow::Error::msg)?;
+    let data = PathBuf::from(crate::settings::get_data_dir().await?);
+    let root = crate::settings::instances_root_sync().context("实例目录还没准备好")?;
+    let instance = Path::new(&root).join(instance_id);
+    let id = instance_id.to_string();
+    let archive = tokio::task::spawn_blocking(move || crate::log_export::build(&data, &instance, &id))
+        .await.context("打包日志任务失败")??;
+    crate::android_bridge::share_file(&archive.to_string_lossy(), "application/zip");
     Ok(())
-}
-
-/// 文件名里不能有路径分隔符等
-fn sanitize(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
-        .collect()
 }
 
 fn read_instance_log_sync(instance_id: &str, data_dir: &str) -> anyhow::Result<String> {
@@ -1881,6 +1887,7 @@ fn build_game_args(
     game_dir: &str,
     ms_access_token: Option<&str>,
     skin_session: Option<&crate::yggdrasil::LaunchSession>,
+    quick_play: Option<&QuickPlayTarget>,
 ) -> Result<Vec<String>> {
     let mut args = Vec::new();
 
@@ -1944,6 +1951,36 @@ fn build_game_args(
         args.push(h.to_string());
     }
 
+    if let Some(qp) = quick_play {
+        if let Some(world) = &qp.world {
+            if supports_quick_play(&instance.mc_version) {
+                args.push("--quickPlaySingleplayer".to_string());
+                args.push(world.clone());
+            } else {
+                crate::util::log_line(&format!(
+                    "[launch] MC {} 不支持 --quickPlaySingleplayer，已按普通启动",
+                    instance.mc_version
+                ));
+            }
+        } else if let Some(server) = &qp.server {
+            if supports_quick_play(&instance.mc_version) {
+                args.push("--quickPlayMultiplayer".to_string());
+                args.push(server.clone());
+            } else {
+                let mut parts = server.splitn(2, ':');
+                let host = parts.next().unwrap_or("").trim();
+                if !host.is_empty() {
+                    args.push("--server".to_string());
+                    args.push(host.to_string());
+                    if let Some(port) = parts.next().map(str::trim).filter(|p| !p.is_empty()) {
+                        args.push("--port".to_string());
+                        args.push(port.to_string());
+                    }
+                }
+            }
+        }
+    }
+
     if let Some(custom_args) = &instance.game_args {
         args.extend(crate::launch_compat::split_shell_args(custom_args));
     }
@@ -1956,4 +1993,36 @@ fn build_game_args(
     }
 
     Ok(args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn supports_quick_play_checks_mc_version() {
+        assert!(supports_quick_play("1.20"));
+        assert!(supports_quick_play("1.20.1"));
+        assert!(supports_quick_play("1.21.1"));
+        assert!(supports_quick_play("26.3"));
+        assert!(!supports_quick_play("1.19.4"));
+        assert!(!supports_quick_play("1.12.2"));
+        assert!(!supports_quick_play("1.8.9"));
+    }
+
+    #[test]
+    fn pending_quick_play_is_consumed_once_for_matching_instance() {
+        set_pending_quick_play("inst-a", Some("New World".to_string()), None);
+        assert_eq!(take_pending_quick_play("inst-b"), None);
+        let got = take_pending_quick_play("inst-a");
+        assert_eq!(
+            got,
+            Some(QuickPlayTarget {
+                instance_id: "inst-a".to_string(),
+                world: Some("New World".to_string()),
+                server: None,
+            })
+        );
+        assert_eq!(take_pending_quick_play("inst-a"), None);
+    }
 }

@@ -41,13 +41,28 @@ public final class ControlGroupDialog {
         if (controls == null) return;
         Context context = layout.getContext();
 
-        Map<String, Boolean> groups = new LinkedHashMap<>();
-        for (ControlData data : controls.mControlDataList) {
-            if (data.groupId == null || data.groupId.isEmpty()) continue;
-            groups.put(data.groupId, layout.isGroupVisible(data.groupId, !data.groupInitiallyHidden));
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        if (controls.mLayerDataList != null) {
+            for (ControlLayerData layer : controls.mLayerDataList) {
+                if (layer != null && layer.id != null && !layer.id.isEmpty()) {
+                    counts.putIfAbsent(layer.id, 0);
+                }
+            }
+        }
+        if (controls.mControlDataList != null) {
+            for (ControlData data : controls.mControlDataList) {
+                if (data.groupId == null || data.groupId.isEmpty()) continue;
+                counts.put(data.groupId, counts.getOrDefault(data.groupId, 0) + 1);
+            }
+        }
+        if (controls.mJoystickDataList != null) {
+            for (ControlJoystickData data : controls.mJoystickDataList) {
+                if (data.groupId == null || data.groupId.isEmpty()) continue;
+                counts.put(data.groupId, counts.getOrDefault(data.groupId, 0) + 1);
+            }
         }
 
-        if (groups.isEmpty()) {
+        if (counts.isEmpty()) {
             new AlertDialog.Builder(context, R.style.QookixAlertDialog)
                     .setTitle(R.string.qk_control_groups)
                     .setMessage(R.string.qk_control_groups_empty)
@@ -56,22 +71,73 @@ public final class ControlGroupDialog {
             return;
         }
 
-        List<String> ids = new ArrayList<>(groups.keySet());
-        String[] labels = new String[ids.size()];
-        boolean[] checked = new boolean[ids.size()];
-        for (int i = 0; i < ids.size(); i++) {
-            labels[i] = shortName(ids.get(i));
-            checked[i] = groups.get(ids.get(i));
+        LinearLayout column = ControlEditorUi.dialogRoot(context);
+
+        List<String> ids = new ArrayList<>(counts.keySet());
+        List<Runnable> refreshRows = new ArrayList<>(ids.size());
+
+        AlertDialog dialog = new AlertDialog.Builder(context, R.style.QookixAlertDialog)
+                .setTitle(R.string.qk_control_groups)
+                .setNeutralButton(R.string.qk_control_groups_show_all, null)
+                .setNegativeButton(R.string.qk_control_groups_reset, null)
+                .setPositiveButton(R.string.qk_dialog_done, null)
+                .create();
+
+        for (String id : ids) {
+            ControlLayerData layer = findLayer(controls, id);
+            String label = (layer != null && layer.name != null && !layer.name.isBlank())
+                    ? layer.name : shortName(id);
+            int count = counts.getOrDefault(id, 0);
+
+            LinearLayout row = ControlEditorUi.card(context);
+
+            TextView toggle = ControlEditorUi.pillButton(context, "", true, null);
+            TextView title = new TextView(context);
+            title.setText(label + " (" + count + ")");
+            title.setTextSize(14f);
+            title.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.qk_text_1));
+            title.setPadding(ControlEditorUi.dp(context, 10), 0, ControlEditorUi.dp(context, 8), 0);
+            title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            Runnable refreshRow = () -> {
+                boolean vis = layout.isGroupVisible(id, true);
+                toggle.setText(vis ? R.string.qk_control_groups_visible : R.string.qk_control_groups_hidden);
+                ControlEditorUi.stylePill(context, toggle, vis);
+                title.setAlpha(vis ? 1f : 0.5f);
+            };
+            refreshRow.run();
+            refreshRows.add(refreshRow);
+
+            toggle.setOnClickListener(v -> {
+                boolean next = !layout.isGroupVisible(id, true);
+                layout.setGroupVisible(id, next);
+                refreshRow.run();
+            });
+
+            TextView edit = ControlEditorUi.pillButton(
+                    context, context.getString(R.string.qk_control_groups_edit), false, v -> {
+                        dialog.dismiss();
+                        showGroupDetail(layout, id);
+                    });
+
+            row.addView(toggle);
+            row.addView(title);
+            row.addView(edit);
+            column.addView(row);
         }
 
-        new AlertDialog.Builder(context, R.style.QookixAlertDialog)
-                .setTitle(R.string.qk_control_groups)
-                .setMultiChoiceItems(labels, checked, (dialog, which, isChecked) ->
-                        layout.setGroupVisible(ids.get(which), isChecked))
-                .setNeutralButton(R.string.qk_control_groups_edit, (dialog, which) ->
-                        showGroupPicker(layout, ids))
-                .setPositiveButton(R.string.qk_dialog_done, null)
-                .show();
+        dialog.setView(ControlEditorUi.wrapScroll(context, column));
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                layout.setAllGroupsVisible(true);
+                for (Runnable r : refreshRows) r.run();
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> {
+                layout.resetGroupVisibility();
+                for (Runnable r : refreshRows) r.run();
+            });
+        });
+        dialog.show();
     }
 
     /** 选一个组进入详情。 */
@@ -91,10 +157,7 @@ public final class ControlGroupDialog {
         if (controls == null) return;
         Context context = layout.getContext();
 
-        LinearLayout column = new LinearLayout(context);
-        column.setOrientation(LinearLayout.VERTICAL);
-        int pad = Math.round(context.getResources().getDisplayMetrics().density * 8);
-        column.setPadding(pad, pad, pad, pad);
+        LinearLayout column = ControlEditorUi.dialogRoot(context);
 
         for (ControlData data : new ArrayList<>(controls.mControlDataList)) {
             if (!groupId.equals(data.groupId)) continue;
@@ -102,16 +165,16 @@ public final class ControlGroupDialog {
         }
         addLayerSettings(layout, column, groupId);
 
-        Button add = new Button(context);
-        add.setText(R.string.qk_control_groups_add);
-        add.setOnClickListener(v -> showAddButtons(layout, groupId));
+        TextView add = ControlEditorUi.pillButton(
+                context, context.getString(R.string.qk_control_groups_add), true,
+                v -> showAddButtons(layout, groupId));
+        add.setPadding(ControlEditorUi.dp(context, 12), ControlEditorUi.dp(context, 10),
+                ControlEditorUi.dp(context, 12), ControlEditorUi.dp(context, 10));
         column.addView(add);
 
-        ScrollView scroll = new ScrollView(context);
-        scroll.addView(column);
         new AlertDialog.Builder(context, R.style.QookixAlertDialog)
                 .setTitle(R.string.qk_control_groups_edit)
-                .setView(scroll)
+                .setView(ControlEditorUi.wrapScroll(context, column))
                 .setPositiveButton(R.string.qk_dialog_done, null)
                 .show();
     }
@@ -122,58 +185,44 @@ public final class ControlGroupDialog {
         CustomControls controls = layout.getLayout();
         ControlLayerData existing = findLayer(controls, groupId);
 
-        TextView title = new TextView(context);
-        title.setText(R.string.qk_control_layer_title);
-        column.addView(title);
+        column.addView(ControlEditorUi.sectionLabel(context, R.string.qk_control_layer_title));
 
-        CheckBox hidden = new CheckBox(context);
-        hidden.setText(R.string.qk_control_layer_hidden);
-        hidden.setChecked(existing != null && existing.hide);
-        hidden.setOnCheckedChangeListener((button, checked) -> {
-            layerOf(controls, groupId).hide = checked;
-            layout.setGroupVisible(groupId, !checked);
-            commit(layout);
-        });
-        column.addView(hidden);
+        ControlEditorUi.switchRow(context, column, R.string.qk_control_layer_hidden,
+                existing != null && existing.hide, (button, checked) -> {
+                    layerOf(controls, groupId).hide = checked;
+                    layout.setGroupVisible(groupId, !checked);
+                    commit(layout);
+                });
 
-        CheckBox hideMouse = new CheckBox(context);
-        hideMouse.setText(R.string.qk_control_layer_hide_mouse);
-        hideMouse.setChecked(existing != null && existing.hideWhenMouse);
-        hideMouse.setOnCheckedChangeListener((button, checked) -> {
-            layerOf(controls, groupId).hideWhenMouse = checked;
-            commit(layout);
-        });
-        column.addView(hideMouse);
+        ControlEditorUi.switchRow(context, column, R.string.qk_control_layer_hide_mouse,
+                existing != null && existing.hideWhenMouse, (button, checked) -> {
+                    layerOf(controls, groupId).hideWhenMouse = checked;
+                    commit(layout);
+                });
 
-        CheckBox hideGamepad = new CheckBox(context);
-        hideGamepad.setText(R.string.qk_control_layer_hide_gamepad);
-        hideGamepad.setChecked(existing != null && existing.hideWhenGamepad);
-        hideGamepad.setOnCheckedChangeListener((button, checked) -> {
-            layerOf(controls, groupId).hideWhenGamepad = checked;
-            commit(layout);
-        });
-        column.addView(hideGamepad);
+        ControlEditorUi.switchRow(context, column, R.string.qk_control_layer_hide_gamepad,
+                existing != null && existing.hideWhenGamepad, (button, checked) -> {
+                    layerOf(controls, groupId).hideWhenGamepad = checked;
+                    commit(layout);
+                });
 
-        Spinner scene = new Spinner(context);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item,
-                new String[]{
-                        context.getString(R.string.qk_control_scene_all),
-                        context.getString(R.string.qk_control_scene_gameplay),
-                        context.getString(R.string.qk_control_scene_menu)});
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        scene.setAdapter(adapter);
         String type = existing == null || existing.visibilityType == null
                 ? "always" : existing.visibilityType.toLowerCase(Locale.ROOT);
-        scene.setSelection(type.equals("in_game") ? 1 : type.equals("in_menu") ? 2 : 0);
-        scene.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                layerOf(controls, groupId).visibilityType =
-                        position == 1 ? "in_game" : position == 2 ? "in_menu" : "always";
-                commit(layout);
-            }
-            @Override public void onNothingSelected(AdapterView<?> parent) {}
-        });
-        column.addView(scene);
+        int sceneIdx = type.equals("in_game") ? 1 : type.equals("in_menu") ? 2 : 0;
+        ControlEditorUi.SegmentedBar sceneBar = ControlEditorUi.segmentedBar(
+                context,
+                new int[]{
+                        R.string.qk_control_scene_all,
+                        R.string.qk_control_scene_gameplay,
+                        R.string.qk_control_scene_menu,
+                },
+                sceneIdx,
+                position -> {
+                    layerOf(controls, groupId).visibilityType =
+                            position == 1 ? "in_game" : position == 2 ? "in_menu" : "always";
+                    commit(layout);
+                });
+        column.addView(sceneBar.view);
     }
 
     private static ControlLayerData findLayer(CustomControls controls, String groupId) {
@@ -197,23 +246,29 @@ public final class ControlGroupDialog {
     private static View memberRow(ControlLayout layout, CustomControls controls, ControlData data,
                                   String groupId, LinearLayout column) {
         Context context = layout.getContext();
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout row = ControlEditorUi.card(context);
         row.setTag(data);
 
         TextView name = new TextView(context);
         name.setText(data.name);
+        name.setTextSize(13f);
+        name.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.qk_text_1));
         name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(name);
 
-        row.addView(miniButton(context, R.string.qk_control_groups_remove, v -> {
+        int gap = ControlEditorUi.dp(context, 6);
+        TextView up = ControlEditorUi.pillButton(context, "↑", false, v -> move(layout, controls, data, -1, column));
+        TextView down = ControlEditorUi.pillButton(context, "↓", false, v -> move(layout, controls, data, 1, column));
+        TextView remove = ControlEditorUi.pillButton(context, context.getString(R.string.qk_control_groups_remove), false, v -> {
             data.groupId = null;
             commit(layout);
             column.removeView(row);
-        }));
-        row.addView(miniButton(context, "↑", v -> move(layout, controls, data, -1, column)));
-        row.addView(miniButton(context, "↓", v -> move(layout, controls, data, 1, column)));
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = gap;
+        row.addView(up, lp);
+        row.addView(down, lp);
+        row.addView(remove, lp);
         return row;
     }
 

@@ -876,6 +876,9 @@ internal fun CreateRoute(
         val act = activity ?: return
         act.pickFileByMime("*/*") { path ->
             if (path.isNullOrBlank()) return@pickFileByMime
+            importStage = ""
+            importDone = 0
+            importTotal = 0
             importing = true
             api.importModpack(path) { r ->
                 importing = false
@@ -901,7 +904,9 @@ internal fun CreateRoute(
                         // 进度仍由 install://progress 推到任务卡/详情页）。
                         val newId = inst?.optString("id").orEmpty()
                         if (newId.isNotBlank()) {
-                            QkFeedback.show(context.getString(R.string.import_auto_repair))
+                            if (bad == 0) {
+                                QkFeedback.show(context.getString(R.string.import_auto_repair))
+                            }
                             api.repairInstanceFiles(newId) { }
                         }
                         onCreated()

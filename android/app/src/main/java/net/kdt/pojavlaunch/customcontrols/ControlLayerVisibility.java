@@ -28,9 +28,11 @@ final class ControlLayerVisibility {
         ControlLayerData layer = find(layout, id);
         if (layer == null) return true;
         String type = layer.visibilityType == null ? "always" : layer.visibilityType.toLowerCase(Locale.ROOT);
-        if (type.equals("in_game") && scene != ControlScene.GAMEPLAY) return false;
-        if (type.equals("in_menu") && scene != ControlScene.MENU) return false;
-        if (preview || !externalInput) return true;
+        if (scene != ControlScene.ALL) {
+            if (type.equals("in_game") && scene != ControlScene.GAMEPLAY) return false;
+            if (type.equals("in_menu") && scene != ControlScene.MENU) return false;
+        }
+        if (!externalInput) return true;
         if (source == ControlInputSource.SOURCE_MOUSE) return !layer.hideWhenMouse;
         if (source == ControlInputSource.SOURCE_GAMEPAD) return !layer.hideWhenGamepad;
         return true;

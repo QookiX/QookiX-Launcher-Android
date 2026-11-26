@@ -45,21 +45,32 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 	private String mSaveAsName;
 	private DrawerLayout mDrawerLayout;
 	private ListView mDrawerNavigationView;
-	private static final int[] MENU_ICONS = {
-			R.drawable.ic_qk_plus,     // 添加按键
-			R.drawable.ic_qk_plus,     // 添加组合键
-			R.drawable.ic_qk_plus,     // 添加摇杆
-			R.drawable.ic_qk_plus,     // 添加滚轮按键
-			R.drawable.ic_qk_folder,   // 加载
-			R.drawable.ic_qk_save,     // 保存
-			R.drawable.ic_qk_star,     // 选择默认控制布局
-			R.drawable.ic_qk_share,    // 导出
-			R.drawable.ic_qk_sliders,  // 控件场景
-			R.drawable.ic_qk_plus,
-			R.drawable.ic_qk_plus,
-			R.drawable.ic_qk_sliders,  // 控件组
-			R.drawable.ic_qk_star,     // 样式表
-	};
+	private static final int ACTION_ADD = 1;
+	private static final int ACTION_SCENE = 2;
+	private static final int ACTION_GROUPS = 3;
+	private static final int ACTION_STYLES = 4;
+	private static final int ACTION_SAVE = 5;
+	private static final int ACTION_LOAD = 6;
+	private static final int ACTION_DEFAULT = 7;
+	private static final int ACTION_EXPORT = 8;
+	private static final int ACTION_EXIT = 9;
+
+	private java.util.List<com.zhayi.qookix.control.MenuEntry> buildEditorMenu() {
+		java.util.List<com.zhayi.qookix.control.MenuEntry> items = new java.util.ArrayList<>();
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_menu_section_edit), 0, true, -1));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_add_widget), R.drawable.ic_qk_plus, false, ACTION_ADD));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_scene), R.drawable.ic_qk_sliders, false, ACTION_SCENE));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_groups), R.drawable.ic_qk_gamepad, false, ACTION_GROUPS));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_styles), R.drawable.ic_qk_star, false, ACTION_STYLES));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_menu_section_layout), 0, true, -1));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_save), R.drawable.ic_qk_save, false, ACTION_SAVE));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_load), R.drawable.ic_qk_folder, false, ACTION_LOAD));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_select_default), R.drawable.ic_qk_star, false, ACTION_DEFAULT));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_export), R.drawable.ic_qk_share, false, ACTION_EXPORT));
+		items.add(new com.zhayi.qookix.control.MenuEntry(getString(R.string.qk_control_exit_editor), R.drawable.ic_qk_close, false, ACTION_EXIT));
+		return items;
+	}
+
 	/** 预览模式菜单：0 = 就用这个，1 = 取消。 */
 	private static final int[] PREVIEW_MENU_ICONS = {
 			R.drawable.ic_qk_save,
@@ -93,6 +104,11 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 		mDrawerLayout = findViewById(R.id.customctrl_drawerlayout);
 		mDrawerNavigationView = findViewById(R.id.customctrl_navigation_view);
 		View mPullDrawerButton = findViewById(R.id.drawer_button);
+		android.widget.TextView mappingHint = findViewById(R.id.control_mapping_hint);
+		if (mappingHint != null) {
+			mControlLayout.setEditorPreviewListener(() -> mappingHint.setText(
+					mControlLayout.isEditorPreview() ? R.string.qk_control_preview_hint : R.string.qk_control_mapping_hint));
+		}
 
 		// **返回键必须走 `OnBackPressedDispatcher`**。
 		//
@@ -117,34 +133,33 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 				mPreviewMode = extra != null && extra.getBooleanExtra(EXTRA_PREVIEW, false);
 				mSaveAsName = extra == null ? null : extra.getStringExtra(EXTRA_SAVE_AS);
 
-				// 预览模式：只读 + 菜单换成「就用这个 / 取消」；否则是可编辑的完整编辑器。
+				// 预览模式：只读 + 菜单换成「就用这个 / 取消」；否则是分组后的编辑器菜单。
 				mControlLayout.setModifiable(!mPreviewMode);
 				mControlLayout.setReadOnlyPreview(mPreviewMode);
+				final java.util.List<com.zhayi.qookix.control.MenuEntry> editorEntries = mPreviewMode ? null : buildEditorMenu();
 				mDrawerNavigationView.setAdapter(new com.zhayi.qookix.control.QookixMenuAdapter(this,
-						com.zhayi.qookix.control.QookixMenuAdapter.entriesOf(this,
-								mPreviewMode ? R.array.menu_customcontrol_preview : R.array.menu_customcontrol_customactivity,
-								mPreviewMode ? PREVIEW_MENU_ICONS : MENU_ICONS)));
+						mPreviewMode
+								? com.zhayi.qookix.control.QookixMenuAdapter.entriesOf(this, R.array.menu_customcontrol_preview, PREVIEW_MENU_ICONS)
+								: editorEntries));
 				mDrawerNavigationView.setOnItemClickListener((parent, view, position, id) -> {
 					if (mPreviewMode) {
-									// 0 = 就用这个（把临时文件另存为正式布局），1 = 取消
-									if (position == 0) confirmImportedLayout();
-									else { discardTempLayout(); finish(); }
-									return;
-								}
-					switch(position) {
-						case 0: mControlLayout.addControlButton(new ControlData("New")); break;
-						case 1: mControlLayout.addDrawer(new ControlDrawerData()); break;
-						case 2: mControlLayout.addJoystickButton(new ControlJoystickData()); break;
-						case 3: MouseWheelControls.showAddDialog(mControlLayout); break;
-						case 4: mControlLayout.openLoadDialog(); break;
-						case 5: mControlLayout.openSaveDialog(); break;
-						case 6: mControlLayout.openSetDefaultDialog(); break;
-						case 8: ControlSceneDialog.show(mControlLayout); break;
-						case 9: mControlLayout.addDirectionPad(); break;
-						case 10: mControlLayout.addTextLabel(); break;
-						case 11: ControlGroupDialog.show(mControlLayout); break;
-						case 12: ControlStyleDialog.show(mControlLayout); break;
-						case 7: // Saving the currently shown control
+						// 0 = 就用这个（把临时文件另存为正式布局），1 = 取消
+						if (position == 0) confirmImportedLayout();
+						else { discardTempLayout(); finish(); }
+						return;
+					}
+					com.zhayi.qookix.control.MenuEntry item = editorEntries.get(position);
+					if (item.isHeader()) return;
+					switch (item.getId()) {
+						case ACTION_ADD: showAddWidgetDialog(); break;
+						case ACTION_SCENE: ControlSceneDialog.show(mControlLayout); break;
+						case ACTION_GROUPS: ControlGroupDialog.show(mControlLayout); break;
+						case ACTION_STYLES: ControlStyleDialog.show(mControlLayout); break;
+						case ACTION_SAVE: mControlLayout.openSaveDialog(); break;
+						case ACTION_LOAD: mControlLayout.openLoadDialog(); break;
+						case ACTION_DEFAULT: mControlLayout.openSetDefaultDialog(); break;
+						case ACTION_EXIT: mControlLayout.askToExit(CustomControlsActivity.this); break;
+						case ACTION_EXPORT:
 					try {
 						// QookiX 没有 Pojav 的 scoped.FolderProvider，改用本项目已有的 FileProvider
 			//  （authorities = <applicationId>.fileprovider，路径见 res/xml/file_paths.xml）。
@@ -260,6 +275,70 @@ public class CustomControlsActivity extends androidx.appcompat.app.AppCompatActi
 		// **不能** `super.onBackPressed()`：会绕回 dispatcher 回调再走一次 `askToExit()`（重复弹框/死循环）。
 		// 这里就是「保存 / 退出」确认之后要真正离开编辑器。
 		finish();
+	}
+
+	private void showAddWidgetDialog() {
+		float d = getResources().getDisplayMetrics().density;
+		int pad = Math.round(d * 14);
+		android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+		root.setOrientation(android.widget.LinearLayout.VERTICAL);
+		root.setPadding(pad, Math.round(d * 8), pad, Math.round(d * 10));
+
+		final androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this, R.style.QookixAlertDialog)
+				.setTitle(R.string.qk_control_add_widget)
+				.setView(root)
+				.setNegativeButton(R.string.dialog_cancel, null)
+				.create();
+
+		int[] labels = {
+				R.string.qk_control_add_button,
+				R.string.qk_control_add_drawer,
+				R.string.qk_control_add_joystick,
+				R.string.qk_control_add_direction_pad,
+				R.string.customctrl_add_wheel,
+				R.string.qk_control_add_text_label,
+		};
+		Runnable[] actions = {
+				() -> mControlLayout.addControlButton(new ControlData("New")),
+				() -> mControlLayout.addDrawer(new ControlDrawerData()),
+				() -> mControlLayout.addJoystickButton(new ControlJoystickData()),
+				() -> mControlLayout.addDirectionPad(),
+				() -> MouseWheelControls.showAddDialog(mControlLayout),
+				() -> mControlLayout.addTextLabel(),
+		};
+
+		for (int i = 0; i < labels.length; i += 2) {
+			android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+			row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+			android.widget.LinearLayout.LayoutParams rlp = new android.widget.LinearLayout.LayoutParams(
+					android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+			rlp.bottomMargin = Math.round(d * 8);
+			row.setLayoutParams(rlp);
+			for (int j = 0; j < 2 && i + j < labels.length; j++) {
+				final Runnable act = actions[i + j];
+				android.widget.TextView card = new android.widget.TextView(this);
+				card.setText(labels[i + j]);
+				card.setTextSize(13f);
+				card.setGravity(android.view.Gravity.CENTER);
+				card.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.qk_text_1));
+				card.setPadding(Math.round(d * 10), Math.round(d * 14), Math.round(d * 10), Math.round(d * 14));
+				android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+				bg.setColor(0xFF1E2331);
+				bg.setCornerRadius(Math.round(d * 12));
+				bg.setStroke(Math.round(d * 1), androidx.core.content.ContextCompat.getColor(this, R.color.qk_border));
+				card.setBackground(bg);
+				card.setOnClickListener(v -> {
+					dialog.dismiss();
+					act.run();
+				});
+				android.widget.LinearLayout.LayoutParams clp = new android.widget.LinearLayout.LayoutParams(
+						0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+				if (j == 0) clp.rightMargin = Math.round(d * 8);
+				row.addView(card, clp);
+			}
+			root.addView(row);
+		}
+		dialog.show();
 	}
 
 	@Override

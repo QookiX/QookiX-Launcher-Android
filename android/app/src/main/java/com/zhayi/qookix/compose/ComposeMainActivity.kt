@@ -1165,24 +1165,6 @@ class ComposeMainActivity : ComponentActivity() {
         }
     }
 
-    fun shareLogsZip(archiveName: String, srcDir: String) {
-        runOnUiThread {
-            runCatching {
-                val out = java.io.File(cacheDir, archiveName)
-                java.util.zip.ZipOutputStream(out.outputStream().buffered()).use { zos ->
-                    java.io.File(srcDir).listFiles()?.forEach { f ->
-                        if (f.isFile) {
-                            zos.putNextEntry(java.util.zip.ZipEntry(f.name))
-                            f.inputStream().use { it.copyTo(zos) }
-                            zos.closeEntry()
-                        }
-                    }
-                }
-                shareFile(out.absolutePath, "application/zip")
-            }.onFailure { Log.w(TAG, "打包日志失败", it) }
-        }
-    }
-
     fun resolvePickedUri(uriOrPath: String): String? {
         if (!uriOrPath.startsWith("content://")) return uriOrPath
         return runCatching {
@@ -1647,6 +1629,7 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
             }
 
             // Keep overlay hosts AFTER LauncherShell so they always draw above navigation/content.
+            com.zhayi.qookix.compose.motion.SharedHeroOverlay(origin = androidx.compose.ui.geometry.Offset.Zero)
             FirstRunSetupHost(bridge = bridge, bridgeReady = bridgeReady)
             LaunchFailureNoticeHost()
         }

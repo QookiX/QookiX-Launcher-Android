@@ -50,4 +50,22 @@ class ControlLayerVisibilityTest {
         assertFalse(ControlLayerVisibility.visible(layout, "a", true, flags,
             ControlScene.GAMEPLAY, false, true, false, ControlInputSource.SOURCE_NONE))
     }
+
+    @Test
+    fun allSceneKeepsInGameAndInMenuLayersVisible() {
+        val layout = controls(layer("g", type = "in_game"), layer("m", type = "in_menu"))
+        val flags = HashMap<String, Boolean>()
+        assertTrue(ControlLayerVisibility.visible(layout, "g", true, flags,
+            ControlScene.ALL, true, false, false, ControlInputSource.SOURCE_NONE))
+        assertTrue(ControlLayerVisibility.visible(layout, "m", true, flags,
+            ControlScene.ALL, true, false, false, ControlInputSource.SOURCE_NONE))
+    }
+
+    @Test
+    fun simulatedMouseHidesMouseLayersEvenInPreview() {
+        val layout = controls(layer("a", mouse = true))
+        val flags = HashMap<String, Boolean>()
+        assertFalse(ControlLayerVisibility.visible(layout, "a", true, flags,
+            ControlScene.GAMEPLAY, true, true, true, ControlInputSource.SOURCE_MOUSE))
+    }
 }

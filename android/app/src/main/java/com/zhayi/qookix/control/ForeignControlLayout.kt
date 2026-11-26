@@ -49,6 +49,7 @@ internal class ForeignControlLayout(private val metrics: DisplayMetrics) {
             if (groupId.isNotBlank()) {
                 layers.put(JSONObject()
                     .put("id", groupId)
+                    .put("name", group.optString("name"))
                     .put("visibilityType", group.optString("visibilityType", "always").lowercase())
                     .put("hide", hidden)
                     .put("hideWhenMouse", group.optBoolean("hideWhenMouse"))

@@ -1,7 +1,11 @@
 package net.kdt.pojavlaunch.customcontrols;
 
 import android.content.Context;
+import android.widget.LinearLayout;
+
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.SwitchCompat;
+
 import com.zhayi.qookix.R;
 
 public final class ControlSceneDialog {
@@ -11,50 +15,80 @@ public final class ControlSceneDialog {
         CustomControls controls = layout.getLayout();
         if (controls == null) return;
         Context context = layout.getContext();
-        CharSequence[] choices = {
-                context.getText(R.string.qk_control_scene_all),
-                context.getText(R.string.qk_control_scene_gameplay),
-                context.getText(R.string.qk_control_scene_menu),
-        };
+        LinearLayout column = ControlEditorUi.dialogRoot(context);
+
+        final SwitchCompat[] mouseRef = new SwitchCompat[1];
+        final ControlEditorUi.SegmentedBar[] barRef = new ControlEditorUi.SegmentedBar[1];
+
+        ControlEditorUi.switchRow(context, column, R.string.qk_control_preview_mode,
+                layout.isEditorPreview(), (buttonView, isChecked) -> {
+                    layout.setEditorPreview(isChecked);
+                    if (mouseRef[0] != null) {
+                        mouseRef[0].setEnabled(isChecked);
+                        ((android.view.View) mouseRef[0].getParent()).setAlpha(isChecked ? 1f : 0.45f);
+                        if (!isChecked) mouseRef[0].setChecked(false);
+                    }
+                    if (barRef[0] != null) {
+                        barRef[0].select(layout.getEditorScene().ordinal());
+                    }
+                });
+
+        column.addView(ControlEditorUi.sectionLabel(context, R.string.qk_control_preview_scene));
+        ControlScene[] scenes = ControlScene.values();
+        ControlEditorUi.SegmentedBar sceneBar = ControlEditorUi.segmentedBar(
+                context,
+                new int[]{
+                        R.string.qk_control_scene_all,
+                        R.string.qk_control_scene_gameplay,
+                        R.string.qk_control_scene_menu,
+                },
+                layout.getEditorScene().ordinal(),
+                idx -> layout.setEditorScene(scenes[idx]));
+        barRef[0] = sceneBar;
+        column.addView(sceneBar.view);
+
+        SwitchCompat mouseSwitch = ControlEditorUi.switchRow(context, column, R.string.qk_control_preview_mouse,
+                layout.isPreviewMouse(), (buttonView, isChecked) -> layout.setPreviewMouse(isChecked));
+        mouseSwitch.setEnabled(layout.isEditorPreview());
+        ((android.view.View) mouseSwitch.getParent()).setAlpha(layout.isEditorPreview() ? 1f : 0.45f);
+        mouseRef[0] = mouseSwitch;
+
         new AlertDialog.Builder(context, R.style.QookixAlertDialog)
                 .setTitle(R.string.qk_control_scene)
-                .setSingleChoiceItems(choices, layout.getEditorScene().ordinal(), (dialog, position) -> {
-                    layout.setEditorScene(ControlScene.values()[position]);
-                    dialog.dismiss();
-                })
+                .setView(ControlEditorUi.wrapScroll(context, column))
                 .setNeutralButton(R.string.qk_control_external_hide,
                         (dialog, button) -> showExternalOptions(layout))
-                .setNegativeButton(R.string.dialog_cancel, null)
+                .setPositiveButton(R.string.qk_dialog_done, null)
                 .show();
     }
 
-    /**
-     * 外接设备隐藏策略：鼠标/键盘 与 手柄 分开配置（对齐 ZL2 的
-     * hideWhenMouse / hideWhenGamepad），默认两项都勾选 = 老行为。
-     */
+    /** 外接设备隐藏策略：鼠标/键盘与手柄分开配置。 */
     private static void showExternalOptions(ControlLayout layout) {
         CustomControls controls = layout.getLayout();
         if (controls == null) return;
         Context context = layout.getContext();
-        String[] labels = {"接鼠标或键盘时隐藏触控键", "接手柄时隐藏触控键"};
-        boolean[] checked = {
-                controls.hideTouchControlsWithExternalInput,
-                controls.hideTouchControlsWithExternalInput && !controls.keepTouchControlsWithGamepad,
-        };
-        new AlertDialog.Builder(context, R.style.QookixAlertDialog)
-                .setTitle("外接设备")
-                .setMultiChoiceItems(labels, checked, (dialog, which, isChecked) -> {
-                    if (which == 0) {
-                        controls.hideTouchControlsWithExternalInput = isChecked;
-                        // 关掉鼠标隐藏时手柄项也没意义，一并归零
-                        if (!isChecked) controls.keepTouchControlsWithGamepad = false;
-                    } else {
-                        controls.keepTouchControlsWithGamepad = !isChecked;
-                    }
+        LinearLayout column = ControlEditorUi.dialogRoot(context);
+
+        ControlEditorUi.switchRow(context, column, R.string.qk_control_external_mouse_kb,
+                controls.hideTouchControlsWithExternalInput, (btn, isChecked) -> {
+                    controls.hideTouchControlsWithExternalInput = isChecked;
+                    if (!isChecked) controls.keepTouchControlsWithGamepad = false;
                     layout.setModified(true);
                     layout.refreshControlVisibility();
-                })
-                .setPositiveButton("完成", null)
+                });
+
+        ControlEditorUi.switchRow(context, column, R.string.qk_control_external_gamepad,
+                controls.hideTouchControlsWithExternalInput && !controls.keepTouchControlsWithGamepad,
+                (btn, isChecked) -> {
+                    controls.keepTouchControlsWithGamepad = !isChecked;
+                    layout.setModified(true);
+                    layout.refreshControlVisibility();
+                });
+
+        new AlertDialog.Builder(context, R.style.QookixAlertDialog)
+                .setTitle(R.string.qk_control_external_settings)
+                .setView(ControlEditorUi.wrapScroll(context, column))
+                .setPositiveButton(R.string.qk_dialog_done, null)
                 .show();
     }
 }

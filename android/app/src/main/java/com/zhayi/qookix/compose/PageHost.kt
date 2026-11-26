@@ -1029,7 +1029,7 @@ fun PageHost(
             // 一起 0 → 1 淡入 —— 用户看到的是「切页结束后才出现并开始飞」，
             // 反馈里的「速度太慢」就是这个。放到外面后它从第一帧就是满不透明，
             // 起飞和切页同时发生。
-            SharedHeroOverlay(origin = contentOrigin)
+            androidx.compose.runtime.SideEffect { SharedHero.contentOrigin = contentOrigin }
             }
             }
 
@@ -1361,7 +1361,7 @@ private fun InstanceDetailRoute(
     LaunchedEffect(bridgeReady, instanceId) {
         if (!bridgeReady) return@LaunchedEffect
         repo.loadInfo(instanceId) { r ->
-            r.onSuccess { (name, sub) -> state = state.copy(name = name, subtitle = sub) }
+            r.onSuccess { (name, sub, icon) -> state = state.copy(name = name, subtitle = sub, iconPath = icon) }
             // ⚠️ 2026-10-19 补：失败**必须**记录。
             // 原来这里是空的 —— `get_instance` 一旦失败（实例 JSON 损坏、
             // 命令异常等），`state.name` 就永远是空串；而顶栏「启动游戏」
@@ -1553,6 +1553,7 @@ private fun InstanceDetailRoute(
                                             r.fold(
                                                 onSuccess = {
                                                     showIconPicker = false
+                                                    state = state.copy(iconPath = p)
                                                     QkFeedback.show(context.getString(R.string.instance_detail_icon_set))
                                                     onInstanceChanged()
                                                 },
@@ -1587,6 +1588,7 @@ private fun InstanceDetailRoute(
                                         ur.fold(
                                             onSuccess = {
                                                 showIconPicker = false
+                                                state = state.copy(iconPath = dest)
                                                 QkFeedback.show(context.getString(R.string.instance_detail_icon_set))
                                                 onInstanceChanged()
                                             },
@@ -1719,6 +1721,7 @@ private fun InstanceDetailRoute(
             InstanceDetailToolbar(
                 name = state.name,
                 subtitle = state.subtitle,
+                iconPath = state.iconPath,
                 // ⚠️ 2026-10-19 修：原来这里是 `state.name.isNotBlank()` ——
                 // 拿「实例名有没有加载出来」决定「能不能启动」，是错的。
                 // `get_instance` 一旦失败（实例 JSON 损坏、IPC 抖动），

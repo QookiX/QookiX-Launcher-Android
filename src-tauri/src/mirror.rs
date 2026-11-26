@@ -40,9 +40,10 @@ pub const BMCLAPI_BASE: &str = "https://bmclapi2.bangbang93.com";
 pub const MCIM_BASE: &str = "https://mod.mcimirror.top";
 
 /// 能走 MCIM 中转的 CDN 前缀（整域名替换，与 ZL2 的 REPLACE_MIRROR_HOLDERS 一致）。
-const MCIM_PREFIXES: [&str; 2] = [
+const MCIM_PREFIXES: [&str; 3] = [
     "https://cdn.modrinth.com/",
     "https://edge.forgecdn.net/",
+    "https://mediafilez.forgecdn.net/",
 ];
 
 /// GitHub release 下载的加速镜像（**前缀式**：`<镜像><官方完整 URL>`）。
@@ -418,5 +419,18 @@ mod tests {
         assert!(!urls.iter().any(|u| u.starts_with("https://ghfast.top/")));
         // 官方地址仍在链上（默认源会再挂一条 BMCLAPI 兜底，所以不是最后一条）
         assert!(urls.iter().any(|u| u == OFFICIAL_MANIFEST));
+    }
+
+    #[test]
+    fn forgecdn_urls_use_mcim_first_then_official() {
+        let edge = "https://edge.forgecdn.net/files/4672/226/test.jar";
+        let media = "https://mediafilez.forgecdn.net/files/4672/226/test.jar";
+        let expected_mcim = "https://mod.mcimirror.top/files/4672/226/test.jar";
+        let u1 = candidate_urls("", edge);
+        assert_eq!(u1[0], expected_mcim);
+        assert_eq!(u1[1], edge);
+        let u2 = candidate_urls("", media);
+        assert_eq!(u2[0], expected_mcim);
+        assert_eq!(u2[1], media);
     }
 }

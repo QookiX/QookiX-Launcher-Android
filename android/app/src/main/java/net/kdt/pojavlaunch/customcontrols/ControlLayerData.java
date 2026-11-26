@@ -6,6 +6,7 @@ import androidx.annotation.Keep;
 @Keep
 public class ControlLayerData {
     public String id;
+    public String name;
     /** always / in_game / in_menu */
     public String visibilityType = "always";
     public boolean hide;

@@ -519,6 +519,14 @@ public class ControlButton extends TextView implements ControlInterface {
 
     private void dispatchKey(Object owner, int keycode, boolean isDown, boolean startsPress) {
         if (keycode == 0) return;
+        if (mControlLayout.isEditorPreview()) {
+            if (keycode == ControlData.SPECIALBTN_FORCE_GAMEPLAY && startsPress) {
+                mControlLayout.forceScene(ControlScene.GAMEPLAY);
+            } else if (keycode == ControlData.SPECIALBTN_FORCE_MENU && startsPress) {
+                mControlLayout.forceScene(ControlScene.MENU);
+            }
+            return;
+        }
         int sharedKey = keycode == ControlData.SPECIALBTN_WHEEL_GESTURE ? ControlData.SPECIALBTN_MOUSEMID : keycode;
         if ((sharedKey > 0 || sharedKey == ControlData.SPECIALBTN_MOUSEPRI ||
                 sharedKey == ControlData.SPECIALBTN_MOUSESEC || sharedKey == ControlData.SPECIALBTN_MOUSEMID) &&

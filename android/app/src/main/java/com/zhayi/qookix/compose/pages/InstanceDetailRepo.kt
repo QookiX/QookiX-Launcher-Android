@@ -34,7 +34,7 @@ class InstanceDetailRepo(private val api: QookixApi, private val context: androi
     }
 
     /** 基本信息。 */
-    fun loadInfo(instanceId: String, onResult: (Result<Pair<String, String>>) -> Unit) {
+    fun loadInfo(instanceId: String, onResult: (Result<Triple<String, String, String?>>) -> Unit) {
         api.getInstance(instanceId) { r ->
             onResult(
                 r.mapCatching { o ->
@@ -55,9 +55,10 @@ class InstanceDetailRepo(private val api: QookixApi, private val context: androi
                     } else {
                         "${loaderLabel(loader)} $loaderVer"
                     }
-                    name to listOf(loaderText, mcVer)
+                    val subtitle = listOf(loaderText, mcVer)
                         .filter { it.isNotBlank() }
                         .joinToString(" · ")
+                    Triple(name, subtitle, o.optText("icon"))
                 }
             )
         }

@@ -215,17 +215,13 @@ fun InstanceDetailPage(
     exportHint: String? = null,
     onExport: (Boolean, Boolean, Boolean) -> Unit = { _, _, _ -> },
 ) {
+    val compactHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 500
+    var expandedContent by remember(state.tab) { mutableStateOf(false) }
     val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = state.tab.ordinal) { InstanceTab.entries.size }
     Column(modifier = Modifier.fillMaxSize()) {
-        // ── Hero：图标 + 名称 + 版本（2026-10-27 新增）──────────────────
-        //
-        // 两个用途：
-        //   1. 详情页顶部原来直接就是提示条 / tab，没有「这是哪个实例」的视觉锚点
-        //      （标题 2026-10-17 搬进外层贯穿顶栏了，页内就空了）
-        //   2. **共享元素转场的落点** —— 实例卡片上的图标会飞到这里
-        //
-        // 刻意做紧凑（48dp 图标，总高约 56dp）：横屏可用高度只有 320dp 左右，
-        // 72dp 的大 hero 会把内容区压掉一截。
+        // ── Hero：图标 + 名称 + 版本 ──────────────────────────────────
+        // 平板/竖屏保留完整 hero；矮屏横屏（<500dp）时实例名与版本已合并进顶栏，省出 ~76dp 垂直空间。
+        if (!compactHeight) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -241,6 +237,7 @@ fun InstanceDetailPage(
             // 完全一致，淡入会让两者在半透明的那几帧里同时露背景 —— 用户看到的
             // 就是「到位之后闪一下」。
             val heroAlpha = if (SharedHero.pending == null) 1f else 0f
+            val heroIconFile = state.iconPath?.takeIf { it.isNotBlank() }?.let { java.io.File(it) }?.takeIf { it.isFile }
             Surface(
                 modifier = Modifier
                     .size(48.dp)
@@ -258,15 +255,24 @@ fun InstanceDetailPage(
                         }
                     },
                 shape = RoundedCornerShape(QkRadius.medium),
-                color = MaterialTheme.colorScheme.primaryContainer,
+                color = if (heroIconFile != null) androidx.compose.ui.graphics.Color.Transparent else MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = state.name.take(1).uppercase(),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+                    if (heroIconFile != null) {
+                        coil3.compose.AsyncImage(
+                            model = heroIconFile,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                    } else {
+                        Text(
+                            text = state.name.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.width(QkSpacing.md))
@@ -316,6 +322,7 @@ fun InstanceDetailPage(
                     )
                 }
             }
+        }
         }
 
         // ── 顶栏已上移（2026-10-17）────────────────────────────────────
@@ -458,12 +465,14 @@ fun InstanceDetailPage(
         // ScrollableTabRow 是官方为「tab 放不下要横滑」准备的组件，
         // 它自己处理滚动与指示器，不会再撞上这个问题。
         // 统一 tab 组件（2026-10-17）
-        QkTabRow(
-            labels = InstanceTab.entries.map { stringResource(it.labelRes) },
-            selectedIndex = state.tab.ordinal,
-            onSelect = { onTabChange(InstanceTab.entries[it]) },
-            pagerState = pager,
-        )
+        if (!expandedContent) {
+            QkTabRow(
+                labels = InstanceTab.entries.map { stringResource(it.labelRes) },
+                selectedIndex = state.tab.ordinal,
+                onSelect = { onTabChange(InstanceTab.entries[it]) },
+                pagerState = pager,
+            )
+        }
 
         // ── 内容区 ────────────────────────────────────────────────────
         //
@@ -478,7 +487,7 @@ fun InstanceDetailPage(
                 kotlinx.coroutines.delay(500)
                 forceReady = true
             }
-            val bodyReady = forceReady || SharedHero.pending == null
+            val bodyReady = compactHeight || forceReady || SharedHero.pending == null
             if (!bodyReady) {
                 Spacer(Modifier.fillMaxSize())
             } else {
@@ -542,6 +551,24 @@ fun InstanceDetailPage(
             }
         }
             }   // ← else（推迟一帧的 tab 内容）
+            if (compactHeight && (state.tab == InstanceTab.Files || state.tab == InstanceTab.Logs || state.tab == InstanceTab.Crash)) {
+                Surface(
+                    onClick = { expandedContent = !expandedContent },
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
+                    tonalElevation = 2.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = 10.dp),
+                ) {
+                    Text(
+                        text = if (expandedContent) "退出全屏" else "展开",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+            }
         }   // ← Box
     }
 }
@@ -1220,7 +1247,7 @@ private fun LogsTab(
             // ⚠️ 2026-10-21 真机修：用户反馈「上面更新日志说增加了启动器日志导出，
             // 的导出到哪儿了？」—— exportInstanceLogs 一直存在但界面从未调用，
             // 所以用户找不到入口。现在在日志 tab 加「导出」按钮。
-            // 导出走系统分享 Intent（share_logs_zip），用户可存到任意应用/文件管理器。
+            // 诊断包在后台生成，再通过系统分享发送或保存。
             TextButton(onClick = onExportLog) { Text(stringResource(R.string.instance_detail_export_log)) }
             // D5a：直接存成 .txt（区别于上面的「导出 zip」——那个走分享）。
             if (onSaveLog != null) {
@@ -1540,6 +1567,7 @@ data class InstanceDetailUiState(
     val id: String = "",
     val name: String = "",
     val subtitle: String = "",
+    val iconPath: String? = null,
     // ⚠️ 默认「内容」而不是「存档」—— 与旧 UI 一致（InstanceDetailView.vue:
     // `const tab = ref("content")`）。用户点进实例最常看的是「装了哪些模组」，
     // 而不是「有哪些存档」。
@@ -1651,6 +1679,7 @@ fun InstanceDetailToolbar(
     name: String,
     /** 版本 + 加载器（如「原版 26.3」「Fabric 0.20.0 1.21.8」）。 */
     subtitle: String,
+    iconPath: String? = null,
     canLaunch: Boolean,
     repairing: Boolean,
     onLaunch: () -> Unit,
@@ -1658,22 +1687,71 @@ fun InstanceDetailToolbar(
     /** 打开换图标面板（D3）。 */
     onChangeIcon: (() -> Unit)? = null,
 ) {
+    val compactHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 500
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 顶栏只写**固定词「实例」**，不写实例名。
-        //
-        // 实例名和版本放在下面的 hero（标题栏下方、tab 上方），那里有图标当锚点，
-        // 一眼能看清是哪个实例。
-        // ⚠️ 但顶栏也不能空着：之前把那列整个删掉后只剩一个返回箭头，
-        // 看起来像没渲染完（用户反馈「标题栏不显示了」）。
-        Text(
-            text = "实例",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.weight(1f))
+        if (compactHeight && name.isNotBlank()) {
+            val displayName = name.substringBefore("（").substringBefore("(").trim().ifBlank { name }
+            val heroAlpha = if (SharedHero.pending == null) 1f else 0f
+            val barIconFile = iconPath?.takeIf { it.isNotBlank() }?.let { java.io.File(it) }?.takeIf { it.isFile }
+            Surface(
+                modifier = Modifier
+                    .size(26.dp)
+                    .graphicsLayer { alpha = heroAlpha }
+                    .onGloballyPositioned {
+                        if (SharedHero.pending != null) SharedHero.updateLanding(it.boundsInWindow())
+                    },
+                shape = RoundedCornerShape(6.dp),
+                color = if (barIconFile != null) androidx.compose.ui.graphics.Color.Transparent else MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (barIconFile != null) {
+                        coil3.compose.AsyncImage(
+                            model = barIconFile,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                    } else {
+                        Text(
+                            text = displayName.take(1).uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "实例",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+        }
 
         Spacer(Modifier.width(8.dp))
 

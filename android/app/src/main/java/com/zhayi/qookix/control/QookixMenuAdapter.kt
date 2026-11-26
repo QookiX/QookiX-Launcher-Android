@@ -16,7 +16,14 @@ import com.zhayi.qookix.R
  * @param label   显示文案
  * @param iconRes 图标资源；传 0 表示该项不显示图标
  */
-data class MenuEntry(val label: String, @DrawableRes val iconRes: Int)
+data class MenuEntry(
+    val label: String,
+    @DrawableRes val iconRes: Int = 0,
+    val isHeader: Boolean = false,
+    val id: Int = -1,
+) {
+    constructor(label: String, @DrawableRes iconRes: Int) : this(label, iconRes, false, -1)
+}
 
 /**
  * 游戏内菜单 / 控制编辑器菜单的列表适配器。
@@ -44,9 +51,22 @@ class QookixMenuAdapter(
 
     override fun getItemId(position: Int): Long = position.toLong()
 
+    override fun getViewTypeCount(): Int = 2
+
+    override fun getItemViewType(position: Int): Int = if (items[position].isHeader) 1 else 0
+
+    override fun areAllItemsEnabled(): Boolean = false
+
+    override fun isEnabled(position: Int): Boolean = !items[position].isHeader
+
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-        val view = convertView ?: inflater.inflate(R.layout.item_qk_menu, parent, false)
         val entry = items[position]
+        if (entry.isHeader) {
+            val header = convertView ?: inflater.inflate(R.layout.item_qk_menu_header, parent, false)
+            header.findViewById<TextView>(R.id.qk_menu_header_label).text = entry.label
+            return header
+        }
+        val view = convertView ?: inflater.inflate(R.layout.item_qk_menu, parent, false)
 
         val icon = view.findViewById<ImageView>(R.id.qk_menu_icon)
         if (entry.iconRes != 0) {

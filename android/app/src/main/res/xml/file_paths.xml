@@ -8,4 +8,5 @@
   <files-path name="updates" path="updates/" />
   <!-- 导出的整合包：<files>/exports/*.mrpack 通过系统分享交给用户/其他应用 -->
   <files-path name="exports" path="exports/" />
+  <files-path name="log_exports" path="log-exports/" />
 </paths>

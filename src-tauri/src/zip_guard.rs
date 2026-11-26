@@ -79,6 +79,19 @@ impl ZipBudget {
     }
     /// Bound decompression before writing, independently of archive size metadata.
     pub fn copy_entry(&mut self, reader: &mut impl std::io::Read, writer: &mut impl std::io::Write) -> Result<u64, String> {
+        self.copy_entry_with_progress(reader, writer, |_| {})
+    }
+
+    /// 流式解压单条 entry，并在每次写出数据块后回调本次写入的字节数。
+    pub fn copy_entry_with_progress<F>(
+        &mut self,
+        reader: &mut impl std::io::Read,
+        writer: &mut impl std::io::Write,
+        mut on_bytes: F,
+    ) -> Result<u64, String>
+    where
+        F: FnMut(u64),
+    {
         let mut total = 0u64;
         let mut buf = [0u8; 32768];
         loop {
@@ -90,6 +103,7 @@ impl ZipBudget {
             self.add_written(n as u64)?;
             writer.write_all(&buf[..n]).map_err(|e| e.to_string())?;
             total += n as u64;
+            on_bytes(n as u64);
         }
     }
 
