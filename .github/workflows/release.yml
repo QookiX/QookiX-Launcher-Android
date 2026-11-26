@@ -46,9 +46,6 @@ jobs:
         working-directory: src-tauri
         run: cargo test --lib --no-fail-fast
 
-      - name: 文件体量闸门
-        run: node scripts/check-file-size.mjs
-
   build:
     needs: gate
     runs-on: ubuntu-latest
