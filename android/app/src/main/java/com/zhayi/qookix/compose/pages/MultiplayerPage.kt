@@ -1,6 +1,5 @@
 package com.zhayi.qookix.compose.pages
 
-import android.content.res.Configuration
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -15,8 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
@@ -43,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -89,6 +85,7 @@ fun MultiplayerPage(
     /** 列表读取失败时的重试（错误态必须有出口，否则用户只能杀进程）。 */
     onRetry: () -> Unit = {},
 ) {
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = state.tab.ordinal) { MultiplayerTab.entries.size }
     Column(modifier = Modifier.fillMaxSize()) {
         QkTabRow(
             labels = listOf(
@@ -99,6 +96,7 @@ fun MultiplayerPage(
             ),
             selectedIndex = state.tab.ordinal,
             onSelect = { onTabChange(MultiplayerTab.entries[it]) },
+            pagerState = pager,
         )
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -107,6 +105,7 @@ fun MultiplayerPage(
                 selected = state.tab,
                 onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
+                pagerState = pager,
             ) { tab ->
                 when (tab) {
                     MultiplayerTab.Servers -> ServersTab(
@@ -195,14 +194,9 @@ private fun ServersTab(
         else state.servers.filter { it.name.contains(query, ignoreCase = true) }
     }
 
-    // 横屏时让工具栏和卡片共用居中的宽度上限，避免拉成通栏。
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val contentWidth = if (landscape) {
-        Modifier.fillMaxWidth().wrapContentWidth().widthIn(max = 680.dp)
-    } else Modifier
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = contentWidth
+            modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = QkSpacing.lg, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -282,7 +276,7 @@ private fun ServersTab(
             onStopServer = onStopServer,
             onOpenServer = onOpenServer,
             onRetry = onRetry,
-            modifier = contentWidth,
+            modifier = Modifier,
         )
     }
 }

@@ -127,6 +127,7 @@ fun ServerDetailPage(
     onDismissNotice: () -> Unit = {},
     /** 关掉顶部的失败提示（2026-10-22 加：用户想立刻把位置让给日志区）。 */
     onDismissError: () -> Unit = {},
+    onRename: (() -> Unit)? = null,
 ) {
     // 删除服务器的二次确认放在页面级：文件 tab 与设置 tab 两个入口共用同一个
     var confirmDeleteServer by remember { mutableStateOf(false) }
@@ -175,9 +176,9 @@ fun ServerDetailPage(
                             onAskDeletePlugin = onAskDeletePlugin,
                         )
                         ServerTab.Config -> ConfigTab(state, onSetProperty, onToggleProperty)
-                        // 服务器设置：EULA 同意 + 对外分享（陶瓦联机）
                         ServerTab.Settings -> SettingsTab(
                             state = state,
+                            onRename = onRename,
                             onToggleShare = onToggleShare,
                             onCopyRoom = onCopyRoom,
                             onSetEula = onSetEula,
@@ -243,18 +244,6 @@ private fun ConsoleTab(
     landscape: Boolean,
 ) {
     val listState = rememberLazyListState()
-    // ⚠️ 2026-10-21 真机修：用户反馈「开服务器连着 WiFi 的话，有个连接地址，
-    // 顶部地址卡片常显 + 复制按钮（朋友要连的就是这个地址）。
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    var copied by remember { mutableStateOf(false) }
-    // 点过「复制」后 2 秒复原，否则文案永久停在「已复制」、再点没反馈
-    LaunchedEffect(copied) {
-        if (copied) {
-            kotlinx.coroutines.delay(2000)
-            copied = false
-        }
-    }
-
     // ⚠️ key 用整个列表引用：只看 lastOrNull() 时连续两行相同日志不触发；
     // 只看 size 时封顶 2000 行后永久不触发。两者都兼顾。
     LaunchedEffect(state.logs) {
@@ -267,72 +256,9 @@ private fun ConsoleTab(
         }
     }
     val ready = state.running && (!landscape || state.runtimeCurrent)
-    val copyAddress = {
-        clipboard.setText(androidx.compose.ui.text.AnnotatedString(state.address))
-        copied = true
-    }
     Column(modifier = Modifier.fillMaxSize()) {
-        if (landscape && ready && state.address.isNotBlank()) {
-            Row(
-                modifier = Modifier.padding(horizontal = QkSpacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(QkSpacing.sm),
-            ) {
-                Text(stringResource(R.string.server_detail_connect_address), style = MaterialTheme.typography.labelMedium)
-                Text(state.address, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false))
-                TextButton(onClick = copyAddress) {
-                    Text(stringResource(if (copied) R.string.server_detail_address_copied else R.string.server_detail_copy_address))
-                }
-            }
-        } else if (!landscape && state.address.isNotBlank()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = QkSpacing.sm, vertical = 6.dp),
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(QkSpacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.server_detail_connect_address),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        Text(
-                            text = state.address,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                    TextButton(onClick = copyAddress) {
-                        Text(
-                            if (copied) stringResource(R.string.server_detail_address_copied)
-                            else stringResource(R.string.server_detail_copy_address),
-                        )
-                    }
-                }
-            }
-        }
-
         // ── 开服辅助（2026-10-21 补：suggestServerMemory/requestBatteryUnrestricted 一直没 UI）───
-        // 运行中不占地方：横屏下这块 + 地址卡会把日志区压成 0 高。
+        // 横屏及运行时隐藏辅助信息，为控制台日志留出空间。
         if (!landscape && !state.running && state.suggestedMemMax > 0) {
             Card(
                 modifier = Modifier
@@ -466,6 +392,7 @@ private fun ConsoleTab(
 @Composable
 private fun SettingsTab(
     state: ServerDetailUiState,
+    onRename: (() -> Unit)?,
     onToggleShare: (Boolean) -> Unit,
     onCopyRoom: (String) -> Unit,
     onSetEula: (Boolean) -> Unit,
@@ -473,9 +400,17 @@ private fun SettingsTab(
     onRequestBatteryUnrestricted: () -> Unit,
 ) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val rename: @Composable () -> Unit = {
+        if (onRename != null) {
+            TextButton(onClick = onRename, modifier = Modifier.padding(horizontal = QkSpacing.sm)) {
+                Text(stringResource(R.string.server_detail_rename))
+            }
+        }
+    }
     if (!landscape) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = QkSpacing.sm),
             verticalArrangement = Arrangement.spacedBy(QkSpacing.sm)) {
+            rename()
             ServerEulaCard(state, onSetEula)
             ShareCard(state, onToggleShare, onCopyRoom)
             DeleteServerCard(running = state.running, onDelete = onDeleteServer)
@@ -486,6 +421,7 @@ private fun SettingsTab(
         BoxWithConstraints(Modifier.widthIn(max = 900.dp).fillMaxWidth()
             .verticalScroll(rememberScrollState()).padding(vertical = QkSpacing.sm)) {
             val preparation: @Composable () -> Unit = {
+                rename()
                 ServerEulaCard(state, onSetEula)
                 if (state.suggestedMemMax > 0) {
                     Column(Modifier.padding(horizontal = QkSpacing.md)) {
@@ -662,59 +598,17 @@ private fun FilesTab(
         verticalArrangement = Arrangement.spacedBy(QkSpacing.md),
     ) {
         item {
-            // 内置文件浏览器：改配置、看日志、传插件都在这里
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                ),
-            ) {
-                Column(modifier = Modifier.padding(QkSpacing.md)) {
-                    Text(
-                        text = stringResource(R.string.server_detail_browse_files_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Spacer(Modifier.height(QkSpacing.xxs))
-                    Text(
-                        text = stringResource(R.string.server_detail_browse_files_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Spacer(Modifier.height(QkSpacing.sm))
-                    Button(onClick = onOpenFiles) {
-                        Text(stringResource(R.string.server_detail_open_file_browser))
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+                if (landscape || maxWidth >= 600.dp) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(QkSpacing.md)) {
+                        FileEntryCard(onOpenFiles, Modifier.weight(1f), builtIn = true)
+                        FileEntryCard(onOpenDirectory, Modifier.weight(1f), builtIn = false)
                     }
-                }
-            }
-        }
-
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-            ) {
-                Column(modifier = Modifier.padding(QkSpacing.md)) {
-                    Text(
-                        text = stringResource(R.string.server_detail_system_file_manager_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(QkSpacing.xxs))
-                    Text(
-                        text = stringResource(R.string.server_detail_system_file_manager_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(QkSpacing.sm))
-                    FilledTonalButton(onClick = onOpenDirectory) {
-                        Text(stringResource(R.string.server_detail_open_with_file_manager))
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(QkSpacing.md)) {
+                        FileEntryCard(onOpenFiles, Modifier.fillMaxWidth(), builtIn = true)
+                        FileEntryCard(onOpenDirectory, Modifier.fillMaxWidth(), builtIn = false)
                     }
                 }
             }
@@ -819,6 +713,39 @@ private fun FilesTab(
         }
     }
 
+}
+
+@Composable
+private fun FileEntryCard(onOpen: () -> Unit, modifier: Modifier, builtIn: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    Card(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = if (builtIn) colors.primaryContainer else colors.surfaceContainerLow,
+        ),
+    ) {
+        Column(Modifier.padding(QkSpacing.md)) {
+            Text(
+                text = stringResource(if (builtIn) R.string.server_detail_browse_files_title else R.string.server_detail_system_file_manager_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (builtIn) colors.onPrimaryContainer else colors.onSurface,
+            )
+            Spacer(Modifier.height(QkSpacing.xxs))
+            Text(
+                text = stringResource(if (builtIn) R.string.server_detail_browse_files_desc else R.string.server_detail_system_file_manager_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (builtIn) colors.onPrimaryContainer else colors.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(QkSpacing.sm))
+            if (builtIn) {
+                Button(onClick = onOpen) { Text(stringResource(R.string.server_detail_open_file_browser)) }
+            } else {
+                FilledTonalButton(onClick = onOpen) { Text(stringResource(R.string.server_detail_open_with_file_manager)) }
+            }
+        }
+    }
 }
 
 /**

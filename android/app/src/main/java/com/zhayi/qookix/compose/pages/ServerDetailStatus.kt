@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
@@ -17,6 +18,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -94,7 +96,9 @@ fun ServerDetailToolbar(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onInstallCore: () -> Unit,
+    onCopyAddress: (String) -> Unit,
 ) {
+    val canCopyAddress = runtimeCurrent && running && !sleeping && address.isNotBlank()
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -135,6 +139,15 @@ fun ServerDetailToolbar(
             }
         }
 
+        if (canCopyAddress) {
+            IconButton(onClick = { onCopyAddress(address) }) {
+                Icon(
+                    Icons.Filled.ContentCopy,
+                    contentDescription = stringResource(R.string.multiplayer_copy_address),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
         Spacer(Modifier.width(8.dp))
 
         when {

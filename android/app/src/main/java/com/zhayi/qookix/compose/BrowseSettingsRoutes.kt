@@ -204,6 +204,7 @@ internal fun SettingsRoute(
     updateState: AppUpdateUiState = AppUpdateUiState(),
     onUpdateStateChange: (AppUpdateUiState) -> Unit = {},
     onSidebarWidthChanged: (Int) -> Unit = {},
+    onBackgroundImageChanged: (String) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -425,6 +426,9 @@ internal fun SettingsRoute(
         }
 
         repo.update(patch) { r ->
+            if (patch is SettingsPatch.BackgroundImage) {
+                r.onSuccess { onBackgroundImageChanged(patch.value) }
+            }
             r.onFailure { e ->
                 state = state.copy(error = context.getString(R.string.settings_save_failed, e.message))
                 // 乐观更新失败：回读一次真实设置，把界面上那个「假的新值」冲掉。
@@ -466,10 +470,9 @@ internal fun SettingsRoute(
                                 if (path != null) {
                                     api.importBackgroundImage(path) { r ->
                                         r.fold(
-                                            onSuccess = {
-                                                // 导入成功后 Rust 会把新路径写进设置，
-                                                // 这里乐观更新，界面立刻反映
-                                                apply(SettingsPatch.BackgroundImage(path))
+                                            onSuccess = { importedPath ->
+                                                // 选择器返回的是缓存文件；持久化 Rust 复制后的路径。
+                                                apply(SettingsPatch.BackgroundImage(importedPath))
                                             },
                                             onFailure = { e ->
                                                 state = state.copy(error = context.getString(R.string.appearance_bg_import_failed, e.message))
@@ -1061,17 +1064,20 @@ internal fun BrowseRoute(
         }
     }
 
+    val browsePager = androidx.compose.foundation.pager.rememberPagerState(initialPage = if (showingFavorites) 1 else 0) { 2 }
     Column(Modifier.fillMaxSize()) {
         com.zhayi.qookix.compose.ui.QkTabRow(
             labels = listOf(stringResource(R.string.browse_discover), stringResource(R.string.browse_favorites)),
             selectedIndex = if (showingFavorites) 1 else 0,
             onSelect = { showingFavorites = it == 1 },
+            pagerState = browsePager,
         )
         QkTabContent(
             tabs = listOf(false, true),
             selected = showingFavorites,
             onSelect = { showingFavorites = it },
             modifier = Modifier.weight(1f),
+            pagerState = browsePager,
         ) { favoriteTab ->
             BrowsePage(
                 state = if (favoriteTab) favoritesState else state,

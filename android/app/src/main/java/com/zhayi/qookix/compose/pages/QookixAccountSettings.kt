@@ -87,7 +87,8 @@ internal fun QookixAccountSettings(account: QookixAccount, favorites: ContentFav
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().padding(QkSpacing.md)) {
-        val wide = maxWidth >= 700.dp
+        val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val wide = maxWidth >= 700.dp || (landscape && maxWidth >= 450.dp)
         val identity: @Composable () -> Unit = {
             QookixIdentity(
                 profile,
@@ -104,15 +105,17 @@ internal fun QookixAccountSettings(account: QookixAccount, favorites: ContentFav
                         stringResource(R.string.qookix_tab_sync),
                     )
                     val selectedTab = tab.coerceIn(0, labels.lastIndex)
+                    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = selectedTab) { labels.size }
                     val selectTab: (Int) -> Unit = { actions.message = null; tab = it }
                     QkTabRow(
                         labels = labels,
                         selectedIndex = selectedTab,
                         onSelect = selectTab,
                         minTabWidth = 64,
+                        pagerState = pager,
                     )
                     if (actions.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    QkTabContent(labels.indices.toList(), selectedTab, selectTab, Modifier.weight(1f)) { page ->
+                    QkTabContent(labels.indices.toList(), selectedTab, selectTab, Modifier.weight(1f), pagerState = pager) { page ->
                         Column(
                             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(QkSpacing.md),
                             verticalArrangement = Arrangement.spacedBy(QkSpacing.sm),

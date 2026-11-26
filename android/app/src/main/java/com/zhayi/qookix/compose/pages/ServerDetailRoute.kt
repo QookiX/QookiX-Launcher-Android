@@ -8,6 +8,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.zhayi.qookix.R
@@ -51,33 +52,27 @@ fun ServerDetailRoute(
         onDispose { repo.shareAlive = false; bridge.unlisten(sub) }
     }
 
-    var serverName by remember(serverId) { mutableStateOf("") }
+    val scope = remember(bridgeReady, repo, serverId) { DetailRouteScope() }
+    DisposableEffect(scope) { onDispose { scope.active = false } }
+    var serverName by remember(scope) { mutableStateOf("") }
+    var serverConfigLoaded by remember(scope) { mutableStateOf(false) }
+    var renameDraft by rememberSaveable(serverId) { mutableStateOf<String?>(null) }
+    var renamePending by remember(scope) { mutableStateOf(false) }
+    var renameError by remember(scope) { mutableStateOf<String?>(null) }
 
-    /**
-     * 记下这台服务器的端口 / 内存。
-     *
-     * ⚠️ 这几项**不在详情页自己的命令里**（`hosted_server_*` 只给运行状态、
-     * 地址、核心是否装好），必须另走 `list_hosted_servers` 拿 ServerConfig。
-     *
-     * `port` 是 `/advertise?port=…` 的**必需参数**（缺陷 1）—— 拿不到就只能
-     * 用一个猜的端口，广播出去的端口和实际监听的对不上，朋友永远连不进来，
-     * 而且**完全没有报错**（Terracotta 那边只会说「没扫到」）。
-     */
-    LaunchedEffect(bridgeReady, serverId) {
+    LaunchedEffect(scope) {
         if (!bridgeReady) return@LaunchedEffect
-        api.listHostedServers { r ->
-            r.onSuccess { arr ->
-                for (i in 0 until arr.length()) {
-                    val o = arr.optJSONObject(i) ?: continue
-                    if (o.optString("id") != serverId) continue
-                    serverName = o.optString("name")
-                    state = state.copy(
-                        port = o.optInt("port", 25565),
-                        maxMemoryMb = o.optInt("max_memory_mb", 1024),
-                        minMemoryMb = o.optInt("min_memory_mb", 512),
-                    )
-                    break
-                }
+        // Read this server's persisted name, port (required by LAN sharing), and memory.
+        api.getHostedServer(serverId) { result ->
+            if (!scope.active) return@getHostedServer
+            result.onSuccess { config ->
+                serverName = config.optString("name")
+                state = state.copy(
+                    port = config.optInt("port", 25565),
+                    maxMemoryMb = config.optInt("max_memory_mb", 1024),
+                    minMemoryMb = config.optInt("min_memory_mb", 512),
+                )
+                serverConfigLoaded = true
             }
         }
         // 服务器内存建议（2026-10-21 补：suggestServerMemory 一直没 UI）
@@ -91,8 +86,6 @@ fun ServerDetailRoute(
         }
     }
 
-    val scope = remember(bridgeReady, repo, serverId) { DetailRouteScope() }
-    DisposableEffect(scope) { onDispose { scope.active = false } }
     val runtime = remember(scope) {
         DetailRead<ServerDetailRuntime> { complete ->
             val revision = scope.lifecycleRevision
@@ -334,6 +327,7 @@ fun ServerDetailRoute(
                 onStart = startAction,
                 onStop = stopAction,
                 onInstallCore = installCoreAction,
+                onCopyAddress = onCopyText,
             )
         }
     }
@@ -358,8 +352,54 @@ fun ServerDetailRoute(
         }
     }
 
+    fun saveServerName() {
+        val requestedName = renameDraft?.trim().orEmpty()
+        if (!serverConfigLoaded || renamePending || requestedName.isBlank() || requestedName == serverName) return
+        renamePending = true
+        renameError = null
+        api.updateHostedServer(org.json.JSONObject().put("id", serverId).put("name", requestedName)) { result ->
+            result.onSuccess { config ->
+                val savedName = config.optString("name", requestedName)
+                if (TunnelSharing.ownerServerId == serverId) TunnelSharing.ownerServerName = savedName
+                if (scope.active) {
+                    serverName = savedName
+                    renameDraft = null
+                    state = state.copy(notice = ctx.getString(R.string.server_detail_name_saved))
+                }
+            }.onFailure {
+                if (scope.active) {
+                    renameError = ctx.getString(R.string.server_detail_rename_failed, friendlyError(ctx, it))
+                }
+            }
+            if (scope.active) renamePending = false
+        }
+    }
+
+    renameDraft?.let { draft ->
+        ServerRenameDialog(
+            draft = draft,
+            pending = renamePending,
+            error = renameError,
+            canSave = serverConfigLoaded && draft.isNotBlank() && draft.trim() != serverName,
+            onChange = {
+                renameDraft = it
+                renameError = null
+            },
+            onSave = ::saveServerName,
+            onDismiss = {
+                if (!renamePending) renameDraft = null
+            },
+        )
+    }
+
     ServerDetailPage(
         state = state.copy(name = serverName.ifBlank { ctx.getString(R.string.server_detail_untitled) }),
+        onRename = if (serverConfigLoaded) {
+            {
+                renameDraft = serverName
+                renameError = null
+            }
+        } else null,
         onTabChange = { state = state.copy(tab = it) },
         onBack = onBack,
         onStart = startAction,

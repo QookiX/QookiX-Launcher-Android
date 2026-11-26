@@ -7,6 +7,7 @@ import com.zhayi.qookix.compose.motion.pressScale
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
@@ -72,7 +73,10 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import com.zhayi.qookix.compose.UiPrefs
+import java.io.File
 
 /**
  * 启动器主壳（Material 3）—— 完全重做，不参照旧 Vue 界面。
@@ -141,6 +145,7 @@ fun LauncherShell(
      * 横屏 384dp 高度里白吃掉约 60dp。放进标题行后这部分完全省下来。
      */
     titleContent: (@Composable () -> Unit)? = null,
+    backgroundImage: String = "",
     content: @Composable () -> Unit,
 ) {
     val size = rememberWindowSize()
@@ -290,14 +295,7 @@ fun LauncherShell(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 containerColor = MaterialTheme.colorScheme.background,
             ) { inner ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(inner),
-                ) {
-                    content()
-                    QkGlobalFeedbackHost(Modifier.align(Alignment.TopEnd))
-                }
+                LauncherContent(inner, backgroundImage, content)
             }
         }
         }
@@ -335,15 +333,31 @@ fun LauncherShell(
                 }
             },
         ) { inner ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(inner),
-            ) {
-                    content()
-                    QkGlobalFeedbackHost(Modifier.align(Alignment.TopEnd))
-                }
+            LauncherContent(inner, backgroundImage, content)
         }
+    }
+}
+
+@Composable
+private fun LauncherContent(
+    inner: PaddingValues,
+    backgroundImage: String,
+    content: @Composable () -> Unit,
+) {
+    Box(Modifier.fillMaxSize().padding(inner)) {
+        if (backgroundImage.isNotBlank()) {
+            // Let the theme background show through so unboxed text remains readable.
+            // A missing or unreadable file simply leaves the original scaffold color.
+            AsyncImage(
+                model = remember(backgroundImage) { File(backgroundImage) },
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop,
+                alpha = 0.30f,
+            )
+        }
+        content()
+        QkGlobalFeedbackHost(Modifier.align(Alignment.TopEnd))
     }
 }
 

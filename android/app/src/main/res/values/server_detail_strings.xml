@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="server_detail_rename">重命名服务器</string>
+    <string name="server_detail_rename_failed">重命名服务器失败：%1$s</string>
+    <string name="server_detail_name_saved">服务器名称已更新</string>
+    <string name="server_detail_name_saving">正在保存名称…</string>
+</resources>

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
@@ -66,7 +67,10 @@ import com.zhayi.qookix.compose.theme.QkSpacing
 @Composable
 internal fun ProfileIdentityCard(
     current: AccountUi?,
-    accounts: List<AccountUi> = emptyList(),
+    accounts: List<AccountUi>,
+    loading: Boolean,
+    loadFailure: String?,
+    onRetry: () -> Unit,
     onSelectAccount: (String) -> Unit = {},
     onAddAccount: () -> Unit = {},
 ) {
@@ -81,6 +85,25 @@ internal fun ProfileIdentityCard(
             modifier = Modifier.padding(QkSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (loading || loadFailure != null) {
+                // 保持身份卡的高度；只有成功读取空列表后才显示「还没有账号」。
+                Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                    if (loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                }
+                if (loadFailure != null) {
+                    Text(
+                        text = loadFailure,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
+                }
+                return@Row
+            }
+
             // 头像：取名字首字母（离线/正版都这么画，正式头像等正版皮肤接口接入后再换）
             Box(
                 modifier = Modifier

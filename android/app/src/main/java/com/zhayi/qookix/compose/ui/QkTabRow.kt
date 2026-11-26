@@ -106,7 +106,8 @@ fun QkTabRow(
         } else {
             Box {
                 ScrollableTabRow(
-                    selectedTabIndex = selectedIndex,
+                    // Keep the dragged-to tab in view even before the page settles.
+                    selectedTabIndex = (pagerState?.currentPage ?: selectedIndex).coerceIn(labels.indices),
                     edgePadding = 8.dp,
                     containerColor = container,
                     indicator = { tabPositions -> QkTabIndicator(tabPositions, selectedIndex, pagerState) },

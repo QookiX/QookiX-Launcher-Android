@@ -183,6 +183,11 @@ import com.zhayi.qookix.compose.pages.settings.SettingsUiState
 import com.zhayi.qookix.compose.pages.settings.StoragePane
 import com.zhayi.qookix.compose.shell.NavDestination
 
+private data class ProfileAccounts(
+    val accounts: List<AccountUi>,
+    val currentUuid: String,
+)
+
 /**
  * 账号页 / 首页 / 插件页。
  *
@@ -214,20 +219,23 @@ internal fun AccountRoute(
     val context = androidx.compose.ui.platform.LocalContext.current
     val api = remember(bridge) { QookixApi(bridge) }
 
-    var accounts by remember { mutableStateOf<List<AccountUi>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    var profileAccounts by remember(bridge) { mutableStateOf<ProfileAccounts?>(null) }
+    var loadFailure by remember(bridge) { mutableStateOf<String?>(null) }
+    var reloadGeneration by remember(bridge) { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var msFlow by remember { mutableStateOf<MsLoginFlow?>(null) }
-    var currentUuid by remember { mutableStateOf("") }
 
     /** 身份卡上「添加账号」按钮的请求计数（AccountPanel 靠它弹对话框）。 */
     var addAccountRequest by remember { mutableStateOf(0) }
 
     fun reload() {
+        val generation = ++reloadGeneration
+        loadFailure = null
         api.listAccounts { r ->
+            if (generation != reloadGeneration) return@listAccounts
             r.fold(
                 onSuccess = { arr ->
-                    accounts = (0 until arr.length()).mapNotNull { i ->
+                    val loadedAccounts = (0 until arr.length()).mapNotNull { i ->
                         val o = arr.optJSONObject(i) ?: return@mapNotNull null
                         val uuid = o.optString("uuid")
                         if (uuid.isBlank()) return@mapNotNull null
@@ -240,26 +248,38 @@ internal fun AccountRoute(
                                 o.optBoolean("online", false),
                         )
                     }
-                    // 高亮要跟后端真正启动用的账号一致（selected_account / selectedAccount 都认）。
-                    if (currentUuid.isBlank()) {
-                        currentUuid = accounts.firstOrNull()?.uuid ?: ""
-                        api.getSettings { sr ->
-                            val sel = sr.getOrNull()?.let { s ->
-                                s.optString("selected_account")
-                                    .ifBlank { s.optString("selectedAccount") }
-                            }.orEmpty()
-                            if (sel.isNotBlank() && accounts.any { it.uuid == sel }) {
-                                currentUuid = sel
-                            }
+                    if (loadedAccounts.isEmpty()) {
+                        profileAccounts = ProfileAccounts(emptyList(), "")
+                    } else {
+                        // 启动用的账号和列表一起提交，避免先显示第一个再跳到已选账号。
+                        api.getSettings settings@{ sr ->
+                            if (generation != reloadGeneration) return@settings
+                            val selected = sr.getOrNull()?.let { s ->
+                                s.optString("selected_account").takeUnless { s.isNull("selected_account") }
+                                    .orEmpty().ifBlank { s.optString("selectedAccount") }
+                            } ?: profileAccounts?.currentUuid
+                            val current = loadedAccounts.firstOrNull { it.uuid == selected }
+                                ?: loadedAccounts.first()
+                            profileAccounts = ProfileAccounts(loadedAccounts, current.uuid)
                         }
                     }
-                    loading = false
                 },
                 onFailure = {
-                    loading = false
-                    error = context.getString(R.string.account_read_failed, friendlyError(context, it))
+                    val message = context.getString(R.string.account_read_failed, friendlyError(context, it))
+                    if (profileAccounts == null) loadFailure = message else error = message
                 },
             )
+        }
+    }
+
+    fun selectAccount(uuid: String, refreshOnFailure: Boolean = false) {
+        // 启动读取后端的 selected_account，写入成功后再刷新档案和高亮。
+        api.selectAccount(uuid) { result ->
+            result.onSuccess { reload() }
+            result.onFailure { e ->
+                error = context.getString(R.string.account_switch_failed, e.message)
+                if (refreshOnFailure) reload()
+            }
         }
     }
 
@@ -292,25 +312,22 @@ internal fun AccountRoute(
         error = context.getString(R.string.login_timeout_detail)
     }
 
+    val snapshot = profileAccounts
+    val accounts = snapshot?.accounts.orEmpty()
+    val currentUuid = snapshot?.currentUuid.orEmpty()
+    val loading = snapshot == null && loadFailure == null
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        // ── 身份卡：头像 + 名字 + 账号类型 + 账号操作（展示块在 ProfilePage.kt）──
-        val current = accounts.firstOrNull { it.uuid == currentUuid }
         ProfileIdentityCard(
-            current = current,
+            current = accounts.firstOrNull { it.uuid == currentUuid },
             accounts = accounts,
-            // 切换账号必须写后端 settings.selected_account（见下面 onSelect 的说明）
-            onSelectAccount = { uuid ->
-                currentUuid = uuid
-                api.selectAccount(uuid) { r ->
-                    r.onFailure { e ->
-                        error = context.getString(R.string.account_switch_failed, e.message)
-                    }
-                }
-            },
+            loading = loading,
+            loadFailure = loadFailure,
+            onRetry = { reload() },
+            onSelectAccount = { selectAccount(it) },
             onAddAccount = { addAccountRequest += 1 },
         )
 
@@ -329,11 +346,7 @@ internal fun AccountRoute(
         currentUuid = currentUuid,
         skinLogin = { onDismiss ->
             SkinServerLoginDialog(api, onDismiss) { uuid ->
-                api.selectAccount(uuid) { result ->
-                    result.onSuccess { currentUuid = uuid }
-                    result.onFailure { error = friendlyError(context, it) }
-                    reload()
-                }
+                selectAccount(uuid, refreshOnFailure = true)
             }
         },
         onAddOffline = { name ->
@@ -377,17 +390,7 @@ internal fun AccountRoute(
         onOpenVerification = { url ->
             if (url.isNotBlank()) activity?.openExternalUrl(url)
         },
-        // ⚠️ 切换账号必须**写后端 settings.selected_account**，不能只改本地状态。
-        // 否则：高亮条动了、看起来切成功，但 launch_game 用的还是旧账号
-        //（Rust `resolve_launch_account` 按 settings 里的 selected_account 选人）。
-        onSelect = { uuid ->
-            currentUuid = uuid
-            api.selectAccount(uuid) { r ->
-                r.onFailure { e ->
-                    error = context.getString(R.string.account_switch_failed, e.message)
-                }
-            }
-        },
+        onSelect = { selectAccount(it) },
         onRemove = { uuid ->
             api.logoutAccount(uuid) { r ->
                 r.fold(

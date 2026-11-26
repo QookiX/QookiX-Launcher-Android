@@ -1,7 +1,7 @@
 name: Release
 
-# 只在推送 v* 标签时触发：先跑闸门（单测 + 文件体量），再构建 arm64 / x86_64
-# release APK 并发布 GitHub Release。
+# 推送 v* 标签时：先跑闸门（单测 + 文件体量），再构建并校验 arm64 / x86_64
+# release APK，最后发布 GitHub Release。手动触发只做验证构建，不发布。
 # 签名密钥经仓库 Secrets 注入（不出现任何密钥明文）：
 #   QOOKIX_KEYSTORE_BASE64    keystore 文件的 Base64
 #   QOOKIX_KEYSTORE_PASSWORD  keystore 密码
@@ -69,7 +69,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Node 只用于第 ⑦ 步生成发布说明（scripts/generate-release-notes.mjs）。
+      # Node 用于 APK 版本校验和生成发布说明。
       # 前端资源构建已随 WebView 一起移除，不再需要 npm install。
       - name: 安装 Node 20
         uses: actions/setup-node@v4
@@ -270,10 +270,20 @@ jobs:
           (cd dist && sha256sum *.apk > SHA256SUMS.txt)
           ls -lh dist
 
+      # 验证将要上传的 APK，而不是文件名或 Gradle 配置。
+      - name: 校验发布 APK 版本
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        run: |
+          node scripts/verify-release-apks.mjs "$GITHUB_REF_NAME" \
+            "$ANDROID_HOME/build-tools/36.0.0/aapt" \
+            "dist/QookiX-Launcher-Android-${GITHUB_REF_NAME}-arm64.apk" \
+            "dist/QookiX-Launcher-Android-${GITHUB_REF_NAME}-x86_64.apk"
+
       # ⑤ 发布说明：优先用 .github/release-notes/<tag>.md 完全自定义；
       #    没有则用 DEFAULT.md 模板（自动替换 {{VERSION}} / {{DATE}} / {{CHANGELOG}}）。
       #    想给某个版本写说明，就新增一个同名 md，无需改 workflow。
       - name: 准备发布说明
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         run: |
           TAG="${GITHUB_REF_NAME}"
           NOTES=".github/release-notes/${TAG}.md"
@@ -292,6 +302,7 @@ jobs:
       # tag 带 `-`（v0.2.1-beta1 / -rc1 …）一律标记成 **Pre-release**：
       # 预览版不能被当成正式版推给用户，GitHub 上也要一眼能看出来。
       - name: 发布 Release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           body_path: /tmp/release-body.md

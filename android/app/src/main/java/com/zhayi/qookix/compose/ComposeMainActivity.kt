@@ -1380,6 +1380,7 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
     // 变成"必须进过设置页主题才生效"。
     var themeMode by remember { mutableStateOf("system") }
     var themeColor by remember { mutableStateOf("") }
+    var backgroundImage by remember { mutableStateOf("") }
     // ⚠️ 界面缩放同样"存了但没用"（2026-10-15 一起修）：
     // 原来 `uiScale` 只在设置页显示数字，没有任何地方把它变成实际尺寸。
     var uiScale by remember { mutableStateOf(100) }
@@ -1405,6 +1406,11 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                                 // 两个都试，避免以后被命名坑。
                                 themeColor = o.optString("theme_color", "")
                                     .ifBlank { o.optString("themeColor", "") }
+                                backgroundImage = if (o.has("background_image")) {
+                                    o.optText("background_image").orEmpty()
+                                } else {
+                                    o.optText("backgroundImage").orEmpty()
+                                }
                                 uiScale = o.optString("ui_scale", "")
                                     .ifBlank { o.optString("uiScale", "") }
                                     .toIntOrNull() ?: 100
@@ -1594,6 +1600,7 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                 title = titleOverride,
                 titleContent = toolbarContent,
                 sidebarWidthDp = sidebarWidth,
+                backgroundImage = backgroundImage,
                 onBack = ({
                     when {
                         innerBack?.invoke() == true -> {}
@@ -1620,6 +1627,7 @@ private fun LauncherRoot(bridge: RustBridge, activity: ComposeMainActivity) {
                     onTitleChange = { titleOverride = it },
                     onBackHandlerChanged = { innerBack = it },
                     onSidebarWidthChanged = { sidebarWidth = it },
+                    onBackgroundImageChanged = { backgroundImage = it },
                     onRegisterToolbar = { toolbarContent = it },
                     selectedServerId = selectedServerId,
                     onSelectedServerIdChange = { selectedServerId = it },

@@ -224,6 +224,7 @@ fun PageHost(
      * 再加一个要把 6 处调用点全改一遍，容易漏、也容易错位。
      */
     onSidebarWidthChanged: (Int) -> Unit = {},
+    onBackgroundImageChanged: (String) -> Unit = {},
     /**
      * 3D 预览渲染方式（compose=省电 / webview=流畅）。
      * 由根节点从 `get_settings` 读出并一路传下来 —— 皮肤页要靠它决定
@@ -822,7 +823,8 @@ fun PageHost(
             openUrl = activity?.let { a -> { url: String -> a.openExternalUrl(url) } },
             activity = activity,
             onAppearanceChanged = onAppearanceChanged,
-        onSidebarWidthChanged = onSidebarWidthChanged,
+            onSidebarWidthChanged = onSidebarWidthChanged,
+            onBackgroundImageChanged = onBackgroundImageChanged,
             updateState = appUpdateState,
             onUpdateStateChange = { appUpdateState = it },
         )

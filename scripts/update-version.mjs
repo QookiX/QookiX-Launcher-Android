@@ -39,6 +39,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { ANDROID_VERSION_NAME, CHANNEL_MAX, androidVersionCode } from "./android-version.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
@@ -63,10 +64,6 @@ const root = join(__dirname, "..");
  * 装过那几个包的人需要卸载重装（或 `adb install -r -d`）——
  * 那四个包已删除，只影响我们自己两台测试机。
  */
-const CHANNEL_BASE = { alpha: 1, beta: 20, rc: 70 };
-const CHANNEL_MAX = { alpha: 19, beta: 50, rc: 29 };
-const RELEASE_PRE = 99;
-
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry");
 /**
@@ -87,7 +84,7 @@ if (!arg) {
 }
 
 const newVersion = arg.replace(/^v/, "");
-const m = /^(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.?(\d+))?$/.exec(newVersion);
+const m = ANDROID_VERSION_NAME.exec(newVersion);
 if (!m) {
   console.error(`版本号格式不对：${newVersion}（要 X.Y.Z 或 X.Y.Z-rc1 / -beta1 / -alpha1）`);
   process.exit(1);
@@ -111,8 +108,7 @@ if (channel && (pre < 1 || pre > CHANNEL_MAX[channel])) {
   process.exit(1);
 }
 
-const preCode = channel ? CHANNEL_BASE[channel] + (pre - 1) : RELEASE_PRE;
-const versionCode = major * 1_000_000 + minor * 10_000 + patchNo * 100 + preCode;
+const versionCode = androidVersionCode(major, minor, patchNo, channel, pre);
 
 // ---- 单调性断言：读当前 versionCode ----
 const gradlePath = join(root, "android/app/build.gradle.kts");

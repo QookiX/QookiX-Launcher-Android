@@ -157,6 +157,7 @@ fun SettingsPage(
     // 兼得：极窄屏（竖屏 + 大缩放）本来就是横向 tab，现在两种屏幕**统一**，
     // 少一套分支、少一处只在特定设备上才暴露的 bug。
     // ══════════════════════════════════════════════════════════════════
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = current.ordinal) { SettingsTab.entries.size }
     Column(modifier = Modifier.fillMaxSize()) {
         // 统一 tab 组件（2026-10-17）：见 ui/QkTabRow.kt 的注释。
         // 8 个 tab 在竖屏放不下 → 自动横滚；横屏够宽 → 等分填满。
@@ -166,6 +167,7 @@ fun SettingsPage(
             labels = SettingsTab.entries.map { context.getString(it.labelRes) },
             selectedIndex = SettingsTab.entries.indexOf(current),
             onSelect = { onTabChange(SettingsTab.entries[it]) },
+            pagerState = pager,
         )
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -176,6 +178,8 @@ fun SettingsPage(
                 selected = current,
                 onSelect = onTabChange,
                 modifier = Modifier.fillMaxSize(),
+                pagerState = pager,
+                skipInterveningPages = true,
             ) { tab ->
                 content(tab)
             }
